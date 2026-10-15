@@ -2,10 +2,21 @@
 
 ## 1. Prerequisites (Windows host)
 
-- **.NET 10 SDK** (to build): https://dotnet.microsoft.com/download/dotnet/10.0
-- **PowerShell 7** (`pwsh`) for the scripts.
+One script installs everything (skipping anything already present). In an elevated **Windows PowerShell** window,
+from the repo folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-prereqs.ps1
+```
+
+It installs the .NET 10 SDK and PowerShell 7, plus the auto-deploy tools (Git, Node.js LTS, NSSM, gitea-runner).
+Add `-SkipRunner` to install only the first two. Then open a **new** elevated PowerShell 7 (`pwsh`) window for the
+remaining steps, so the PATH changes apply.
+
 - The repo can live in Dropbox. The live data cannot: it goes to `C:\ProgramData\EtsyShopManager`, and the app
   refuses to start if `Storage:DataRoot` points into Dropbox or OneDrive.
+- Run the scripts from a local path on the host, not a mapped drive or `\\server\share` path: elevated sessions
+  don't see mapped drives, and PowerShell may block scripts on network paths.
 
 ## 2. First build
 

@@ -5,7 +5,7 @@ self-hosted Gitea Actions runner installed **on that host**. The runner only mak
 so no inbound port is opened.
 
 ```
-merge PR → master ──► Gitea ──(runner polls)──► act_runner on the Windows host
+merge PR → master ──► Gitea ──(runner polls)──► gitea-runner on the Windows host
                                                   build + test + check migrations
                                                   publish win-x64
                                                   scripts/deploy.ps1:
@@ -30,9 +30,14 @@ Workflow: `.gitea/workflows/deploy.yml`. It can also be started by hand (Actions
 ## One-time setup on the Windows host
 
 ### 1. Prerequisites
-- .NET 10 SDK, Git, PowerShell 7 (`pwsh`)
-- **Node.js LTS**, needed by `actions/checkout` (Gitea downloads that action from GitHub by default)
-- The service already installed once with `scripts/install-service.ps1` (elevated). The pipeline only upgrades it.
+From the repo folder, in an elevated **Windows PowerShell** window:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-prereqs.ps1
+```
+It installs (or skips, if present) the .NET 10 SDK, PowerShell 7, Git, Node.js LTS (used by `actions/checkout`),
+NSSM, and `gitea-runner` into `C:\gitea-runner` with a `config.yaml` set to one job at a time.
+
+The service must already be installed once with `scripts/install-service.ps1` (elevated). The pipeline only upgrades it.
 
 ### 2. Create the runner account (not an admin)
 Elevated PowerShell:
@@ -50,35 +55,34 @@ pwsh -File scripts/grant-deploy-rights.ps1 -Account "$env:COMPUTERNAME\gitea-run
 This adds start/stop/query on the `EtsyShopManager` service only, plus Modify on
 `C:\Program Files\EtsyShopManager` and `C:\ProgramData\EtsyShopManager`.
 
-### 4. Install and register act_runner
-1. Download the Windows amd64 `act_runner` binary from https://gitea.com/gitea/act_runner/releases into
-   `C:\act_runner\act_runner.exe`, then give the runner account Modify on that folder:
-   `icacls C:\act_runner /grant "$env:COMPUTERNAME\gitea-runner:(OI)(CI)M"`
+### 4. Register gitea-runner
+`gitea-runner` (formerly `act_runner`) and its `config.yaml` are already in `C:\gitea-runner` from step 1.
+
+1. Give the runner account Modify on that folder:
+   `icacls C:\gitea-runner /grant "$env:COMPUTERNAME\gitea-runner:(OI)(CI)M"`
 2. Get a registration token: repo → **Settings → Actions → Runners → Create new runner**
    (`https://gitea.example.lan/TopHATTwaffle/etsy-shop-manager/settings/actions/runners`).
    A repo-level runner only picks up jobs from this repo.
-3. Generate the config and register:
+3. Register:
    ```powershell
-   cd C:\act_runner
-   .\act_runner.exe generate-config > config.yaml
-   # In config.yaml: runner.capacity: 1   (one deploy at a time)
-   .\act_runner.exe register --no-interactive --config config.yaml `
+   cd C:\gitea-runner
+   .\gitea-runner.exe -c config.yaml register --no-interactive `
        --instance https://git.example.lan --token <registration token> `
        --name esm-host --labels esm-deploy:host
    ```
    The `esm-deploy` label is what the workflow's `runs-on` targets; `:host` runs jobs directly on Windows
    (no Docker).
 
-### 5. Run act_runner as a service under the runner account
-act_runner has no built-in Windows service installer; [NSSM](https://nssm.cc/) is the usual wrapper:
+### 5. Run gitea-runner as a service under the runner account
+The runner has no built-in Windows service installer; NSSM (installed in step 1) wraps it:
 ```powershell
-nssm install act_runner C:\act_runner\act_runner.exe daemon --config C:\act_runner\config.yaml
-nssm set act_runner AppDirectory C:\act_runner
-nssm set act_runner ObjectName "$env:COMPUTERNAME\gitea-runner" "<password>"
-nssm set act_runner Start SERVICE_DELAYED_AUTO_START
-nssm start act_runner
+nssm install gitea-runner C:\gitea-runner\gitea-runner.exe -c C:\gitea-runner\config.yaml daemon
+nssm set gitea-runner AppDirectory C:\gitea-runner
+nssm set gitea-runner ObjectName "$env:COMPUTERNAME\gitea-runner" "<password>"
+nssm set gitea-runner Start SERVICE_DELAYED_AUTO_START
+nssm start gitea-runner
 ```
-If it fails to start with a logon error, give `gitea-runner` the **Log on as a service** right
+If it fails to start with a logon error, give the `gitea-runner` account the **Log on as a service** right
 (`secpol.msc` → Local Policies → User Rights Assignment) and start it again.
 
 The runner should now show as online under the repo's **Settings → Actions → Runners**.

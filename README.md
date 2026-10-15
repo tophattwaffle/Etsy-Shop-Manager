@@ -9,6 +9,7 @@ device on the LAN or over VPN, behind HAProxy. This app is the system of record 
 ## Quick start (Windows)
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-prereqs.ps1  # elevated: .NET 10 SDK, PowerShell 7, deploy tools
 pwsh scripts/build.ps1                                          # restore, build, check migrations, test
 pwsh -File scripts/install-service.ps1 -HaproxyIp 192.168.1.10  # elevated: install/upgrade the service
 ```
@@ -38,7 +39,7 @@ src/
   EtsyShopManager.Etsy/   OAuth/PKCE, token service, rate limiter, retry, API client
   EtsyShopManager.Data/   EF Core DbContext (SQLite), Identity stores, migrations
 tests/EtsyShopManager.Tests/
-scripts/                  build, add-migration, install-service, deploy, grant-deploy-rights, uninstall-service
+scripts/                  install-prereqs, build, add-migration, install-service, deploy, grant-deploy-rights, uninstall-service
 .gitea/workflows/         deploy on push to master (self-hosted runner on the Windows host)
 docs/                     PLAN.md, SETUP.md, DEPLOY.md
 homeassistant/            (Phase 2) HA integration and the existing card

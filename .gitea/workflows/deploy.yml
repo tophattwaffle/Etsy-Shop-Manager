@@ -1,5 +1,5 @@
 # Builds, tests and deploys every push to master (i.e. every merged PR) to the Windows host.
-# Runs on the self-hosted act_runner registered on that host with the label "esm-deploy" (host mode).
+# Runs on the self-hosted gitea-runner registered on that host with the label "esm-deploy" (host mode).
 # Setup: docs/DEPLOY.md
 name: Deploy
 

@@ -164,5 +164,5 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 ## Deployment
 - Source: private Gitea repo `github.com/TopHATTwaffle/etsy-shop-manager`, default branch `master`.
 - Claude pushes to branches and opens PRs; `master` is protected so only TopHATTwaffle merges.
-- Every push to `master` deploys automatically: Gitea Actions on a self-hosted `act_runner` on the Windows host (label `esm-deploy`, host mode) builds, tests, publishes, backs up the DB, upgrades the service, checks `/health`, and rolls back on failure. Setup: `docs/DEPLOY.md`.
+- Every push to `master` deploys automatically: Gitea Actions on a self-hosted `gitea-runner` on the Windows host (label `esm-deploy`, host mode) builds, tests, publishes, backs up the DB, upgrades the service, checks `/health`, and rolls back on failure. Setup: `docs/DEPLOY.md`.
 - The runner account is not an admin: it can only control the EtsyShopManager service and write its install and data folders.
