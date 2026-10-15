@@ -9,11 +9,12 @@ device on the LAN or over VPN, behind HAProxy. This app is the system of record 
 ## Quick start (Windows)
 
 ```powershell
-pwsh scripts/build.ps1                                          # restore, create initial migration, build, test
+pwsh scripts/build.ps1                                          # restore, build, check migrations, test
 pwsh -File scripts/install-service.ps1 -HaproxyIp 192.168.1.10  # elevated: install/upgrade the service
 ```
 
 Then open your HAProxy hostname and follow the first-run wizard. Details: [docs/SETUP.md](docs/SETUP.md).
+After that, merges to `master` deploy automatically: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## What's in Phase 0
 
@@ -37,8 +38,9 @@ src/
   EtsyShopManager.Etsy/   OAuth/PKCE, token service, rate limiter, retry, API client
   EtsyShopManager.Data/   EF Core DbContext (SQLite), Identity stores, migrations
 tests/EtsyShopManager.Tests/
-scripts/                  build, add-migration, install-service, uninstall-service
-docs/                     PLAN.md, SETUP.md
+scripts/                  build, add-migration, install-service, deploy, grant-deploy-rights, uninstall-service
+.gitea/workflows/         deploy on push to master (self-hosted runner on the Windows host)
+docs/                     PLAN.md, SETUP.md, DEPLOY.md
 homeassistant/            (Phase 2) HA integration and the existing card
 ```
 

@@ -31,9 +31,8 @@ public static class DataServiceCollectionExtensions
         if (!db.Database.GetMigrations().Any())
         {
             throw new InvalidOperationException(
-                "No EF Core migrations were found in EtsyShopManager.Data. Run scripts\\build.ps1 once " +
-                "(it creates the InitialCreate migration), or: dotnet ef migrations add InitialCreate " +
-                "-p src/EtsyShopManager.Data -s src/EtsyShopManager.Web -o Migrations");
+                "No EF Core migrations were found in EtsyShopManager.Data. The build is incomplete; " +
+                "migrations are committed under src/EtsyShopManager.Data/Migrations.");
         }
 
         var pending = (await db.Database.GetPendingMigrationsAsync(ct)).ToList();

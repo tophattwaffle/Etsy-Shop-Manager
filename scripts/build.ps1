@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-  Restores, (first time only) creates the initial EF Core migration, builds and tests the solution.
+  Restores, builds, checks that EF Core migrations match the model, and runs the tests.
 
 .EXAMPLE
   pwsh scripts/build.ps1
@@ -26,16 +26,13 @@ try {
     dotnet restore EtsyShopManager.slnx
     if ($LASTEXITCODE) { throw 'dotnet restore failed' }
 
-    $migrations = Join-Path $root 'src/EtsyShopManager.Data/Migrations'
-    if (-not (Get-ChildItem $migrations -Filter '*.cs' -ErrorAction SilentlyContinue)) {
-        Write-Host 'No migrations yet - creating InitialCreate...' -ForegroundColor Cyan
-        dotnet ef migrations add InitialCreate -p src/EtsyShopManager.Data -s src/EtsyShopManager.Web -o Migrations
-        if ($LASTEXITCODE) { throw 'Creating the initial migration failed' }
-        Write-Host 'Commit src/EtsyShopManager.Data/Migrations to git.' -ForegroundColor Yellow
-    }
-
     dotnet build EtsyShopManager.slnx -c $Configuration --no-restore
     if ($LASTEXITCODE) { throw 'Build failed' }
+
+    # Migrations are committed with the code. A model change without a migration would deploy a schema mismatch.
+    dotnet ef migrations has-pending-model-changes -p src/EtsyShopManager.Data -s src/EtsyShopManager.Web `
+        --configuration $Configuration --no-build
+    if ($LASTEXITCODE) { throw 'The EF model changed without a migration. Run: pwsh scripts/add-migration.ps1 -Name <Change>' }
 
     if (-not $SkipTests) {
         dotnet test EtsyShopManager.slnx -c $Configuration --no-build

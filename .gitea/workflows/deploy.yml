@@ -1,0 +1,34 @@
+# Builds, tests and deploys every push to master (i.e. every merged PR) to the Windows host.
+# Runs on the self-hosted act_runner registered on that host with the label "esm-deploy" (host mode).
+# Setup: docs/DEPLOY.md
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: esm-deploy
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Build and test
+        run: ./scripts/build.ps1 -Configuration Release
+
+      - name: Publish
+        run: |
+          if (Test-Path artifacts/publish) { Remove-Item artifacts/publish -Recurse -Force }
+          dotnet publish src/EtsyShopManager.Web -c Release -r win-x64 --self-contained true -o artifacts/publish
+          if ($LASTEXITCODE) { throw 'dotnet publish failed' }
+
+      - name: Deploy
+        run: ./scripts/deploy.ps1 -PublishDir artifacts/publish -Version '${{ gitea.sha }}'
