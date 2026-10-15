@@ -1,0 +1,49 @@
+/* ---- Interactive pages (MudBlazor) ---- */
+.muted { color: var(--mud-palette-text-secondary, #666); }
+.small { font-size: 0.8rem; }
+.text-right { text-align: right; white-space: nowrap; }
+.shop-icon { width: 32px; height: 32px; border-radius: 4px; object-fit: cover; }
+.redirect-uri { padding: 2px 6px; border-radius: 4px; background: var(--mud-palette-background-gray, #f2f2f2); word-break: break-all; }
+.error-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mud-palette-error, #c62828); }
+
+#blazor-error-ui {
+    background: #fff3cd; color: #333; bottom: 0; box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none; left: 0; padding: 0.6rem 1.25rem 0.7rem; position: fixed; width: 100%; z-index: 2000;
+}
+#blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: 0.75rem; top: 0.5rem; }
+
+/* ---- Static SSR pages: sign-in, first-run setup, errors ---- */
+.account-shell {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: #eef1f3; padding: 16px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.account-card {
+    width: 100%; max-width: 440px; background: #fff; border-radius: 10px; padding: 28px 28px 24px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08); color: #222;
+}
+.account-brand { font-weight: 600; color: #D5641C; letter-spacing: .02em; margin-bottom: 12px; }
+.account-card h1 { font-size: 1.5rem; margin: 0 0 12px; }
+.account-card .field { display: flex; flex-direction: column; margin-bottom: 14px; }
+.account-card .field label { font-size: 0.9rem; margin-bottom: 4px; color: #444; }
+.account-card .field input[type=text], .account-card .field input[type=password], .account-card .field input:not([type]) {
+    padding: 9px 10px; border: 1px solid #c8cdd1; border-radius: 6px; font-size: 1rem;
+}
+.account-card .field input:focus { outline: 2px solid #D5641C33; border-color: #D5641C; }
+.account-card .field.checkbox { flex-direction: row; align-items: center; gap: 8px; }
+.account-card .field.checkbox label { margin: 0; }
+.account-card .validation-message { color: #c62828; font-size: 0.85rem; margin-top: 4px; }
+.account-card .btn {
+    display: inline-block; background: #D5641C; color: #fff; border: 0; border-radius: 6px;
+    padding: 10px 18px; font-size: 1rem; cursor: pointer; text-decoration: none;
+}
+.account-card .btn:hover { background: #b9530f; }
+.account-card .alert { border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; }
+.account-card .alert-error { background: #fdecea; color: #8a1c1c; }
+.account-card .alert ul { margin: 0; padding-left: 18px; }
+
+@media (prefers-color-scheme: dark) {
+    .account-shell { background: #15191c; }
+    .account-card { background: #22282c; color: #e6e6e6; }
+    .account-card .field label { color: #bbb; }
+    .account-card .field input { background: #15191c; color: #eee; border-color: #3a4248; }
+}

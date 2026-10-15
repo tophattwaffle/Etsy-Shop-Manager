@@ -1,0 +1,22 @@
+@page "/shops"
+@attribute [Authorize]
+
+<PageTitle>Shops · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Shops</MudText>
+
+@if (!string.IsNullOrEmpty(Connected))
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4">Connected <b>@Connected</b>.</MudAlert>
+}
+@if (!string.IsNullOrEmpty(EtsyError))
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@EtsyError</MudAlert>
+}
+
+<ShopsPanel ReturnUrl="/shops" />
+
+@code {
+    [SupplyParameterFromQuery] private string? Connected { get; set; }
+    [SupplyParameterFromQuery] private string? EtsyError { get; set; }
+}

@@ -1,0 +1,76 @@
+@page "/account/login"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@inject SignInManager<AppUser> SignInManager
+@inject UserManager<AppUser> UserManager
+@inject NavigationManager Nav
+@inject TimeProvider Time
+@inject ILogger<Login> Logger
+
+<PageTitle>Sign in · Etsy Shop Manager</PageTitle>
+
+<h1>Sign in</h1>
+
+@if (_error is not null)
+{
+    <div class="alert alert-error">@_error</div>
+}
+
+<EditForm Model="Input" method="post" OnValidSubmit="SignInAsync" FormName="login">
+    <DataAnnotationsValidator />
+    <div class="field">
+        <label for="username">User name</label>
+        <InputText id="username" @bind-Value="Input.UserName" autocomplete="username" autofocus />
+        <ValidationMessage For="() => Input.UserName" />
+    </div>
+    <div class="field">
+        <label for="password">Password</label>
+        <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password" />
+        <ValidationMessage For="() => Input.Password" />
+    </div>
+    <div class="field checkbox">
+        <InputCheckbox id="remember" @bind-Value="Input.RememberMe" />
+        <label for="remember">Keep me signed in</label>
+    </div>
+    <button type="submit" class="btn">Sign in</button>
+</EditForm>
+
+@code {
+    [SupplyParameterFromForm] private LoginInput Input { get; set; } = default!;
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private string? _error;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    private async Task SignInAsync()
+    {
+        var result = await SignInManager.PasswordSignInAsync(Input.UserName, Input.Password, Input.RememberMe, lockoutOnFailure: true);
+        if (result.Succeeded)
+        {
+            var user = await UserManager.FindByNameAsync(Input.UserName);
+            if (user is not null)
+            {
+                user.LastLoginAtUtc = Time.GetUtcNow().UtcDateTime;
+                await UserManager.UpdateAsync(user);
+            }
+            Logger.LogInformation("User {User} signed in", Input.UserName);
+            Nav.NavigateTo(UrlHelpers.SafeLocal(ReturnUrl), forceLoad: true);
+            return;
+        }
+
+        _error = result.IsLockedOut
+            ? "This account is locked after too many failed attempts. Try again in 15 minutes or ask an Admin."
+            : "Invalid user name or password.";
+    }
+
+    private sealed class LoginInput
+    {
+        [Required] public string UserName { get; set; } = "";
+        [Required, DataType(DataType.Password)] public string Password { get; set; } = "";
+        public bool RememberMe { get; set; } = true;
+    }
+}

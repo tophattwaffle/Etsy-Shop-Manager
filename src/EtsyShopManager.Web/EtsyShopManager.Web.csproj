@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>EtsyShopManager</AssemblyName>
+    <RootNamespace>EtsyShopManager.Web</RootNamespace>
+    <UserSecretsId>etsy-shop-manager-0b6f2c1e</UserSecretsId>
+    <!-- After NavigateTo during static SSR, code keeps running; pages always `return` after redirecting. -->
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MudBlazor" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EtsyShopManager.Core\EtsyShopManager.Core.csproj" />
+    <ProjectReference Include="..\EtsyShopManager.Data\EtsyShopManager.Data.csproj" />
+    <ProjectReference Include="..\EtsyShopManager.Etsy\EtsyShopManager.Etsy.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="EtsyShopManager.Tests" />
+  </ItemGroup>
+</Project>

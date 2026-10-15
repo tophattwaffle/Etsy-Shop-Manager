@@ -1,0 +1,266 @@
+@page "/admin/users"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject UserManager<AppUser> UserManager
+@inject IAuditLog Audit
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject TimeProvider Time
+
+<PageTitle>Users · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Users</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    <b>Admin</b>: everything, including users, settings and shop connections.
+    <b>Editor</b>: edit and push listings (from Phase 3). <b>Viewer</b>: read only.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Add user</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newUserName" Label="User name" Variant="Variant.Outlined" /></MudItem>
+        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newDisplayName" Label="Display name" Variant="Variant.Outlined" /></MudItem>
+        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newPassword" Label="Password (10+ chars)" InputType="InputType.Password" Variant="Variant.Outlined" /></MudItem>
+        <MudItem xs="12" md="2">
+            <MudSelect T="string" @bind-Value="_newRole" Label="Role" Variant="Variant.Outlined">
+                @foreach (var r in Roles.All)
+                {
+                    <MudSelectItem T="string" Value="@r">@r</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="1" Class="d-flex align-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="_busy">Add</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr><th>User</th><th>Role</th><th>Created</th><th>Last sign-in</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var u in _users)
+            {
+                <tr>
+                    <td><b>@u.UserName</b> <span class="muted">@u.DisplayName</span></td>
+                    <td style="min-width: 140px">
+                        <MudSelect T="string" Value="u.Role" ValueChanged="@((string v) => ChangeRoleAsync(u, v))" Dense="true"
+                                   Disabled="@(u.Id == _currentUserId)">
+                            @foreach (var r in Roles.All)
+                            {
+                                <MudSelectItem T="string" Value="@r">@r</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </td>
+                    <td>@Local(u.CreatedAtUtc)</td>
+                    <td>@Local(u.LastLoginAtUtc)</td>
+                    <td>
+                        @if (u.IsLockedOut)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning">Locked</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
+                        }
+                    </td>
+                    <td class="text-right">
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => OpenPasswordForm(u)">Set password</MudButton>
+                        @if (u.IsLockedOut)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => UnlockAsync(u)">Unlock</MudButton>
+                        }
+                        @if (u.Id != _currentUserId)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="() => DeleteAsync(u)">Delete</MudButton>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+</MudPaper>
+
+@if (_passwordUser is not null)
+{
+    <MudPaper Class="pa-4 mt-4" Elevation="2">
+        <MudText Typo="Typo.h6" GutterBottom="true">Set password for @_passwordUser.UserName</MudText>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudTextField T="string" @bind-Value="_resetPassword" Label="New password (10+ chars)" InputType="InputType.Password" Variant="Variant.Outlined" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SavePasswordAsync" Disabled="_busy">Save</MudButton>
+            <MudButton Variant="Variant.Text" OnClick="() => _passwordUser = null">Cancel</MudButton>
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private sealed record UserRow(string Id, string UserName, string? DisplayName, string Role, DateTime CreatedAtUtc,
+        DateTime? LastLoginAtUtc, bool IsLockedOut);
+
+    private List<UserRow> _users = [];
+    private string? _currentUserId;
+    private string? _currentUserName;
+    private bool _busy;
+
+    private string? _newUserName, _newDisplayName, _newPassword;
+    private string _newRole = Roles.Viewer;
+
+    private UserRow? _passwordUser;
+    private string? _resetPassword;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var principal = (await AuthState).User;
+        _currentUserId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        _currentUserName = principal.Identity?.Name;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var now = Time.GetUtcNow();
+        var users = await UserManager.Users.AsNoTracking().OrderBy(u => u.UserName).ToListAsync();
+        var rows = new List<UserRow>();
+        foreach (var u in users)
+        {
+            var roles = await UserManager.GetRolesAsync(u);
+            rows.Add(new UserRow(u.Id, u.UserName ?? "", u.DisplayName, roles.FirstOrDefault() ?? Roles.Viewer,
+                u.CreatedAtUtc, u.LastLoginAtUtc, u.LockoutEnd is { } end && end > now));
+        }
+        _users = rows;
+    }
+
+    private async Task CreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newUserName) || string.IsNullOrWhiteSpace(_newPassword))
+        {
+            Snackbar.Add("User name and password are required", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var user = new AppUser
+            {
+                UserName = _newUserName.Trim(),
+                DisplayName = string.IsNullOrWhiteSpace(_newDisplayName) ? null : _newDisplayName.Trim(),
+                CreatedAtUtc = Time.GetUtcNow().UtcDateTime,
+            };
+            var result = await UserManager.CreateAsync(user, _newPassword);
+            if (result.Succeeded) result = await UserManager.AddToRoleAsync(user, _newRole);
+            if (!result.Succeeded)
+            {
+                Snackbar.Add(string.Join(" ", result.Errors.Select(e => e.Description)), Severity.Error);
+                return;
+            }
+
+            await Audit.WriteAsync("user.created", "User", user.Id, $"{user.UserName} as {_newRole}", _currentUserName);
+            Snackbar.Add($"User {user.UserName} added", Severity.Success);
+            _newUserName = _newDisplayName = _newPassword = null;
+            _newRole = Roles.Viewer;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ChangeRoleAsync(UserRow row, string role)
+    {
+        if (row.Role == role) return;
+        if (row.Role == Roles.Admin && await IsLastAdminAsync())
+        {
+            Snackbar.Add("There must be at least one Admin.", Severity.Warning);
+            return;
+        }
+
+        var user = await UserManager.FindByIdAsync(row.Id);
+        if (user is null) return;
+        await UserManager.RemoveFromRolesAsync(user, await UserManager.GetRolesAsync(user));
+        await UserManager.AddToRoleAsync(user, role);
+        await UserManager.UpdateSecurityStampAsync(user); // existing sessions pick up the new role
+        await Audit.WriteAsync("user.role-changed", "User", user.Id, $"{user.UserName}: {row.Role} → {role}", _currentUserName);
+        Snackbar.Add($"{user.UserName} is now {role}", Severity.Success);
+        await LoadAsync();
+    }
+
+    private void OpenPasswordForm(UserRow row)
+    {
+        _passwordUser = row;
+        _resetPassword = null;
+    }
+
+    private async Task SavePasswordAsync()
+    {
+        if (_passwordUser is null || string.IsNullOrEmpty(_resetPassword)) return;
+        _busy = true;
+        try
+        {
+            var user = await UserManager.FindByIdAsync(_passwordUser.Id);
+            if (user is null) return;
+
+            var token = await UserManager.GeneratePasswordResetTokenAsync(user);
+            var result = await UserManager.ResetPasswordAsync(user, token, _resetPassword);
+            if (!result.Succeeded)
+            {
+                Snackbar.Add(string.Join(" ", result.Errors.Select(e => e.Description)), Severity.Error);
+                return;
+            }
+
+            await Audit.WriteAsync("user.password-set", "User", user.Id, user.UserName, _currentUserName);
+            Snackbar.Add($"Password updated for {user.UserName}", Severity.Success);
+            _passwordUser = null;
+            _resetPassword = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task UnlockAsync(UserRow row)
+    {
+        var user = await UserManager.FindByIdAsync(row.Id);
+        if (user is null) return;
+        await UserManager.SetLockoutEndDateAsync(user, null);
+        await UserManager.ResetAccessFailedCountAsync(user);
+        await Audit.WriteAsync("user.unlocked", "User", user.Id, user.UserName, _currentUserName);
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(UserRow row)
+    {
+        if (row.Role == Roles.Admin && await IsLastAdminAsync())
+        {
+            Snackbar.Add("There must be at least one Admin.", Severity.Warning);
+            return;
+        }
+
+        var confirmed = await Dialogs.ShowMessageBox("Delete user", $"Delete {row.UserName}? This cannot be undone.",
+            yesText: "Delete", cancelText: "Cancel");
+        if (confirmed != true) return;
+
+        var user = await UserManager.FindByIdAsync(row.Id);
+        if (user is null) return;
+        var result = await UserManager.DeleteAsync(user);
+        if (result.Succeeded)
+        {
+            await Audit.WriteAsync("user.deleted", "User", row.Id, row.UserName, _currentUserName);
+            Snackbar.Add($"{row.UserName} deleted", Severity.Info);
+        }
+        await LoadAsync();
+    }
+
+    private async Task<bool> IsLastAdminAsync() => (await UserManager.GetUsersInRoleAsync(Roles.Admin)).Count <= 1;
+
+    private static string Local(DateTime? utc) =>
+        utc is null ? "—" : utc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+}

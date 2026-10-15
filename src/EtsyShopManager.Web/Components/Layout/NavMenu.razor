@@ -1,0 +1,17 @@
+@inject ModuleRegistry Modules
+
+<AuthorizeView>
+    <Authorized>
+        <MudNavMenu Class="pt-2">
+            <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
+            @foreach (var item in Modules.NavItems)
+            {
+                if (item.Roles is null || item.Roles.Split(',').Any(r => context.User.IsInRole(r.Trim())))
+                {
+                    <MudNavLink Href="@item.Href" Icon="@item.Icon"
+                                Match="@(item.MatchAll ? NavLinkMatch.All : NavLinkMatch.Prefix)">@item.Title</MudNavLink>
+                }
+            }
+        </MudNavMenu>
+    </Authorized>
+</AuthorizeView>

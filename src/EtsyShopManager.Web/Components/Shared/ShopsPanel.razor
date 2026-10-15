@@ -1,0 +1,163 @@
+@using EtsyShopManager.Etsy
+@using EtsyShopManager.Web.Modules.Shops
+@inject ShopService Shops
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudText Typo="Typo.h6">Connected shops</MudText>
+        <AuthorizeView Roles="@Roles.Admin">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Connect">
+                Connect a shop
+            </MudButton>
+        </AuthorizeView>
+    </MudStack>
+
+    <MudText Typo="Typo.body2" Class="mb-3">
+        Each Etsy account owns one shop. Etsy connects whichever account is signed in on etsy.com in this browser,
+        so for the second shop sign in to that account first (or use the browser you keep it signed in on).
+    </MudText>
+
+    @if (_shops is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_shops.Count == 0)
+    {
+        <MudAlert Severity="Severity.Normal">No shops connected yet.</MudAlert>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <th>Shop</th>
+                    <th>Status</th>
+                    <th>Token expires</th>
+                    <th>Refresh token issued</th>
+                    <th>Details updated</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in _shops)
+                {
+                    <tr>
+                        <td>
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                @if (!string.IsNullOrEmpty(s.IconUrl))
+                                {
+                                    <img src="@s.IconUrl" alt="" class="shop-icon" />
+                                }
+                                <div>
+                                    <div><b>@s.Name</b></div>
+                                    <div class="muted small">Etsy shop @s.EtsyShopId @(s.CurrencyCode is null ? "" : $"· {s.CurrencyCode}")</div>
+                                </div>
+                            </MudStack>
+                        </td>
+                        <td>
+                            @if (!s.IsActive)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default">Disconnected</MudChip>
+                            }
+                            else if (s.NeedsReauth || !s.HasToken)
+                            {
+                                <MudTooltip Text="@(s.TokenError ?? "No token")">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error">Reconnect needed</MudChip>
+                                </MudTooltip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success">Connected</MudChip>
+                            }
+                        </td>
+                        <td>@Local(s.AccessTokenExpiresAtUtc)</td>
+                        <td>@Local(s.RefreshTokenIssuedAtUtc)</td>
+                        <td>@Local(s.LastSyncedAtUtc)</td>
+                        <td class="text-right">
+                            <AuthorizeView Roles="@Roles.Admin" Context="auth">
+                                @if (s.IsHealthy)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => TestAsync(s)" Disabled="_busy">Test</MudButton>
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => QueueRefreshAsync(s)" Disabled="_busy">Refresh</MudButton>
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="() => DisconnectAsync(s)" Disabled="_busy">Disconnect</MudButton>
+                                }
+                                else
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="Connect">Reconnect</MudButton>
+                                }
+                            </AuthorizeView>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    /// <summary>Where the OAuth callback returns to.</summary>
+    [Parameter] public string ReturnUrl { get; set; } = "/shops";
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<ShopSummary>? _shops;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    public async Task ReloadAsync()
+    {
+        _shops = await Shops.ListAsync();
+        StateHasChanged();
+    }
+
+    // A full page load is required: the OAuth start is a server endpoint that redirects to etsy.com.
+    private void Connect() =>
+        Nav.NavigateTo($"auth/etsy/connect?returnUrl={Uri.EscapeDataString(ReturnUrl)}", forceLoad: true);
+
+    private async Task TestAsync(ShopSummary s)
+    {
+        _busy = true;
+        try
+        {
+            var info = await Shops.TestConnectionAsync(s.Id);
+            Snackbar.Add($"{info.ShopName}: OK ({info.ListingActiveCount ?? 0} active listings)", Severity.Success);
+        }
+        catch (Exception ex) when (ex is EtsyApiException or EtsyReauthRequiredException or EtsyNotConfiguredException
+                                       or EtsyShopManager.Core.Jobs.RetryLaterException or HttpRequestException)
+        {
+            Snackbar.Add($"{s.Name}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task QueueRefreshAsync(ShopSummary s)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var id = await Shops.RequestRefreshAsync(s.Id, user);
+        Snackbar.Add(id is null ? "A refresh is already queued" : $"Refresh queued (job {id})", Severity.Info);
+    }
+
+    private async Task DisconnectAsync(ShopSummary s)
+    {
+        var confirmed = await Dialogs.ShowMessageBox(
+            "Disconnect shop",
+            $"Remove the Etsy tokens for {s.Name}? Local data is kept, and you can reconnect at any time.",
+            yesText: "Disconnect", cancelText: "Cancel");
+        if (confirmed != true) return;
+
+        var user = (await AuthState).User.Identity?.Name;
+        await Shops.DisconnectAsync(s.Id, user);
+        Snackbar.Add($"{s.Name} disconnected", Severity.Info);
+        await ReloadAsync();
+    }
+
+    private static string Local(DateTime? utc) =>
+        utc is null ? "—" : utc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+}

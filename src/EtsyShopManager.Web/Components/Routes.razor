@@ -1,0 +1,24 @@
+@inject ModuleRegistry Modules
+
+<Router AppAssembly="typeof(Program).Assembly"
+        AdditionalAssemblies="_additionalAssemblies"
+        NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <Authorizing>
+                <MudProgressLinear Indeterminate="true" />
+            </Authorizing>
+            <NotAuthorized>
+                <RedirectToLogin AccessDenied="@(context.User.Identity?.IsAuthenticated == true)" />
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>
+
+@code {
+    private System.Reflection.Assembly[] _additionalAssemblies = [];
+
+    protected override void OnInitialized() =>
+        _additionalAssemblies = [.. Modules.ComponentAssemblies.Where(a => a != typeof(Program).Assembly)];
+}

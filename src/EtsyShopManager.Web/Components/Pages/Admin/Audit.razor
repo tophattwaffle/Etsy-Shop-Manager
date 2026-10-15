@@ -1,0 +1,51 @@
+@page "/admin/audit"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Audit log · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Audit log</MudText>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr><th>When</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var e in _entries)
+            {
+                <tr>
+                    <td>@e.AtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>@e.UserName</td>
+                    <td><code>@e.Action</code></td>
+                    <td>@e.EntityType @e.EntityId</td>
+                    <td>@e.Details</td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (_entries.Count == _pageSize)
+    {
+        <MudButton Class="mt-2" Variant="Variant.Text" OnClick="MoreAsync">Load more</MudButton>
+    }
+</MudPaper>
+
+@code {
+    private List<AuditEntry> _entries = [];
+    private int _pageSize = 200;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _entries = await db.AuditEntries.AsNoTracking().OrderByDescending(e => e.Id).Take(_pageSize).ToListAsync();
+    }
+
+    private async Task MoreAsync()
+    {
+        _pageSize += 200;
+        await LoadAsync();
+    }
+}

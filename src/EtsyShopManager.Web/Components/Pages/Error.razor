@@ -1,0 +1,23 @@
+@page "/Error"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using System.Diagnostics
+
+<PageTitle>Error · Etsy Shop Manager</PageTitle>
+
+<h1>Something went wrong</h1>
+<p>The error was logged. Check the log files in the data folder (<code>logs\</code>) for details.</p>
+@if (!string.IsNullOrEmpty(_requestId))
+{
+    <p class="muted">Request ID: <code>@_requestId</code></p>
+}
+<p><a class="btn" href="/">Back to the dashboard</a></p>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+    private string? _requestId;
+
+    protected override void OnInitialized() =>
+        _requestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

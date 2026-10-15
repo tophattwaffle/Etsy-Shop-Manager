@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <ImportMap />
+    <HeadOutlet @rendermode="PageRenderMode" />
+</head>
+
+<body>
+    <Routes @rendermode="PageRenderMode" />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
+    <script src="@Assets["app.js"]"></script>
+</body>
+
+</html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    // Interactive Server everywhere except pages marked [ExcludeFromInteractiveRouting]
+    // (sign-in and first-run setup must run as static SSR to set the auth cookie).
+    // Prerendering is off so pages initialise once, after the circuit connects.
+    private static readonly IComponentRenderMode InteractiveNoPrerender = new InteractiveServerRenderMode(prerender: false);
+
+    private IComponentRenderMode? PageRenderMode =>
+        HttpContext.AcceptsInteractiveRouting() ? InteractiveNoPrerender : null;
+}

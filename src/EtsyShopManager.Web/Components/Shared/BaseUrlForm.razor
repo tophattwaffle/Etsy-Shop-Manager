@@ -1,0 +1,89 @@
+@inject ISettingsStore Settings
+@inject IAuditLog Audit
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Base URL</MudText>
+    <MudText Typo="Typo.body2" Class="mb-3">
+        The HTTPS address HAProxy serves for this app. The Etsy redirect URI is built from it. It only has to be
+        reachable from your browser (LAN or VPN), not from the internet.
+    </MudText>
+
+    <MudTextField T="string" @bind-Value="_input" Label="Base URL" Placeholder="https://etsy.example.lan"
+                  Variant="Variant.Outlined" Immediate="true" Error="@(_error is not null)" ErrorText="@_error" />
+
+    @if (RedirectUri is { } uri)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3" Spacing="1">
+            <MudText Typo="Typo.body2">Redirect URI to register in the Etsy developer portal:</MudText>
+            <code class="redirect-uri">@uri</code>
+            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" OnClick="() => CopyAsync(uri)" title="Copy" />
+        </MudStack>
+    }
+
+    @if (_changedWarning)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mt-3">
+            The base URL changed. Update the redirect URI in the Etsy developer portal (Your Apps → your app) to the value
+            above, or connecting and re-authorizing shops will fail. Existing connections keep working.
+        </MudAlert>
+    }
+
+    <MudStack Row="true" Class="mt-3">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save base URL</MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private string? _input;
+    private string? _saved;
+    private string? _error;
+    private bool _busy;
+    private bool _changedWarning;
+
+    private string? RedirectUri =>
+        UrlHelpers.TryNormalizeBaseUrl(_input, out var normalized, out _) ? UrlHelpers.EtsyRedirectUri(normalized) : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _saved = await Settings.GetAsync(SettingKeys.BaseUrl);
+        _input = _saved;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (!UrlHelpers.TryNormalizeBaseUrl(_input, out var normalized, out var error))
+        {
+            _error = error;
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var previous = _saved;
+            await Settings.SetAsync(SettingKeys.BaseUrl, normalized, updatedBy: user);
+            await Audit.WriteAsync("settings.base-url", "Setting", SettingKeys.BaseUrl, $"{previous ?? "(none)"} → {normalized}", user);
+            _changedWarning = previous is not null && !string.Equals(previous, normalized, StringComparison.OrdinalIgnoreCase);
+            _saved = _input = normalized;
+            Snackbar.Add("Base URL saved", Severity.Success);
+            await OnSaved.InvokeAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        var ok = await JS.InvokeAsync<bool>("esm.copy", text);
+        Snackbar.Add(ok ? "Copied" : "Copy failed (clipboard needs HTTPS); select the text instead", ok ? Severity.Normal : Severity.Warning);
+    }
+}

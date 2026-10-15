@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EtsyShopManager.Core/EtsyShopManager.Core.csproj" />
+    <Project Path="src/EtsyShopManager.Data/EtsyShopManager.Data.csproj" />
+    <Project Path="src/EtsyShopManager.Etsy/EtsyShopManager.Etsy.csproj" />
+    <Project Path="src/EtsyShopManager.Web/EtsyShopManager.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EtsyShopManager.Tests/EtsyShopManager.Tests.csproj" />
+  </Folder>
+</Solution>

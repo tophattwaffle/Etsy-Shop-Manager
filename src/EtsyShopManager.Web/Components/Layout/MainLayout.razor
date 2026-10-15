@@ -1,0 +1,73 @@
+@inherits LayoutComponentBase
+@inject SetupState Setup
+
+<MudThemeProvider Theme="_theme" IsDarkMode="_dark" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Dense="true">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="() => _drawerOpen = !_drawerOpen" />
+        <MudText Typo="Typo.h6" Class="ml-2">Etsy Shop Manager</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit" OnClick="() => _dark = !_dark" title="Toggle dark mode" />
+        <AuthorizeView>
+            <Authorized>
+                <MudText Typo="Typo.body2" Class="mx-2">@context.User.Identity?.Name</MudText>
+                <form action="account/logout" method="post" class="d-inline">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="returnUrl" value="/" />
+                    <MudIconButton ButtonType="ButtonType.Submit" Icon="@Icons.Material.Filled.Logout" Color="Color.Inherit" title="Sign out" />
+                </form>
+            </Authorized>
+        </AuthorizeView>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="1">
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4">
+            <AuthorizeView Roles="@Roles.Admin">
+                @if (_setupIncomplete)
+                {
+                    <MudAlert Severity="Severity.Info" Class="mb-4">
+                        First-run setup is not finished. <MudLink Href="setup/etsy">Continue setup</MudLink>
+                    </MudAlert>
+                }
+            </AuthorizeView>
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private bool _drawerOpen = true;
+    private bool _dark;
+    private bool _setupIncomplete;
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#D5641C",      // Etsy-ish orange
+            AppbarBackground = "#2F3A40",
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#F1823A",
+        },
+    };
+
+    protected override async Task OnInitializedAsync() =>
+        _setupIncomplete = !await Setup.IsSetupCompletedAsync();
+}

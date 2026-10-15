@@ -1,0 +1,58 @@
+@page "/setup/etsy"
+@attribute [Authorize(Roles = Roles.Admin)]
+@inject SetupState Setup
+@inject ISettingsStore Settings
+@inject IAuditLog Audit
+@inject NavigationManager Nav
+
+<PageTitle>Setup · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Finish setup</MudText>
+<MudText Typo="Typo.body1" Class="mb-4">
+    The Admin account is ready. Set the base URL, enter your Etsy app keys, then connect each shop.
+</MudText>
+
+<MudText Typo="Typo.overline">Step 2 of 4</MudText>
+<BaseUrlForm OnSaved="RefreshAsync" />
+
+<MudText Typo="Typo.overline">Step 3 of 4</MudText>
+<EtsyKeysForm OnSaved="RefreshAsync" />
+
+<MudText Typo="Typo.overline">Step 4 of 4</MudText>
+<ShopsPanel ReturnUrl="/setup/etsy" @ref="_shops" />
+
+<MudPaper Class="pa-4 mt-4" Elevation="0" Outlined="true">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!_canFinish)" OnClick="FinishAsync">
+            Finish setup
+        </MudButton>
+        @if (!_canFinish)
+        {
+            <MudText Typo="Typo.body2">Save the base URL and the Etsy keys to finish. Shops can also be connected later.</MudText>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+    private ShopsPanel? _shops;
+    private bool _canFinish;
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _canFinish = await Settings.HasValueAsync(SettingKeys.BaseUrl)
+                     && await Settings.HasValueAsync(SettingKeys.EtsyKeystring)
+                     && await Settings.HasValueAsync(SettingKeys.EtsySharedSecret);
+        if (_shops is not null) await _shops.ReloadAsync();
+    }
+
+    private async Task FinishAsync()
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        await Setup.MarkSetupCompletedAsync(user);
+        await Audit.WriteAsync("setup.completed", userName: user);
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+}

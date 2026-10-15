@@ -1,0 +1,99 @@
+@page "/setup"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@inject UserManager<AppUser> UserManager
+@inject SignInManager<AppUser> SignInManager
+@inject SetupState Setup
+@inject IAuditLog Audit
+@inject NavigationManager Nav
+
+<PageTitle>Setup · Etsy Shop Manager</PageTitle>
+
+<h1>Welcome</h1>
+<p class="muted">Step 1 of 4 — create the first Admin account. You'll set the base URL, Etsy app keys and connect your shops next.</p>
+
+@if (_errors.Count > 0)
+{
+    <div class="alert alert-error">
+        <ul>
+            @foreach (var e in _errors)
+            {
+                <li>@e</li>
+            }
+        </ul>
+    </div>
+}
+
+<EditForm Model="Input" method="post" OnValidSubmit="CreateAsync" FormName="create-admin">
+    <DataAnnotationsValidator />
+    <div class="field">
+        <label for="username">User name</label>
+        <InputText id="username" @bind-Value="Input.UserName" autocomplete="username" autofocus />
+        <ValidationMessage For="() => Input.UserName" />
+    </div>
+    <div class="field">
+        <label for="displayname">Display name (optional)</label>
+        <InputText id="displayname" @bind-Value="Input.DisplayName" />
+    </div>
+    <div class="field">
+        <label for="password">Password (at least 10 characters)</label>
+        <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="new-password" />
+        <ValidationMessage For="() => Input.Password" />
+    </div>
+    <div class="field">
+        <label for="confirm">Confirm password</label>
+        <InputText id="confirm" type="password" @bind-Value="Input.ConfirmPassword" autocomplete="new-password" />
+        <ValidationMessage For="() => Input.ConfirmPassword" />
+    </div>
+    <button type="submit" class="btn">Create Admin and continue</button>
+</EditForm>
+
+@code {
+    [SupplyParameterFromForm] private CreateAdminInput Input { get; set; } = default!;
+    private readonly List<string> _errors = [];
+    private bool _redirected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        if (await Setup.AdminExistsAsync())
+        {
+            _redirected = true;
+            Nav.NavigateTo("setup/etsy", forceLoad: true);
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        if (_redirected) return;
+
+        var (result, user) = await Setup.CreateFirstAdminAsync(UserManager, Input.UserName, Input.DisplayName, Input.Password);
+        if (!result.Succeeded || user is null)
+        {
+            _errors.AddRange(result.Errors.Select(e => e.Description));
+            return;
+        }
+
+        await Audit.WriteAsync("user.created", "User", user.Id, $"First Admin '{user.UserName}' created by setup", user.UserName);
+        await SignInManager.SignInAsync(user, isPersistent: true);
+        Nav.NavigateTo("setup/etsy", forceLoad: true);
+    }
+
+    private sealed class CreateAdminInput
+    {
+        [Required, StringLength(64, MinimumLength = 3)]
+        [RegularExpression(@"^[A-Za-z0-9._@+-]+$", ErrorMessage = "Use letters, digits and . _ @ + - only.")]
+        public string UserName { get; set; } = "";
+
+        [StringLength(100)] public string? DisplayName { get; set; }
+
+        [Required, StringLength(200, MinimumLength = 10), DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [Required, Compare(nameof(Password), ErrorMessage = "The passwords do not match.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

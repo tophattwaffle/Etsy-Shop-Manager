@@ -1,0 +1,174 @@
+@page "/jobs"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Infrastructure.Jobs
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJobQueue Queue
+@inject IEnumerable<RecurringJobDefinition> RecurringDefinitions
+@inject ISnackbar Snackbar
+
+<PageTitle>Jobs · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Background jobs</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Recurring</MudText>
+    <MudSimpleTable Dense="true">
+        <thead>
+            <tr><th>Name</th><th>Job type</th><th>Every</th><th>Last queued</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var def in RecurringDefinitions.OrderBy(d => d.Name))
+            {
+                _recurringState.TryGetValue(def.Name, out var last);
+                <tr>
+                    <td>@def.Name</td>
+                    <td><code>@def.JobType</code></td>
+                    <td>@def.Interval</td>
+                    <td>@Local(last)</td>
+                    <td class="text-right">
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => RunNowAsync(def)">Run now</MudButton>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudText Typo="Typo.h6">Queue</MudText>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudSelect T="string" Value="_filter" ValueChanged="OnFilterChanged" Label="Status" Dense="true" Variant="Variant.Outlined" Style="min-width: 160px">
+                <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+                <MudSelectItem T="string" Value="@("active")">Pending + running</MudSelectItem>
+                <MudSelectItem T="string" Value="@("failed")">Failed</MudSelectItem>
+                <MudSelectItem T="string" Value="@("succeeded")">Succeeded</MudSelectItem>
+            </MudSelect>
+            <MudSwitch T="bool" @bind-Value="_autoRefresh" Label="Auto-refresh" Color="Color.Primary" />
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
+        </MudStack>
+    </MudStack>
+
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr>
+                <th>#</th><th>Type</th><th>Status</th><th>Shop</th><th>Attempts</th>
+                <th>Created</th><th>Run after</th><th>Finished</th><th>Error</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var j in _jobs)
+            {
+                <tr>
+                    <td>@j.Id</td>
+                    <td><code>@j.JobType</code></td>
+                    <td><MudChip T="string" Size="Size.Small" Color="@StatusColor(j.Status)">@j.Status</MudChip></td>
+                    <td>@(j.ShopId?.ToString() ?? "—")</td>
+                    <td>@j.Attempts / @j.MaxAttempts</td>
+                    <td>@Local(j.CreatedAtUtc)</td>
+                    <td>@(j.Status == JobStatus.Pending ? Local(j.RunAfterUtc) : "")</td>
+                    <td>@Local(j.CompletedAtUtc)</td>
+                    <td class="error-cell" title="@j.LastError">@FirstLine(j.LastError)</td>
+                    <td class="text-right">
+                        @if (j.Status is JobStatus.Failed or JobStatus.Cancelled)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => RetryAsync(j.Id)">Retry</MudButton>
+                        }
+                        else if (j.Status == JobStatus.Pending)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="() => CancelAsync(j.Id)">Cancel</MudButton>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (_jobs.Count == 0)
+    {
+        <MudText Class="mt-2">No jobs.</MudText>
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<Job> _jobs = [];
+    private Dictionary<string, DateTime?> _recurringState = [];
+    private string _filter = "all";
+    private bool _autoRefresh = true;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _timer = new Timer(_ =>
+        {
+            if (_autoRefresh) InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        IQueryable<Job> q = db.Jobs.AsNoTracking();
+        q = _filter switch
+        {
+            "active" => q.Where(j => j.Status == JobStatus.Pending || j.Status == JobStatus.Running),
+            "failed" => q.Where(j => j.Status == JobStatus.Failed),
+            "succeeded" => q.Where(j => j.Status == JobStatus.Succeeded),
+            _ => q,
+        };
+        _jobs = await q.OrderByDescending(j => j.Id).Take(200).ToListAsync();
+        _recurringState = await db.RecurringJobs.AsNoTracking().ToDictionaryAsync(r => r.Name, r => r.LastEnqueuedAtUtc);
+    }
+
+    private async Task OnFilterChanged(string value)
+    {
+        _filter = value;
+        await LoadAsync();
+    }
+
+    private async Task RunNowAsync(RecurringJobDefinition def)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var id = await RecurringJobScheduler.RunNowAsync(Queue, def, user);
+        Snackbar.Add(id is null ? $"{def.Name} is already queued" : $"{def.Name} queued (job {id})", Severity.Info);
+        await LoadAsync();
+    }
+
+    private async Task RetryAsync(long id)
+    {
+        if (await Queue.RetryAsync(id)) Snackbar.Add($"Job {id} re-queued", Severity.Info);
+        await LoadAsync();
+    }
+
+    private async Task CancelAsync(long id)
+    {
+        if (await Queue.CancelAsync(id)) Snackbar.Add($"Job {id} cancelled", Severity.Info);
+        await LoadAsync();
+    }
+
+    private static Color StatusColor(JobStatus s) => s switch
+    {
+        JobStatus.Succeeded => Color.Success,
+        JobStatus.Failed => Color.Error,
+        JobStatus.Running => Color.Info,
+        JobStatus.Pending => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private static string Local(DateTime? utc) =>
+        utc is null ? "—" : utc.Value.ToLocalTime().ToString("MM-dd HH:mm:ss");
+
+    private static string FirstLine(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var line = s.Split('\n')[0].TrimEnd();
+        return line.Length > 120 ? line[..120] + "…" : line;
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

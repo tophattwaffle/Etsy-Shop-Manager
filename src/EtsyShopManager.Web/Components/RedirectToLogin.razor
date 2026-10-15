@@ -1,0 +1,17 @@
+@inject NavigationManager Nav
+
+@code {
+    [Parameter] public bool AccessDenied { get; set; }
+
+    protected override void OnInitialized()
+    {
+        if (AccessDenied)
+        {
+            Nav.NavigateTo("account/access-denied", forceLoad: true);
+            return;
+        }
+
+        var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+        Nav.NavigateTo($"account/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+    }
+}

@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <Authors>TopHATTwaffle</Authors>
+    <Product>Etsy Shop Manager</Product>
+    <Version>0.1.0</Version>
+    <!-- CA1416: Windows-only APIs (DPAPI, service helpers) are guarded at runtime. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+</Project>

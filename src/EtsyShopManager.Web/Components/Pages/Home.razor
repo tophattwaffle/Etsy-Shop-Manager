@@ -1,0 +1,100 @@
+@page "/"
+@attribute [Authorize]
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Etsy.Http
+@using EtsyShopManager.Web.Modules.Shops
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject ShopService Shops
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject EtsyQuotaTracker Quota
+@inject EtsyRateLimiter RateLimiter
+@inject TimeProvider Time
+
+<PageTitle>Dashboard · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Shops</MudText>
+            @if (_shops is null)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_shops.Count == 0)
+            {
+                <MudText>No shops connected. <MudLink Href="shops">Connect a shop</MudLink></MudText>
+            }
+            else
+            {
+                @foreach (var s in _shops)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="py-1">
+                        <MudText><b>@s.Name</b></MudText>
+                        @if (s.IsHealthy)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success">Connected</MudChip>
+                        }
+                        else if (s.IsActive)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error">Reconnect needed</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small">Disconnected</MudChip>
+                        }
+                    </MudStack>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="3">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Background jobs</MudText>
+            <MudText>Pending: <b>@_pending</b></MudText>
+            <MudText>Running: <b>@_running</b></MudText>
+            <MudText Color="@(_failed24h > 0 ? Color.Error : Color.Default)">Failed (24 h): <b>@_failed24h</b></MudText>
+            <AuthorizeView Roles="@Roles.Admin">
+                <MudLink Href="jobs" Class="mt-2 d-block">Open job queue</MudLink>
+            </AuthorizeView>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="3">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Etsy API</MudText>
+            <MudText>Remaining today: <b>@(Quota.RemainingToday?.ToString("N0") ?? "—")</b> / @(Quota.LimitPerDay?.ToString("N0") ?? "—")</MudText>
+            <MudText>Requests since start: <b>@Quota.TotalRequests.ToString("N0")</b></MudText>
+            <MudText>Rate-limited (429): <b>@Quota.Total429s</b></MudText>
+            <MudText>Queued for rate limiter: <b>@RateLimiter.QueuedRequests</b></MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<ShopSummary>? _shops;
+    private int _pending, _running, _failed24h;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _timer = new Timer(_ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }),
+            null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task LoadAsync()
+    {
+        _shops = await Shops.ListAsync();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var since = Time.GetUtcNow().UtcDateTime.AddHours(-24);
+        _pending = await db.Jobs.CountAsync(j => j.Status == JobStatus.Pending);
+        _running = await db.Jobs.CountAsync(j => j.Status == JobStatus.Running);
+        _failed24h = await db.Jobs.CountAsync(j => j.Status == JobStatus.Failed && j.CompletedAtUtc >= since);
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

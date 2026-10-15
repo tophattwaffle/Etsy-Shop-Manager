@@ -1,0 +1,74 @@
+using System.Text.Json;
+
+namespace EtsyShopManager.Core.Jobs;
+
+/// <summary>Request to enqueue a job.</summary>
+public sealed record JobRequest
+{
+    public required string JobType { get; init; }
+    public object? Payload { get; init; }
+    public int? ShopId { get; init; }
+    public string? DedupeKey { get; init; }
+    public string? CorrelationId { get; init; }
+    public DateTime? RunAfterUtc { get; init; }
+    public int Priority { get; init; }
+    public int MaxAttempts { get; init; } = 5;
+    public string? CreatedBy { get; init; }
+}
+
+public interface IJobQueue
+{
+    /// <summary>Enqueues a job. Returns null when skipped because an active job has the same DedupeKey.</summary>
+    Task<long?> EnqueueAsync(JobRequest request, CancellationToken ct = default);
+
+    /// <summary>Puts a Failed or Cancelled job back to Pending with its attempts reset.</summary>
+    Task<bool> RetryAsync(long jobId, CancellationToken ct = default);
+
+    /// <summary>Cancels a Pending job. Running jobs cannot be cancelled.</summary>
+    Task<bool> CancelAsync(long jobId, CancellationToken ct = default);
+}
+
+/// <summary>Executes one job type. Register implementations in DI (typically from a module).</summary>
+public interface IJobHandler
+{
+    string JobType { get; }
+    Task HandleAsync(JobExecutionContext context, CancellationToken ct);
+}
+
+public sealed class JobExecutionContext
+{
+    public required long JobId { get; init; }
+    public required string JobType { get; init; }
+    public required int Attempt { get; init; }
+    public int? ShopId { get; init; }
+    public string? PayloadJson { get; init; }
+    public string? CorrelationId { get; init; }
+
+    public T? GetPayload<T>() =>
+        PayloadJson is null ? default : JsonSerializer.Deserialize<T>(PayloadJson, JobJson.Options);
+}
+
+public static class JobJson
+{
+    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+}
+
+/// <summary>Throw from a handler to fail the job without further retries.</summary>
+public sealed class JobPermanentFailureException(string message, Exception? inner = null)
+    : Exception(message, inner);
+
+/// <summary>A job enqueued on a fixed interval by the recurring scheduler.</summary>
+public sealed record RecurringJobDefinition(string Name, string JobType, TimeSpan Interval)
+{
+    public object? Payload { get; init; }
+
+    /// <summary>Delay after a fresh install before the first run.</summary>
+    public TimeSpan InitialDelay { get; init; } = TimeSpan.FromMinutes(1);
+}
+
+/// <summary>Wakes the job processor when new work is enqueued.</summary>
+public interface IJobSignal
+{
+    void Notify();
+    Task WaitAsync(TimeSpan timeout, CancellationToken ct);
+}

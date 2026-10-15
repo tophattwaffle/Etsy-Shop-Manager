@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Etsy Open API v3: OAuth 2.0 + PKCE, token refresh, rate limiting, retry, API client. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EtsyShopManager.Core\EtsyShopManager.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="EtsyShopManager.Tests" />
+  </ItemGroup>
+</Project>

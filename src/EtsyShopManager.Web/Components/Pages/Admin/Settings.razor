@@ -1,0 +1,33 @@
+@page "/admin/settings"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Core.Configuration
+@inject StorageOptions Storage
+@inject IConfiguration Configuration
+
+<PageTitle>Settings · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Settings</MudText>
+
+<BaseUrlForm />
+<EtsyKeysForm />
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Host</MudText>
+    <MudText Typo="Typo.body2" Class="mb-2">Read from appsettings.json in the install folder; restart the service after changing.</MudText>
+    <MudSimpleTable Dense="true">
+        <tbody>
+            <tr><th>Data folder</th><td><code>@Storage.ResolvedRoot</code></td></tr>
+            <tr><th>Database</th><td><code>@Storage.DatabasePath</code></td></tr>
+            <tr><th>Listening on</th><td><code>@(Configuration["Urls"] ?? "default")</code></td></tr>
+            <tr><th>Trusted proxies</th><td><code>@(_proxies.Length == 0 ? "(none — X-Forwarded-* ignored)" : string.Join(", ", _proxies))</code></td></tr>
+            <tr><th>Version</th><td>@(typeof(Program).Assembly.GetName().Version)</td></tr>
+        </tbody>
+    </MudSimpleTable>
+</MudPaper>
+
+@code {
+    private string[] _proxies = [];
+
+    protected override void OnInitialized() =>
+        _proxies = Configuration.GetSection("ReverseProxy:TrustedProxies").Get<string[]>() ?? [];
+}

@@ -1,0 +1,18 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+TestResults/
+publish/
+artifacts/
+
+# Never commit live data. The app stores it under C:\ProgramData\EtsyShopManager by default.
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Reference material from the old HA integration (delete after migration)
+ExistingHASS/
