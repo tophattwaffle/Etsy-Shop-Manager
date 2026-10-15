@@ -146,7 +146,7 @@
 
     private async Task DisconnectAsync(ShopSummary s)
     {
-        var confirmed = await Dialogs.ShowMessageBox(
+        var confirmed = await Dialogs.ShowMessageBoxAsync(
             "Disconnect shop",
             $"Remove the Etsy tokens for {s.Name}? Local data is kept, and you can reconnect at any time.",
             yesText: "Disconnect", cancelText: "Cancel");
