@@ -29,7 +29,10 @@
     <p class="esm-reconnect-text esm-reconnect-first">The connection to Etsy Shop Manager dropped. Trying again now.</p>
     <p class="esm-reconnect-text esm-reconnect-repeated">
         Still trying. Next attempt in <span id="components-seconds-to-next-attempt"></span> s
-        (attempt <span id="components-reconnect-current-attempt"></span> of <span id="components-reconnect-max-retries"></span>).
+        (attempt <span class="esm-reconnect-attempt"></span> of <span class="esm-reconnect-attempts"></span>).
+        @* Blazor writes its own attempt numbers here. They count about ten instant retries made before this line
+           first shows, so app.js counts from the first attempt you can see instead. *@
+        <span hidden><span id="components-reconnect-current-attempt"></span><span id="components-reconnect-max-retries"></span></span>
     </p>
     <p class="esm-reconnect-text esm-reconnect-when-failed">
         The server may be restarting after an update. Try again in a moment, or reload the page.

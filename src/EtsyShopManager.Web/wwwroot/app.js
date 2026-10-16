@@ -14,8 +14,19 @@ window.esm = {
                 document.addEventListener("visibilitychange", retryWhenVisible);
             }
         }
+        // Attempt numbers as the user sees them: Blazor first retries about ten times without waiting, before the
+        // "Still trying" line appears, so number from the first attempt shown ("1 of 20", not "11 of 30").
+        let firstShown = null;
+        const showAttempt = (current) => {
+            firstShown ??= current;
+            const max = Number(document.getElementById("components-reconnect-max-retries")?.innerText) || current;
+            dialog.querySelector(".esm-reconnect-attempt").innerText = String(current - firstShown + 1);
+            dialog.querySelector(".esm-reconnect-attempts").innerText = String(Math.max(1, max - firstShown + 1));
+        };
         dialog.addEventListener("components-reconnect-state-changed", (e) => {
             const state = e.detail.state;
+            if (state === "retrying" && e.detail.secondsToNextAttempt > 0) showAttempt(e.detail.currentAttempt);
+            if (state === "hide" || state === "failed") firstShown = null;
             if ((state === "show" || state === "paused") && !dialog.open) dialog.showModal();
             else if (state === "hide") dialog.close();
             else if (state === "failed") document.addEventListener("visibilitychange", retryWhenVisible);
