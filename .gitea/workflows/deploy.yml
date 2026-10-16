@@ -21,6 +21,30 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
+      # The runner is a Windows service, which keeps the PATH from when Windows booted, so tools installed later
+      # (PowerShell 7, .NET SDK) may be missing. cmd.exe is always available; add the known install folders to
+      # GITHUB_PATH so every later step finds them, and print what was found for troubleshooting.
+      - name: Locate tools
+        shell: cmd
+        run: |
+          @echo off
+          for %%D in ("%ProgramFiles%\PowerShell\7" "%ProgramFiles%\dotnet" "%ProgramFiles%\Git\cmd" "%ProgramFiles%\nodejs") do (
+            if exist "%%~D" (
+              echo %%~D>>"%GITHUB_PATH%"
+              echo found   %%~D
+            ) else (
+              echo MISSING %%~D
+            )
+          )
+          if not exist "%ProgramFiles%\PowerShell\7\pwsh.exe" (
+            echo ERROR: PowerShell 7 not found at "%ProgramFiles%\PowerShell\7\pwsh.exe". Run scripts\install-prereqs.ps1 on the host.
+            exit /b 1
+          )
+          if not exist "%ProgramFiles%\dotnet\dotnet.exe" (
+            echo ERROR: .NET SDK not found at "%ProgramFiles%\dotnet\dotnet.exe". Run scripts\install-prereqs.ps1 on the host.
+            exit /b 1
+          )
+
       - name: Build and test
         run: ./scripts/build.ps1 -Configuration Release
 
