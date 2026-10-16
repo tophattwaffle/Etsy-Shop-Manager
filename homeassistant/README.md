@@ -40,7 +40,7 @@ folder and restart.
 2. In Home Assistant: **Settings → Devices & services → Add integration → Etsy Shop Manager**. Enter the address you
    open the app at (e.g. `https://etsy.example.lan`) and the key. Turn off *Verify the SSL certificate* only if the
    app uses a certificate Home Assistant doesn't trust.
-3. Optional: **Configure** sets how often Home Assistant asks the service for open orders (default 60 s, 10–3600).
+3. Optional: **Configure** sets how often Home Assistant asks the service for open orders (default 30 s, 5–3600).
    That's cheap: it stays on the LAN. How often the *service* checks Etsy is set in the app under
    **Admin → Settings → Order polling** (default 5 minutes, as the old integration polled).
 

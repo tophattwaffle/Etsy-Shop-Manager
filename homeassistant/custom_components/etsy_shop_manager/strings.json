@@ -40,7 +40,7 @@
           "scan_interval": "Seconds between updates"
         },
         "data_description": {
-          "scan_interval": "How often Home Assistant asks the service for open orders (10-3600). The service checks Etsy on its own schedule, set in the app under Admin > Settings."
+          "scan_interval": "How often Home Assistant asks the service for open orders (5-3600). The service checks Etsy on its own schedule, set in the app under Admin > Settings."
         }
       }
     }

@@ -112,7 +112,7 @@ The existing card keeps its styling and logic. Only its data source changes. **H
   - The payload keeps the exact shape the card already reads: `open_orders[]` (`receipt_id`, `buyer_name`, `ship_by_ts`, `order_total`, `currency_code`, `items[]` with `title`, `quantity`, `variations[{property,value}]`, `personalization`, `image_url`) and `total_items_needed`.
 - **HA side:** a new integration `etsy_shop_manager` (a different domain from the old `etsyapp`, so both can run side by side during migration).
   - Config flow takes the service URL and API key, then shows a device and an Open Orders sensor per shop.
-  - Polls every 60 s by default (options flow, 10–3600 s). This is cheap because it stays on the LAN.
+  - Polls every 30 s by default (options flow, 5–3600 s). This is cheap because it stays on the LAN.
   - Fires an `etsy_shop_manager_new_order` event and a device trigger.
   - Large attributes (`open_orders`, `items_needed`) are kept out of the HA recorder (`_unrecorded_attributes`), because HA's 16 KB attribute limit is easy to exceed.
 - **Card:** carried over unchanged. Its config simply points `shops[].entity` at the new sensors. A later option could link orders to this app's order page instead of Etsy.

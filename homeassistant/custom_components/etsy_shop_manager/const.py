@@ -9,8 +9,8 @@ CONF_SCAN_INTERVAL = "scan_interval"
 
 # Home Assistant only talks to the Etsy Shop Manager service on the LAN, so polling it often is cheap.
 # (The service itself polls Etsy on its own schedule, set under Admin -> Settings in the app.)
-DEFAULT_SCAN_INTERVAL = 60
-MIN_SCAN_INTERVAL = 10
+DEFAULT_SCAN_INTERVAL = 30
+MIN_SCAN_INTERVAL = 5
 MAX_SCAN_INTERVAL = 3600
 
 EVENT_NEW_ORDER = f"{DOMAIN}_new_order"
