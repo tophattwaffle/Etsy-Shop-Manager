@@ -55,7 +55,7 @@
 
 @code {
     private bool _drawerOpen = true;
-    private bool _dark;
+    private bool _dark = true; // dark by default; the app-bar button switches for the session
     private bool _setupIncomplete;
 
     private readonly MudTheme _theme = new()
