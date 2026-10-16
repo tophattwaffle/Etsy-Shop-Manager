@@ -121,6 +121,8 @@ public sealed class ListingEditor(
         if (drift.Count > 0)
             blockers.Add($"Changed on Etsy since the last sync: {string.Join(", ", drift.Select(Label))}. Choose keep mine or take Etsy's first.");
         if (listing.IsMissingOnEtsy) blockers.Add("This listing is no longer on Etsy.");
+        if (NeedsRefresh(listing))
+            blockers.Add("This listing was read from Etsy by an older version of the app. Refresh it from Etsy first (Import now).");
         if (listing.Shop is { } shop && (shop.Token is null || shop.Token.NeedsReauth || !shop.IsActive))
             blockers.Add($"{shop.Name} must be reconnected to Etsy first.");
         if (pushInProgress) blockers.Add("A push for this listing is already queued or running.");
@@ -154,6 +156,10 @@ public sealed class ListingEditor(
 
         return new PushPreview(changes, blockers, warnings);
     }
+
+    /// <summary>The stored Etsy state predates the current managed-field definition (e.g. before text was HTML-decoded).</summary>
+    public static bool NeedsRefresh(Listing listing) =>
+        listing.EtsyState is { } s && s.ManagedVersion != ManagedListingState.CurrentVersion;
 
     /// <summary>Etsy requires one price (and one processing profile) for all variations unless it varies by a property.</summary>
     private static IEnumerable<string> InventoryProblems(JsonNode? inventory)

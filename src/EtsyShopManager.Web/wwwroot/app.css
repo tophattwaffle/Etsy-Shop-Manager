@@ -392,3 +392,9 @@ a.lp-status-error:hover { text-decoration: underline; }
     .esm-reconnect-mark { animation: esm-breathe 2s ease-in-out infinite; }
     @keyframes esm-breathe { 50% { opacity: 0.5; } }
 }
+/* ---- Listing editor: drift resolution rows ---- */
+.esm-drift { border-left: 3px solid var(--esm-warning); }
+.esm-drift-row { display: grid; grid-template-columns: 160px 1fr 1fr auto; gap: 16px; align-items: start; padding: 10px 0; border-top: 1px solid var(--esm-line); }
+.esm-drift-label { font-weight: 600; }
+.esm-drift-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 760px) { .esm-drift-row { grid-template-columns: 1fr; gap: 6px; } }

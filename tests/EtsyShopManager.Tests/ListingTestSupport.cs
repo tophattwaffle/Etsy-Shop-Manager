@@ -396,6 +396,8 @@ internal sealed class FakeEtsyShop : IDisposable
                     "is_supply" or "is_taxable" or "should_auto_renew" => value == "true",
                     "taxonomy_id" or "shipping_profile_id" or "return_policy_id" or "shop_section_id" => long.Parse(value),
                     "item_weight" or "item_length" or "item_width" or "item_height" => decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture),
+                    // Etsy stores the text and returns it HTML-encoded.
+                    "title" or "description" => value.Replace("'", "&#39;").Replace("\"", "&quot;"),
                     _ => value,
                 };
             }

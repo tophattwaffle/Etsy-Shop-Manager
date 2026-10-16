@@ -1,6 +1,6 @@
 # Etsy Shop Manager — Project Plan
 
-_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented. Last updated 2026-10-16._
+_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented; Phase 3 first slice (editor, push, drift, auto-refill) implemented. Last updated 2026-10-16._
 
 ## Goals
 
@@ -186,6 +186,15 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - The job queue and processor publish every change (queued, running, finished, rescheduled, retried, cancelled) on an in-process feed (`IJobEvents`). Pages subscribe, coalesce bursts (~0.4 s) and re-render; subscriptions are disposed with the page. Handlers set a short `Result` ("2 new, 3 updated", "46 listings"), stored on the job and shown on the Jobs page.
 - Notifications: when a job the signed-in user started finishes (e.g. "Check for orders now", "Import now", "Run now"), a snackbar shows its outcome or error on whatever page they're on.
 - Pages: Jobs (live; consecutive runs of one job type collapse into an expandable stack, failures always on their own row), Orders (reloads after order checks; countdowns and "synced … ago" tick every 30 s), Listings (import status and list), listing detail, Lookups, Shops, Dashboard (job counts, shop health, open orders; quota re-rendered every 10 s).
+
+## Phase 3 implementation notes (first slice)
+- **Decisions (TopHATTwaffle, 2026-10-16):** edits save locally and go to Etsy only on an explicit push after a preview; a listing changed on etsy.com blocks pushes until resolved per field; quantity is not edited (Etsy, sales and auto-refill manage stock); this slice covers listing fields, prices and processing; photos and variation structure come next. Auto-refill is included.
+- **Model:** `ListingEditModel` keeps Etsy (last read), base (last agreed) and draft (local edits) as managed-state JSON. Tracked fields (title, description, prices/processing, tags, materials, category, profiles, section, who/when made, supply, taxable, auto-renew, weight/size, production partners) drift; untracked ones (photos, attributes, personalization, state…) follow Etsy. Resolutions: **keep mine** (the next push restores the local value) or **take Etsy's**. The planned third option, "ignore", turned out to be identical to one of these, so it was left out.
+- **Push:** a job that re-reads the listing, stops if Etsy changed meanwhile, snapshots Etsy's version, sends `updateListing` (only changed fields) and `updateListingInventory` (Etsy's inventory from a fresh read with only prices/processing changed), then re-reads and keeps anything Etsy didn't take in the draft. Never retried automatically. Snapshots can be loaded back into the draft (rollback is a normal reviewed push).
+- **Preview blockers:** drift, shop not connected, listing gone from Etsy, a push already queued, Etsy limits (title 140, 13 tags of ≤20 chars, 13 materials), prices > 0, one price/processing profile for all variations unless it varies by a property, status only active/inactive, and a listing read by an older managed-state version. Warnings: activating an inactive/expired listing or publishing a draft costs Etsy's fee.
+- **Text encoding:** Etsy returns title/description/tags HTML-encoded (`&#39;`, `&quot;`; 101 of 130 real descriptions). Import decodes them (managed-state version 2); pushes send plain text.
+- **Auto-refill:** per listing (on/off, threshold, refill-to ≤ 999). An enabled offering below the threshold is set to refill-to while the listing is active (shared quantity → all variations together); sold-out/inactive listings are flagged, not touched. Runs for the listings in each new order (right after the order check) and in an hourly sweep that finds low stock from one bulk read per 100 listings. Each refill is a job with the changes as its result, raises `StockRefilled` and is audited.
+- **Testing:** no real Etsy writes in development or tests. `FakeEtsyShop` records every write; tests assert the exact `updateListing` form and `updateListingInventory` JSON. Offline checks against a sanitized copy of production: the migration applies, all 130 listings load without false drift, and the inventory body reproduces every real inventory exactly (48 with variations).
 
 ## Deployment
 - Source: private Gitea repo `github.com/TopHATTwaffle/etsy-shop-manager`, default branch `master`.

@@ -17,16 +17,18 @@ public static class ListingMapper
     {
         target.EtsyListingId = source.ListingId;
         target.State = source.State;
-        target.Title = source.Title;
-        target.Description = source.Description ?? "";
+        // Etsy returns text HTML-encoded ("you&#39;re", "&quot;"). Keep plain text, so it shows and is pushed as written
+        // (Etsy encodes it again in its own output).
+        target.Title = Text(source.Title);
+        target.Description = Text(source.Description);
         target.PriceAmount = source.Price?.Amount ?? 0;
         target.PriceDivisor = source.Price?.Divisor is > 0 ? source.Price.Divisor : 100;
         target.CurrencyCode = source.Price?.CurrencyCode;
         target.Quantity = source.Quantity;
         target.Skus = source.Skus?.Where(s => !string.IsNullOrEmpty(s)).ToList() ?? [];
-        target.Tags = source.Tags ?? [];
-        target.Materials = source.Materials ?? [];
-        target.Styles = source.Style ?? [];
+        target.Tags = source.Tags?.Select(Text).ToList() ?? [];
+        target.Materials = source.Materials?.Select(Text).ToList() ?? [];
+        target.Styles = source.Style?.Select(Text).ToList() ?? [];
         target.TaxonomyId = source.TaxonomyId;
         target.ShippingProfileId = source.ShippingProfileId;
         target.ReturnPolicyId = source.ReturnPolicyId;
@@ -60,6 +62,9 @@ public static class ListingMapper
         target.EtsyStateChangedAtUtc = FromUnix(source.StateTimestamp);
         target.EtsyEndsAtUtc = FromUnix(source.EndingTimestamp);
     }
+
+    /// <summary>Etsy's HTML-encoded text as plain text.</summary>
+    public static string Text(string? html) => System.Net.WebUtility.HtmlDecode(html ?? "");
 
     /// <summary>Personalization questions as JSON, or null when the listing has none.</summary>
     private static string? PersonalizationJson(EtsyListing source)

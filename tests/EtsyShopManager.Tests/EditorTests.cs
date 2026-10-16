@@ -205,6 +205,26 @@ public class ListingPushTests
     }
 
     [Fact]
+    public async Task Etsy_html_encoding_is_decoded_and_pushed_text_round_trips()
+    {
+        // Etsy returns text HTML-encoded; the app keeps plain text and pushes it as written.
+        var (shop, id) = await ImportedAsync(l => l["description"] = "Each layout&#39;s holes are not in a &quot;uniform&quot; spot");
+        using var _ = shop;
+        Assert.Equal("Each layout's holes are not in a \"uniform\" spot", (await ListingAsync(shop, id)).Description);
+
+        await Editor(shop).SaveAsync(id, new Dictionary<string, JsonNode?> { ["description"] = "It's \"new\"" }, "tophattwaffle");
+        var (pushId, _) = await Editor(shop).RequestPushAsync(id, "tophattwaffle");
+        await RunPushAsync(shop, pushId!.Value);
+
+        Assert.Equal("description=It%27s+%22new%22", Assert.Single(shop.Writes).Body); // plain text, not &#39;
+        var l = await ListingAsync(shop, id);
+        Assert.False(l.HasDraft); // Etsy's encoded copy reads back as the same text
+        Assert.Equal("It's \"new\"", l.Description);
+        await using var db = shop.Db.CreateDbContext();
+        Assert.Equal(ListingPushStatus.Succeeded, (await db.ListingPushes.SingleAsync()).Status);
+    }
+
+    [Fact]
     public async Task Push_stops_without_writing_when_the_listing_changed_on_Etsy_meanwhile()
     {
         var (shop, id) = await ImportedAsync();
@@ -264,6 +284,21 @@ public class ListingPushTests
         Assert.Contains(preview.Blockers, b => b.Contains("more than zero"));
         Assert.Contains(preview.Blockers, b => b.Contains("same price"));
         Assert.Null((await Editor(shop).RequestPushAsync(id, "tophattwaffle")).PushId);
+    }
+
+    [Fact]
+    public async Task A_listing_read_by_an_older_version_must_be_refreshed_before_pushing()
+    {
+        var (shop, id) = await ImportedAsync();
+        using var _ = shop;
+        await Editor(shop).SaveAsync(id, new Dictionary<string, JsonNode?> { ["title"] = "New" }, "tophattwaffle");
+        await using (var db = shop.Db.CreateDbContext())
+            await db.ListingEtsyStates.ExecuteUpdateAsync(s => s.SetProperty(x => x.ManagedVersion, 1));
+
+        Assert.Contains((await Editor(shop).PreviewAsync(id)).Blockers, b => b.Contains("older version"));
+
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        Assert.True((await Editor(shop).PreviewAsync(id)).CanPush);
     }
 
     [Fact]

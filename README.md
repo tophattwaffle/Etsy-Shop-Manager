@@ -4,7 +4,7 @@ Self-hosted manager for two Etsy shops. Runs as a Windows Service, web UI (Blazo
 device on the LAN or over VPN, behind HAProxy. This app is the system of record for listings; see
 [docs/PLAN.md](docs/PLAN.md) for the full design.
 
-**Status: Phases 0–2 implemented (foundation, listing import, orders + Home Assistant).** Next is Phase 3 (editor + push).
+**Status: Phases 0–2 implemented (foundation, listing import, orders + Home Assistant), and the first part of Phase 3: the listing editor with preview → push, drift handling and auto-refill.** Next: photo and variation editing.
 
 ## Quick start (Windows)
 

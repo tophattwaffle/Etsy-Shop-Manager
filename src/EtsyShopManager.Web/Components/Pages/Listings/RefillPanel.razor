@@ -1,0 +1,128 @@
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Stock
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject StockRefiller Refiller
+@inject RefillQueue Queue
+@inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
+@inject ISnackbar Snackbar
+
+@* Auto-refill settings and status for one listing (docs/PLAN.md §8). *@
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+        <MudText Typo="Typo.h6">Auto-refill</MudText>
+        <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+            @if (_saved?.Enabled == true)
+            {
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CheckNowAsync">Check stock now</MudButton>
+            }
+        </AuthorizeView>
+    </MudStack>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Keeps each variation from selling out: when its stock drops below the threshold, it's set back to the refill
+        amount. Checked after every new order and once an hour, and only while the listing is active.
+    </MudText>
+
+    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+        <Authorized>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4" Class="d-flex align-center">
+                    <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="@(_enabled ? "On" : "Off")" />
+                </MudItem>
+                <MudItem xs="6" sm="4">
+                    <MudNumericField T="int" @bind-Value="_threshold" Label="Refill when below" Min="1" Max="998"
+                                     Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="!_enabled" />
+                </MudItem>
+                <MudItem xs="6" sm="4">
+                    <MudNumericField T="int" @bind-Value="_refillTo" Label="Refill to" Min="2" Max="@StockRefiller.MaxQuantity"
+                                     Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="!_enabled" />
+                </MudItem>
+            </MudGrid>
+            @if (_error is not null)
+            {
+                <MudText Typo="Typo.body2" Class="error-text mt-2">@_error</MudText>
+            }
+            <MudStack Row="true" Class="mt-3">
+                <MudButton Variant="Variant.Outlined" Disabled="!Dirty" OnClick="SaveAsync">Save auto-refill</MudButton>
+            </MudStack>
+        </Authorized>
+        <NotAuthorized>
+            <MudText Typo="Typo.body2">
+                @(_saved is { Enabled: true } s ? $"On: below {s.Threshold}, refill to {s.RefillTo}." : "Off.")
+            </MudText>
+        </NotAuthorized>
+    </AuthorizeView>
+
+    @if (_saved is { } r && (r.LastCheckedAtUtc is not null || r.Problem is not null))
+    {
+        <MudSimpleTable Dense="true" Class="detail-table mt-3">
+            <tbody>
+                <tr><th>Last checked</th><td>@ListingFormat.Local(r.LastCheckedAtUtc)</td></tr>
+                <tr><th>Last refilled</th><td>@ListingFormat.Local(r.LastRefilledAtUtc)</td></tr>
+                <tr><th>Last result</th><td>@(r.LastResult ?? "—")</td></tr>
+            </tbody>
+        </MudSimpleTable>
+        @if (r.Problem is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">@r.Problem</MudAlert>
+        }
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public int ListingId { get; set; }
+    [Parameter, EditorRequired] public int ShopId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private ListingRefill? _saved;
+    private bool _enabled;
+    private int _threshold = 5;
+    private int _refillTo = 999;
+    private string? _error;
+    private IDisposable? _live;
+
+    private bool Dirty => _saved is null
+        ? _enabled
+        : _enabled != _saved.Enabled || _threshold != _saved.Threshold || _refillTo != _saved.RefillTo;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _live = JobEvents.Subscribe(c => c.IsFinal && c.JobType == RefillListingJob.Type && c.ShopId == ShopId,
+            _ => InvokeAsync(async () => { await LoadAsync(keepInputs: true); StateHasChanged(); }));
+    }
+
+    private async Task LoadAsync(bool keepInputs = false)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _saved = await db.ListingRefills.AsNoTracking().FirstOrDefaultAsync(r => r.ListingId == ListingId);
+        if (keepInputs || _saved is null) return;
+        (_enabled, _threshold, _refillTo) = (_saved.Enabled, _saved.Threshold, _saved.RefillTo);
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        try
+        {
+            await Refiller.SaveSettingsAsync(ListingId, _enabled, _threshold, _refillTo, (await AuthState).User.Identity?.Name);
+            await LoadAsync();
+            Snackbar.Add(_enabled ? $"Auto-refill on: below {_threshold}, refill to {_refillTo}" : "Auto-refill off", Severity.Success);
+            if (_enabled) await CheckNowAsync();
+        }
+        catch (ArgumentException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task CheckNowAsync()
+    {
+        var id = await Queue.RefillAsync(ShopId, ListingId, (await AuthState).User.Identity?.Name);
+        Snackbar.Add(id is null ? "A stock check is already queued" : "Checking stock on Etsy…", Severity.Info);
+    }
+
+    public void Dispose() => _live?.Dispose();
+}
