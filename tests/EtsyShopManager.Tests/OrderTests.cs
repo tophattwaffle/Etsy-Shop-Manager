@@ -1,0 +1,336 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using EtsyShopManager.Core.Domain;
+using EtsyShopManager.Core.Events;
+using EtsyShopManager.Core.Jobs;
+using EtsyShopManager.Etsy;
+using EtsyShopManager.Etsy.Models;
+using EtsyShopManager.Web.Modules.Orders;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace EtsyShopManager.Tests;
+
+public class HaPayloadTests
+{
+    private static readonly Dictionary<long, string> ImageMap = new()
+    {
+        [7001] = "https://i.etsystatic.com/7001/il_170x135.jpg",
+        [7002] = "https://i.etsystatic.com/7002/il_170x135.jpg",
+    };
+
+    private static List<Order> FixtureOrders()
+    {
+        var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "receipts.json"));
+        return JsonNode.Parse(json)!.AsArray().Select(node =>
+        {
+            var order = new Order();
+            OrderMapper.Apply(order, node.Deserialize<EtsyReceipt>(EtsyJson.Options)!, node!.ToJsonString(), DateTime.UtcNow);
+            foreach (var item in order.Items)
+                item.ImageUrl = item.EtsyListingId is { } id ? ImageMap.GetValueOrDefault(id) : null;
+            return order;
+        }).ToList();
+    }
+
+    /// <summary>
+    /// open-orders.expected.json was produced by running the old etsyapp integration's own Python
+    /// (build_receipt_summary, _is_open_order, _aggregate_items_needed) on receipts.json, with dates in UTC.
+    /// The card reads this shape, so the port must match it field for field.
+    /// </summary>
+    [Fact]
+    public void Open_orders_payload_matches_the_old_integration()
+    {
+        var expected = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "open-orders.expected.json")))!;
+
+        var actual = HaPayloadBuilder.OpenOrders(FixtureOrders(), TimeZoneInfo.Utc);
+
+        AssertJsonEquivalent(expected, actual, "$");
+    }
+
+    [Fact]
+    public void Open_means_paid_unshipped_and_not_resolved()
+    {
+        var orders = FixtureOrders();
+        Assert.Equal([3001L, 3002L], orders.Where(o => o.IsOpen).Select(o => o.EtsyReceiptId).Order());
+        Assert.False(orders.Single(o => o.EtsyReceiptId == 3004).IsOpen); // canceled before shipping
+    }
+
+    [Fact]
+    public void Mapper_keeps_money_dates_and_ship_by()
+    {
+        var order = FixtureOrders().Single(o => o.EtsyReceiptId == 3001);
+        Assert.Equal(5398, order.Grandtotal);
+        Assert.Equal("USD", order.CurrencyCode);
+        Assert.Equal("Alice Example", order.BuyerName);
+        Assert.Equal(DateTime.UnixEpoch.AddSeconds(1760700000), order.ShipByUtc); // earliest item
+        Assert.Equal(2, order.Items.Count);
+        Assert.Equal(3, order.Items.Single(i => i.EtsyTransactionId == 9001).Variations.Count);
+    }
+
+    private static void AssertJsonEquivalent(JsonNode? expected, JsonNode? actual, string path)
+    {
+        switch (expected)
+        {
+            case null:
+                Assert.True(actual is null, $"{path}: expected null, got {actual?.ToJsonString()}");
+                break;
+            case JsonObject e:
+                var a = Assert.IsType<JsonObject>(actual);
+                Assert.True(e.Select(p => p.Key).Order().SequenceEqual(a.Select(p => p.Key).Order()),
+                    $"{path}: keys differ. Expected [{string.Join(", ", e.Select(p => p.Key).Order())}], got [{string.Join(", ", a.Select(p => p.Key).Order())}]");
+                foreach (var (key, value) in e) AssertJsonEquivalent(value, a[key], $"{path}.{key}");
+                break;
+            case JsonArray e:
+                var arr = Assert.IsType<JsonArray>(actual);
+                Assert.True(e.Count == arr.Count, $"{path}: expected {e.Count} items, got {arr.Count}");
+                for (var i = 0; i < e.Count; i++) AssertJsonEquivalent(e[i], arr[i], $"{path}[{i}]");
+                break;
+            default:
+                var ev = expected.AsValue();
+                Assert.True(actual is JsonValue, $"{path}: expected a value, got {actual?.ToJsonString()}");
+                var av = actual!.AsValue();
+                if (ev.GetValueKind() == JsonValueKind.Number)
+                    Assert.True(av.GetValueKind() == JsonValueKind.Number && ev.GetValue<decimal>() == decimal.Parse(av.ToJsonString()),
+                        $"{path}: expected {ev.ToJsonString()}, got {av.ToJsonString()}");
+                else
+                    Assert.True(ev.ToJsonString() == av.ToJsonString(), $"{path}: expected {ev.ToJsonString()}, got {av.ToJsonString()}");
+                break;
+        }
+    }
+}
+
+public class OrderPollerTests
+{
+    private static JsonObject Receipt(long id, long updated, bool shipped = false, string status = "Paid", long listingId = 1,
+        long? imageId = 11) => new()
+    {
+        ["receipt_id"] = id,
+        ["buyer_user_id"] = 500 + id,
+        ["name"] = $"Buyer {id}",
+        ["status"] = status,
+        ["is_paid"] = true,
+        ["is_shipped"] = shipped,
+        ["created_timestamp"] = updated - 100,
+        ["updated_timestamp"] = updated,
+        ["grandtotal"] = FakeEtsyShop.Money(1999),
+        ["subtotal"] = FakeEtsyShop.Money(1999),
+        ["transactions"] = new JsonArray(new JsonObject
+        {
+            ["transaction_id"] = id * 10,
+            ["receipt_id"] = id,
+            ["buyer_user_id"] = 500 + id,
+            ["title"] = "Galaxy vase",
+            ["listing_id"] = listingId,
+            ["listing_image_id"] = imageId,
+            ["quantity"] = 1,
+            ["price"] = FakeEtsyShop.Money(1999),
+            ["expected_ship_date"] = updated + 86400,
+            ["variations"] = new JsonArray(),
+        }),
+    };
+
+    [Fact]
+    public async Task Backfill_pages_through_history_without_events_then_new_orders_raise_OrderReceived()
+    {
+        using var shop = new FakeEtsyShop();
+        var poller = shop.Provider.GetRequiredService<OrderPoller>();
+        poller.PageSize = 2;
+        for (var i = 1; i <= 5; i++) shop.Receipts.Add(Receipt(i, 1_760_000_000 + i));
+
+        var first = await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        Assert.True(first.WasBackfill);
+        Assert.Equal(5, first.New);
+        Assert.Empty(shop.Events.Events);
+        Assert.Equal(3, shop.RequestedPaths.Count(p => p.Contains("/receipts")));
+
+        shop.Receipts.Add(Receipt(6, 1_760_000_100));
+        shop.Api.Requests.Clear();
+        var second = await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        Assert.False(second.WasBackfill);
+        Assert.Equal(1, second.New);
+        var received = Assert.Single(shop.Events.Events.OfType<OrderReceived>());
+        Assert.Equal(6, received.EtsyReceiptId);
+        // Asks only for receipts changed since the last poll (minus the overlap).
+        var since = DateTime.UnixEpoch.AddSeconds(1_760_000_005) - OrderPoller.Overlap;
+        Assert.True(shop.RequestedPaths.Any(p => p.Contains($"min_last_modified={new DateTimeOffset(since).ToUnixTimeSeconds()}")),
+            string.Join(" | ", shop.RequestedPaths));
+    }
+
+    [Fact]
+    public async Task Repolling_is_idempotent_and_picks_up_status_changes()
+    {
+        using var shop = new FakeEtsyShop();
+        var poller = shop.Provider.GetRequiredService<OrderPoller>();
+        shop.Receipts.Add(Receipt(1, 1_760_000_000));
+        await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+        int orderId, itemId;
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var o = await db.Orders.Include(x => x.Items).SingleAsync();
+            (orderId, itemId) = (o.Id, o.Items.Single().Id);
+            Assert.True(o.IsOpen);
+        }
+
+        await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None); // overlap re-reads it: no change
+        shop.Receipts[0] = Receipt(1, 1_760_000_500, shipped: true, status: "Completed");
+        await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var o = await db.Orders.Include(x => x.Items).SingleAsync();
+            Assert.Equal((orderId, itemId), (o.Id, o.Items.Single().Id));
+            Assert.False(o.IsOpen);
+            Assert.Equal(1, await db.OrderItems.CountAsync());
+        }
+        Assert.Empty(shop.Events.Events);
+    }
+
+    [Fact]
+    public async Task Interrupted_backfill_resumes_from_the_saved_offset()
+    {
+        using var shop = new FakeEtsyShop();
+        var poller = shop.Provider.GetRequiredService<OrderPoller>();
+        poller.PageSize = 2;
+        for (var i = 1; i <= 5; i++) shop.Receipts.Add(Receipt(i, 1_760_000_000 + i));
+        shop.FailingReceiptOffsets.Add(4);
+
+        await Assert.ThrowsAsync<EtsyApiException>(() => poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None));
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            Assert.Equal(4, await db.Orders.CountAsync());
+            Assert.Equal(4, (await db.ShopOrderSyncStates.SingleAsync()).Offset);
+        }
+
+        shop.FailingReceiptOffsets.Clear();
+        shop.Api.Requests.Clear();
+        var result = await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        Assert.True(result.WasBackfill);
+        Assert.All(shop.RequestedPaths.Where(p => p.Contains("/receipts")), p => Assert.Contains("offset=4", p));
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            Assert.Equal(5, await db.Orders.CountAsync());
+            var sync = await db.ShopOrderSyncStates.SingleAsync();
+            Assert.Equal(0, sync.Offset);
+            Assert.NotNull(sync.BackfillCompletedAtUtc);
+        }
+        Assert.Empty(shop.Events.Events); // still the backfill
+    }
+
+    [Fact]
+    public async Task Item_photos_come_from_imported_listings_or_one_batch_call()
+    {
+        using var shop = new FakeEtsyShop();
+        shop.Listings.Add(FakeEtsyShop.Listing(1, "Imported"));
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        var gone = FakeEtsyShop.Listing(9, "Deleted from shop");
+        shop.BatchOnlyListings.Add(gone);
+        shop.Receipts.Add(Receipt(1, 1_760_000_000, listingId: 1, imageId: 12)); // second photo of listing 1
+        shop.Receipts.Add(Receipt(2, 1_760_000_001, listingId: 9, imageId: null));
+        shop.Api.Requests.Clear();
+
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        await using var db = shop.Db.CreateDbContext();
+        var items = await db.OrderItems.ToDictionaryAsync(i => i.EtsyListingId!.Value);
+        Assert.Equal("https://i.etsystatic.com/12/il_570xN.jpg", items[1].ImageUrl);
+        Assert.Equal("https://i.etsystatic.com/91/il_570xN.jpg", items[9].ImageUrl); // rank 1 of the batch result
+        var batch = Assert.Single(shop.RequestedPaths, p => p.StartsWith("/v3/application/listings/batch"));
+        Assert.Contains("listing_ids=9", batch);
+    }
+
+    [Fact]
+    public async Task HA_open_orders_lists_each_shop_with_the_card_fields()
+    {
+        using var shop = new FakeEtsyShop();
+        shop.Receipts.Add(Receipt(1, 1_760_000_000));
+        shop.Receipts.Add(Receipt(2, 1_760_000_001, shipped: true, status: "Completed"));
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+        var queries = shop.Provider.GetRequiredService<OrderQueries>();
+
+        var all = await queries.HaOpenOrdersAllAsync();
+        var payload = Assert.Single(all["shops"]!.AsArray())!.AsObject();
+
+        Assert.Equal("42", (string?)payload["shop_id"]);
+        Assert.Equal("TestShop", (string?)payload["shop_name"]);
+        Assert.Equal(1, (int)payload["open_orders_count"]!);
+        Assert.Equal(1, (int)payload["total_items_needed"]!);
+        var order = payload["open_orders"]![0]!;
+        Assert.Equal("1", (string?)order["receipt_id"]);
+        Assert.Equal("Buyer 1", (string?)order["buyer_name"]);
+        Assert.Equal(1_760_086_400L, (long)order["ship_by_ts"]!);
+        Assert.Equal(19.99, (double)order["order_total"]!);
+        Assert.Equal("Galaxy vase", (string?)order["items"]![0]!["title"]);
+        Assert.NotNull(await queries.HaOpenOrdersAsync(42));
+        Assert.Null(await queries.HaOpenOrdersAsync(43));
+    }
+}
+
+public class ApiKeyTests
+{
+    [Fact]
+    public async Task Key_is_shown_once_stored_hashed_validates_and_can_be_revoked()
+    {
+        using var shop = new FakeEtsyShop();
+        var keys = shop.Provider.GetRequiredService<ApiKeyService>();
+
+        var (info, key) = await keys.CreateAsync("Home Assistant", "tophattwaffle");
+
+        Assert.StartsWith(ApiKeyService.KeyPrefix, key);
+        Assert.StartsWith(info.Prefix, key);
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var stored = await db.ApiKeys.SingleAsync();
+            Assert.Equal(ApiKeyService.Hash(key), stored.Hash);
+            Assert.DoesNotContain(key, JsonSerializer.Serialize(stored));
+        }
+        Assert.True(await keys.ValidateAsync(key));
+        Assert.False(await keys.ValidateAsync(key + "x"));
+        Assert.False(await keys.ValidateAsync(null));
+
+        await keys.RevokeAsync(info.Id, "tophattwaffle");
+        Assert.False(await keys.ValidateAsync(key));
+    }
+
+    [Theory]
+    [InlineData("Authorization", "Bearer {key}", 200)]
+    [InlineData("X-Api-Key", "{key}", 200)]
+    [InlineData("Authorization", "Bearer esm_wrong", 401)]
+    [InlineData(null, null, 401)]
+    public async Task Endpoint_filter_accepts_bearer_or_header(string? header, string? value, int expectedStatus)
+    {
+        using var shop = new FakeEtsyShop();
+        var keys = shop.Provider.GetRequiredService<ApiKeyService>();
+        var (_, key) = await keys.CreateAsync("HA", null);
+        var http = new DefaultHttpContext { RequestServices = shop.Provider };
+        if (header is not null) http.Request.Headers[header] = value!.Replace("{key}", key);
+
+        var filter = new ApiKeyEndpointFilter(keys);
+        var result = await filter.InvokeAsync(new DefaultEndpointFilterInvocationContext(http),
+            _ => ValueTask.FromResult<object?>(Results.Ok()));
+
+        Assert.Equal(expectedStatus, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+    }
+}
+
+public class RecurringIntervalTests
+{
+    private static readonly RecurringJobDefinition Def = new("Poll", "x", TimeSpan.FromSeconds(300))
+    {
+        IntervalSettingKey = "k",
+        MinInterval = TimeSpan.FromSeconds(60),
+    };
+
+    [Theory]
+    [InlineData(null, 300)]
+    [InlineData("", 300)]
+    [InlineData("abc", 300)]
+    [InlineData("120", 120)]
+    [InlineData("10", 60)] // raised to the minimum
+    [InlineData("0", 300)]
+    public void Setting_overrides_interval(string? setting, int expectedSeconds) =>
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), Def.EffectiveInterval(setting));
+}

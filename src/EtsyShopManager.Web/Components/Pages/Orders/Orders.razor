@@ -1,0 +1,249 @@
+@page "/orders"
+@attribute [Authorize]
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Orders
+@implements IDisposable
+@inject OrderQueries Queries
+@inject OrderPollQueue PollQueue
+@inject TimeProvider Time
+@inject ISnackbar Snackbar
+
+<PageTitle>Orders · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Orders</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+        <MudSelect T="int?" Value="_shopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Style="min-width: 200px">
+            <MudSelectItem T="int?" Value="null">All shops</MudSelectItem>
+            @foreach (var s in _status)
+            {
+                <MudSelectItem T="int?" Value="s.ShopId">@s.ShopName</MudSelectItem>
+            }
+        </MudSelect>
+        @foreach (var s in _status.Where(s => _shopId is null || s.ShopId == _shopId))
+        {
+            <MudTooltip Text="@StatusTooltip(s)">
+                <MudChip T="string" Size="Size.Small" Color="@(s.LastError is null ? Color.Default : Color.Error)">
+                    @s.ShopName: @s.OpenOrders open · synced @Ago(s.LastPolledAtUtc)
+                </MudChip>
+            </MudTooltip>
+        }
+        <MudSpacer />
+        <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="PollNowAsync">
+                Check for orders now
+            </MudButton>
+        </AuthorizeView>
+    </MudStack>
+</MudPaper>
+
+<MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
+    <MudTabPanel Text="@($"Open ({_open.Count})")">
+        @if (_open.Count == 0)
+        {
+            <MudText Class="muted">No open orders. 🎉</MudText>
+        }
+        <div class="order-grid">
+            @foreach (var o in _open)
+            {
+                var due = Due(o.ShipByUtc);
+                <div class="order-card @(due.Urgent ? "urgent" : "")">
+                    <div class="order-head">
+                        <div>
+                            <div class="order-buyer">@(o.BuyerName ?? $"#{o.EtsyReceiptId}")</div>
+                            <div class="muted small">
+                                <a href="@($"https://www.etsy.com/your/orders/sold?order_id={o.EtsyReceiptId}")" target="_blank">#@o.EtsyReceiptId</a>
+                                · @o.Shop.Name · @ListingFormat.Local(o.EtsyCreatedAtUtc)
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <MudChip T="string" Size="Size.Small" Color="@due.Color">@due.Text</MudChip>
+                            <div class="small muted">@OrderTotal(o)</div>
+                        </div>
+                    </div>
+                    @foreach (var i in o.Items.OrderBy(i => i.EtsyTransactionId))
+                    {
+                        var (variations, personalization) = Split(i);
+                        <div class="order-item">
+                            @if (!string.IsNullOrEmpty(i.ImageUrl))
+                            {
+                                <img src="@i.ImageUrl" alt="" loading="lazy" />
+                            }
+                            else
+                            {
+                                <div class="noimg"></div>
+                            }
+                            <div class="order-item-body">
+                                <div><b>@(i.Quantity > 1 ? $"×{i.Quantity} " : "")</b>@ShortTitle(i.Title)</div>
+                                @if (variations.Count > 0)
+                                {
+                                    <div>@foreach (var v in variations) { <span class="tag-chip" title="@v.Name">@v.Value</span> }</div>
+                                }
+                                @if (personalization is not null) { <div class="order-note">@personalization</div> }
+                                @if (i.Sku is not null) { <div class="muted small">SKU @i.Sku</div> }
+                            </div>
+                        </div>
+                    }
+                    @if (o.MessageFromBuyer is not null)
+                    {
+                        <div class="order-message"><b>Note from buyer:</b> @o.MessageFromBuyer</div>
+                    }
+                    @if (o.IsGift)
+                    {
+                        <div class="order-message"><b>🎁 Gift</b>@(o.GiftMessage is null ? "" : $": {o.GiftMessage}")</div>
+                    }
+                </div>
+            }
+        </div>
+    </MudTabPanel>
+
+    <MudTabPanel Text="@($"To make ({_toMakeTotal})")">
+        @if (_toMake.Count == 0)
+        {
+            <MudText Class="muted">Nothing to make.</MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Hover="true">
+                <thead><tr><th class="text-right">Qty</th><th>Item</th><th>Variations</th><th>Personalization</th><th>Earliest ship-by</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _toMake)
+                    {
+                        <tr>
+                            <td class="text-right"><b>@((int)row["quantity"]!)</b></td>
+                            <td>@ShortTitle((string?)row["title"])</td>
+                            <td>@((string?)row["variations_text"])</td>
+                            <td>@((string?)row["personalization"])</td>
+                            <td>@(row["ship_by_ts"] is { } ts ? ListingFormat.Local(DateTime.UnixEpoch.AddSeconds((long)ts), "ddd MMM d") : "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </MudTabPanel>
+
+    <MudTabPanel Text="History">
+        <MudTextField T="string" Value="_historyText" ValueChanged="OnHistoryTextChanged" Label="Search buyer, item, SKU or receipt #"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true" Class="mb-2"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Style="max-width: 420px" />
+        <MudTable @ref="_history" T="Order" ServerData="LoadHistoryAsync" Dense="true" Hover="true" RowsPerPage="50">
+            <HeaderContent>
+                <MudTh>Date</MudTh><MudTh>Receipt</MudTh><MudTh>Buyer</MudTh><MudTh>Items</MudTh>
+                <MudTh Class="text-right">Total</MudTh><MudTh>Status</MudTh><MudTh>Shop</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@ListingFormat.Local(context.EtsyCreatedAtUtc, "yyyy-MM-dd")</MudTd>
+                <MudTd><a href="@($"https://www.etsy.com/your/orders/sold?order_id={context.EtsyReceiptId}")" target="_blank">#@context.EtsyReceiptId</a></MudTd>
+                <MudTd>@context.BuyerName</MudTd>
+                <MudTd class="small">@string.Join(", ", context.Items.Select(i => (i.Quantity > 1 ? $"{i.Quantity}× " : "") + ShortTitle(i.Title)))</MudTd>
+                <MudTd Class="text-right">@OrderTotal(context)</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@(context.IsOpen ? Color.Warning : context.IsShipped ? Color.Success : Color.Default)">
+                        @(context.IsOpen ? "open" : context.IsShipped ? "shipped" : context.Status)
+                    </MudChip>
+                </MudTd>
+                <MudTd>@context.Shop.Name</MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No orders yet. The first poll pulls the shop's order history.</MudText></NoRecordsContent>
+            <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100, 200 }" /></PagerContent>
+        </MudTable>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<OrderShopStatus> _status = [];
+    private int? _shopId;
+    private List<Order> _open = [];
+    private List<JsonObject> _toMake = [];
+    private int _toMakeTotal;
+    private MudTable<Order>? _history;
+    private string? _historyText;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // Countdowns and new orders: refresh every 30 s.
+        _timer = new Timer(_ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }),
+            null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadAsync()
+    {
+        _status = await Queries.GetShopStatusAsync();
+        _open = await Queries.GetOpenOrdersAsync(_shopId);
+        var payload = HaPayloadBuilder.OpenOrders(_open, TimeZoneInfo.Local);
+        _toMake = payload["items_needed"]!.AsArray().Select(n => n!.AsObject()).ToList();
+        _toMakeTotal = (int)payload["total_items_needed"]!;
+    }
+
+    private async Task OnShopChanged(int? id)
+    {
+        _shopId = id;
+        await LoadAsync();
+        if (_history is not null) await _history.ReloadServerData();
+    }
+
+    private async Task<TableData<Order>> LoadHistoryAsync(TableState state, CancellationToken ct)
+    {
+        var (orders, total) = await Queries.GetHistoryAsync(_shopId, _historyText, state.Page * state.PageSize, state.PageSize, ct);
+        return new TableData<Order> { Items = orders, TotalItems = total };
+    }
+
+    private async Task OnHistoryTextChanged(string? text)
+    {
+        _historyText = text;
+        if (_history is not null) await _history.ReloadServerData();
+    }
+
+    private async Task PollNowAsync()
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var queued = 0;
+        foreach (var s in _status.Where(s => s.IsHealthy && (_shopId is null || s.ShopId == _shopId)))
+            if (await PollQueue.PollShopAsync(s.ShopId, user) is not null) queued++;
+        Snackbar.Add(queued == 0 ? "A check is already queued" : "Checking Etsy for orders…", Severity.Info);
+    }
+
+    private static (List<OrderVariation> Variations, string? Personalization) Split(OrderItem i)
+    {
+        var personalization = i.Variations.Where(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0)
+            .Select(v => v.Name.Length > 0 && !v.Name.Trim().Equals("personalization", StringComparison.OrdinalIgnoreCase) ? $"{v.Name}: {v.Value}" : v.Value)
+            .ToList();
+        return (i.Variations.Where(v => v.PropertyId != HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0).ToList(),
+            personalization.Count == 0 ? null : string.Join(" | ", personalization));
+    }
+
+    private static string ShortTitle(string? title) => (title ?? "").Split('|')[0].Trim();
+
+    private static string OrderTotal(Order o) =>
+        o.Grandtotal is { } g ? ListingFormat.Price(g, o.Divisor, o.CurrencyCode)
+        : ListingFormat.Price(o.Items.Sum(i => i.PriceAmount * Math.Max(1, i.Quantity)), o.Items.FirstOrDefault()?.PriceDivisor ?? 100, o.CurrencyCode);
+
+    private (string Text, Color Color, bool Urgent) Due(DateTime? shipBy)
+    {
+        if (shipBy is null) return ("no ship-by", Color.Default, false);
+        var hours = (shipBy.Value - Time.GetUtcNow().UtcDateTime).TotalHours;
+        var text = hours < 0 ? $"overdue {Span(-hours)}" : $"ship in {Span(hours)}";
+        return hours <= 12 ? (text, Color.Error, true) : hours <= 72 ? (text, Color.Warning, false) : (text, Color.Success, false);
+    }
+
+    private static string Span(double hours) => hours >= 48 ? $"{hours / 24:0}d" : hours >= 1 ? $"{hours:0}h" : $"{hours * 60:0}m";
+
+    private string Ago(DateTime? utc)
+    {
+        if (utc is null) return "never";
+        var minutes = (Time.GetUtcNow().UtcDateTime - utc.Value).TotalMinutes;
+        return minutes < 1 ? "just now" : minutes < 60 ? $"{minutes:0} min ago" : ListingFormat.Local(utc, "HH:mm");
+    }
+
+    private static string StatusTooltip(OrderShopStatus s) =>
+        s.LastError ?? (s.BackfillDone ? $"Last checked {ListingFormat.Local(s.LastPolledAtUtc, "yyyy-MM-dd HH:mm:ss")}" : "First sync (order history) not finished yet");
+
+    public void Dispose() => _timer?.Dispose();
+}

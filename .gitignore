@@ -16,3 +16,8 @@ data/
 
 # Reference material from the old HA integration (delete after migration)
 ExistingHASS/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

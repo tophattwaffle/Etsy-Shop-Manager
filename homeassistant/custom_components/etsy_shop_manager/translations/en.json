@@ -1,0 +1,60 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Etsy Shop Manager",
+        "description": "Enter the address of your Etsy Shop Manager service and an API key created in the app under Admin > API keys.",
+        "data": {
+          "url": "Service URL",
+          "api_key": "API key",
+          "verify_ssl": "Verify the SSL certificate"
+        },
+        "data_description": {
+          "url": "The address you open the app at, e.g. https://etsy.example.lan",
+          "api_key": "Starts with esm_. It is shown once, when the key is created.",
+          "verify_ssl": "Turn off only if the app uses a certificate Home Assistant doesn't trust (e.g. a self-signed one)."
+        }
+      },
+      "reauth_confirm": {
+        "title": "New API key needed",
+        "description": "{url} rejected the API key (it may have been revoked). Create a new key in the app under Admin > API keys.",
+        "data": {
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Can't reach the service at that address.",
+      "invalid_auth": "The API key was rejected."
+    },
+    "abort": {
+      "already_configured": "This service is already set up.",
+      "reauth_successful": "The new API key works."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling",
+        "data": {
+          "scan_interval": "Seconds between updates"
+        },
+        "data_description": {
+          "scan_interval": "How often Home Assistant asks the service for open orders (10-3600). The service checks Etsy on its own schedule, set in the app under Admin > Settings."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "open_orders": {
+        "name": "Open orders"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "new_order": "New order received"
+    }
+  }
+}

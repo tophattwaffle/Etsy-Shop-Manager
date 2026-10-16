@@ -17,6 +17,47 @@ namespace EtsyShopManager.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ApiKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastUsedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Prefix")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Hash")
+                        .IsUnique();
+
+                    b.ToTable("ApiKeys");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.AppSetting", b =>
                 {
                     b.Property<string>("Key")
@@ -444,6 +485,159 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ListingProducts");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BuyerName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("BuyerUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CurrencyCode")
+                        .HasMaxLength(8)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("DiscountAmount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Divisor")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("EtsyCreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("EtsyReceiptId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("EtsyUpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FirstSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("GiftMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("Grandtotal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsGift")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsPaid")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsShipped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LastSyncedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MessageFromBuyer")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RawJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ShipByUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ShippingCost")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ShopId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("Subtotal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("TaxCost")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EtsyCreatedAtUtc");
+
+                    b.HasIndex("EtsyReceiptId")
+                        .IsUnique();
+
+                    b.HasIndex("ShopId", "IsPaid", "IsShipped");
+
+                    b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.OrderItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CurrencyCode")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EtsyCreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("EtsyListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("EtsyProductId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("EtsyTransactionId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ExpectedShipAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ListingImageId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("OrderId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("PriceAmount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PriceDivisor")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Sku")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Variations")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EtsyListingId");
+
+                    b.HasIndex("OrderId", "EtsyTransactionId")
+                        .IsUnique();
+
+                    b.ToTable("OrderItems");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ProcessingProfile", b =>
                 {
                     b.Property<int>("Id")
@@ -641,6 +835,34 @@ namespace EtsyShopManager.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Shops");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ShopOrderSyncState", b =>
+                {
+                    b.Property<int>("ShopId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("BackfillCompletedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastErrorAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastPolledAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ModifiedSinceUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Offset")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("ShopId");
+
+                    b.ToTable("ShopOrderSyncStates");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ShopSection", b =>
@@ -1173,6 +1395,28 @@ namespace EtsyShopManager.Data.Migrations
                     b.Navigation("Listing");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Shop", "Shop")
+                        .WithMany()
+                        .HasForeignKey("ShopId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Shop");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.OrderItem", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Order", "Order")
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ProcessingProfile", b =>
                 {
                     b.HasOne("EtsyShopManager.Core.Domain.Shop", null)
@@ -1207,6 +1451,17 @@ namespace EtsyShopManager.Data.Migrations
                         .HasForeignKey("ShopId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ShopOrderSyncState", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Shop", "Shop")
+                        .WithOne()
+                        .HasForeignKey("EtsyShopManager.Core.Domain.ShopOrderSyncState", "ShopId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Shop");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ShopSection", b =>
@@ -1303,6 +1558,11 @@ namespace EtsyShopManager.Data.Migrations
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingProduct", b =>
                 {
                     b.Navigation("Offerings");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Shop", b =>

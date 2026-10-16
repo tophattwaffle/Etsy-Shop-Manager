@@ -10,6 +10,7 @@
 
 <BaseUrlForm />
 <EtsyKeysForm />
+<OrderPollingForm />
 
 <MudPaper Class="pa-4" Elevation="1">
     <MudText Typo="Typo.h6" GutterBottom="true">Host</MudText>
@@ -20,7 +21,7 @@
             <tr><th>Database</th><td><code>@Storage.DatabasePath</code></td></tr>
             <tr><th>Listening on</th><td><code>@(Configuration["Urls"] ?? "default")</code></td></tr>
             <tr><th>Trusted proxies</th><td><code>@(_proxies.Length == 0 ? "(none — X-Forwarded-* ignored)" : string.Join(", ", _proxies))</code></td></tr>
-            <tr><th>Version</th><td>@(typeof(Program).Assembly.GetName().Version)</td></tr>
+            <tr><th>Version</th><td>@AppVersion.Display</td></tr>
         </tbody>
     </MudSimpleTable>
 </MudPaper>

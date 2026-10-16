@@ -1,0 +1,145 @@
+{
+  "items_needed": [
+    {
+      "listing_id": "7001",
+      "personalization": "ALICE",
+      "quantity": 3,
+      "ship_by_ts": 1760650000,
+      "title": "Galaxy vase | 3D printed | PLA",
+      "variations": [
+        {
+          "property": "Size",
+          "value": "Small"
+        },
+        {
+          "property": "Color",
+          "value": "Black"
+        }
+      ],
+      "variations_text": "Size: Small, Color: Black"
+    },
+    {
+      "listing_id": "7002",
+      "personalization": "Name on pot: Bob",
+      "quantity": 1,
+      "ship_by_ts": 1760700000,
+      "title": "Plant pot",
+      "variations": [],
+      "variations_text": ""
+    }
+  ],
+  "open_orders": [
+    {
+      "buyer_user_id": "502",
+      "currency_code": "USD",
+      "discount_amount": 2.5,
+      "grandtotal": 19.99,
+      "is_paid": true,
+      "is_shipped": false,
+      "item_count": 1,
+      "items": [
+        {
+          "buyer_user_id": "502",
+          "created_date": "2025-10-16 07:33:20",
+          "expected_ship_ts": 1760650000,
+          "image_url": "https://i.etsystatic.com/7001/il_170x135.jpg",
+          "listing_id": "7001",
+          "personalization": "ALICE",
+          "price_amount": 19.99,
+          "price_currency": "USD",
+          "quantity": 1,
+          "receipt_id": "3002",
+          "title": "Galaxy vase | 3D printed | PLA",
+          "transaction_id": "9003",
+          "updated_date": null,
+          "variations": [
+            {
+              "property": "Size",
+              "value": "Small"
+            },
+            {
+              "property": "Color",
+              "value": "Black"
+            }
+          ],
+          "variations_text": "Size: Small, Color: Black"
+        }
+      ],
+      "order_date": "2025-10-16 07:33:20",
+      "order_total": 19.99,
+      "receipt_id": "3002",
+      "ship_by_date": "2025-10-16 21:26:40",
+      "ship_by_ts": 1760650000,
+      "status": "Paid",
+      "subtotal": 19.99
+    },
+    {
+      "buyer_name": "Alice Example",
+      "buyer_user_id": "501",
+      "currency_code": "USD",
+      "gift_message": "Happy birthday",
+      "grandtotal": 53.98,
+      "is_gift": true,
+      "is_paid": true,
+      "is_shipped": false,
+      "item_count": 2,
+      "items": [
+        {
+          "buyer_user_id": "501",
+          "created_date": "2025-10-15 03:46:40",
+          "expected_ship_ts": 1760800000,
+          "image_url": "https://i.etsystatic.com/7001/il_170x135.jpg",
+          "listing_id": "7001",
+          "personalization": "ALICE",
+          "price_amount": 19.99,
+          "price_currency": "USD",
+          "quantity": 2,
+          "receipt_id": "3001",
+          "title": "Galaxy vase | 3D printed | PLA",
+          "transaction_id": "9001",
+          "updated_date": null,
+          "variations": [
+            {
+              "property": "Size",
+              "value": "Small"
+            },
+            {
+              "property": "Color",
+              "value": "Black"
+            }
+          ],
+          "variations_text": "Size: Small, Color: Black"
+        },
+        {
+          "buyer_user_id": "501",
+          "created_date": "2025-10-15 03:46:40",
+          "expected_ship_ts": 1760700000,
+          "image_url": "https://i.etsystatic.com/7002/il_170x135.jpg",
+          "listing_id": "7002",
+          "personalization": "Name on pot: Bob",
+          "price_amount": 10.0,
+          "price_currency": "USD",
+          "quantity": 1,
+          "receipt_id": "3001",
+          "title": "Plant pot",
+          "transaction_id": "9002",
+          "updated_date": null,
+          "variations": [],
+          "variations_text": ""
+        }
+      ],
+      "message_from_buyer": "Please hurry!",
+      "order_date": "2025-10-15 03:46:40",
+      "order_total": 49.98,
+      "receipt_id": "3001",
+      "ship_by_date": "2025-10-17 11:20:00",
+      "ship_by_ts": 1760700000,
+      "status": "Paid",
+      "subtotal": 49.98,
+      "total_shipping_cost": 4.0,
+      "total_tax_cost": 0.0
+    }
+  ],
+  "open_orders_count": 2,
+  "total_items_needed": 4
+}

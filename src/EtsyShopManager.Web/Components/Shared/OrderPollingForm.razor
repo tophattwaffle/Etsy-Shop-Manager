@@ -1,0 +1,42 @@
+@using EtsyShopManager.Web.Modules.Orders
+@inject ISettingsStore Settings
+@inject IAuditLog Audit
+@inject ISnackbar Snackbar
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Order polling</MudText>
+    <MudText Typo="Typo.body2" Class="mb-3">
+        How often the app checks Etsy for new and changed orders (all shops). The old Home Assistant integration
+        checked every @((int)OrdersModule.DefaultPollInterval.TotalMinutes) minutes. Each check costs one Etsy call
+        per shop (more when many orders changed). Takes effect at the next check.
+    </MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudNumericField T="int" @bind-Value="_minutes" Label="Minutes between checks" Min="1" Max="1440"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width: 220px" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private int _minutes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var seconds = int.TryParse(await Settings.GetAsync(SettingKeys.OrdersPollIntervalSeconds), out var s) && s > 0
+            ? s
+            : (int)OrdersModule.DefaultPollInterval.TotalSeconds;
+        _minutes = Math.Max(1, (int)Math.Round(seconds / 60.0));
+    }
+
+    private async Task SaveAsync()
+    {
+        var minutes = Math.Clamp(_minutes, 1, 1440);
+        var user = (await AuthState).User.Identity?.Name;
+        await Settings.SetAsync(SettingKeys.OrdersPollIntervalSeconds, (minutes * 60).ToString(), updatedBy: user);
+        await Audit.WriteAsync("settings.orders-poll-interval", "Setting", SettingKeys.OrdersPollIntervalSeconds,
+            $"{minutes} min", user);
+        Snackbar.Add($"Orders are checked every {minutes} minute{(minutes == 1 ? "" : "s")}", Severity.Success);
+    }
+}

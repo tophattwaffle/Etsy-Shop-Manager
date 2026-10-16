@@ -1,6 +1,6 @@
 # Etsy Shop Manager — Project Plan
 
-_Status: Phase 0 (Foundation) and Phase 1 (Import) implemented. Last updated 2026-10-16._
+_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented. Last updated 2026-10-16._
 
 ## Goals
 
@@ -21,7 +21,7 @@ A self-hosted Etsy shop manager running on a Windows host, used from any device 
 | Etsy auth | OAuth 2.0 + PKCE against the existing app. Redirect URI is the HAProxy hostname (the redirect happens in the browser, so it does not need to be publicly reachable). Tokens encrypted with ASP.NET Data Protection (DPAPI) |
 | Etsy client | Generated from Etsy's OpenAPI spec, wrapped with a per-API-key rate limiter and retry |
 | Background work | A persistent job queue table, processed by hosted services. Survives restarts and keeps under rate limits |
-| Orders | Polling (`getShopReceipts` with `min_last_modified`) every 2–5 min. Webhooks are not used: they require a public URL |
+| Orders | Polling (`getShopReceipts` with `min_last_modified`), every 5 min by default (as the old HA integration), set in Admin → Settings. Webhooks are not used: they require a public URL |
 | Source control | Git repo. Code may live in Dropbox, but the live DB and image store must not (Dropbox sync can corrupt SQLite) |
 
 ## Solution layout
@@ -112,11 +112,11 @@ The existing card keeps its styling and logic. Only its data source changes. **H
   - The payload keeps the exact shape the card already reads: `open_orders[]` (`receipt_id`, `buyer_name`, `ship_by_ts`, `order_total`, `currency_code`, `items[]` with `title`, `quantity`, `variations[{property,value}]`, `personalization`, `image_url`) and `total_items_needed`.
 - **HA side:** a new integration `etsy_shop_manager` (a different domain from the old `etsyapp`, so both can run side by side during migration).
   - Config flow takes the service URL and API key, then shows a device and an Open Orders sensor per shop.
-  - Polls every 30–60 s. This is cheap because it stays on the LAN.
+  - Polls every 60 s by default (options flow, 10–3600 s). This is cheap because it stays on the LAN.
   - Fires an `etsy_shop_manager_new_order` event and a device trigger.
   - Large attributes (`open_orders`, `items_needed`) are kept out of the HA recorder (`_unrecorded_attributes`), because HA's 16 KB attribute limit is easy to exceed.
 - **Card:** carried over unchanged. Its config simply points `shops[].entity` at the new sensors. A later option could link orders to this app's order page instead of Etsy.
-- Install via HACS custom repository, or by copying files manually.
+- Install via HACS custom repository, or by copying files manually. HACS only installs from GitHub repositories with `custom_components/` at the root, so `homeassistant/` is laid out to become its own GitHub repository as-is.
 - Phase 2 option: push updates over SSE/WebSocket instead of polling, if the 30–60 s delay matters.
 
 ## Additions to build in early
@@ -171,6 +171,15 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - **UI:** Listings (search title/SKU/tag/listing id, filter by shop/state/gone, sort, server paging, import status and "Import now"/"Full re-import" for Admin/Editor), listing detail (fields with lookup names, attributes, personalization, photos, inventory grid, Etsy state with hash and raw JSON) and Lookups (per-shop tables with usage counts, taxonomy search with properties).
 - **Found on the first real import:** Etsy reuses `listing_image_id` across copied listings, so image rows are unique per listing, not globally. The rate limiter now adds one token every 1/RPS seconds (burst 2) instead of refilling 5 tokens at once, which drew frequent 429s.
 - **Not yet:** videos, translations, digital files. A full import of a ~300-listing shop costs roughly 10 calls for listings and lookups plus one attribute call per changed listing.
+
+## Phase 2 implementation notes
+- **Polling:** `etsy.orders.poll-all` (recurring) queues `etsy.orders.poll` per shop (priority above imports). Each poll asks `getShopReceipts` for receipts modified since the last poll minus a 2-minute overlap, sorted by update time, 100 per page. The first poll pulls the whole order history. Orders and items are matched by Etsy id (idempotent); the page offset is saved after every page so an interrupted backfill resumes. The interval comes from the `Orders.PollIntervalSeconds` setting (Admin → Settings, minimum 1 minute); recurring jobs can now take their interval from a setting (`RecurringJobDefinition.IntervalSettingKey`). Connecting a shop starts a poll.
+- **Stored:** `Order` (receipt, with the raw JSON incl. address for later packing slips) and `OrderItem` (transaction, with variations incl. personalization and the photo URL). Open = paid, not shipped, status not completed/canceled/refunded (the old integration's rule). `OrderReceived` is raised for orders that become paid after the first backfill.
+- **Photos:** each item's `image_url` is Etsy's CDN URL: the transaction's own listing image from the imported listings, or one `getListingsByListingIds` call (includes=Images) for listings that aren't imported (e.g. deleted). No sign-in or app access is needed to show them.
+- **HA API** (`/api/ha/v1`, API key in `Authorization: Bearer` or `X-Api-Key`): `GET /shops`, `GET /open-orders` (every shop, what the integration polls), `GET /shops/{etsyShopId}/open-orders`. `HaPayloadBuilder` ports the old `build_receipt_summary` / `build_transaction_detail` / `_aggregate_items_needed`; a test compares its output with a golden file produced by running the old Python on the same receipts. Date strings use the host's time zone; `ship_by_ts` is Unix time, as before.
+- **API keys:** Admin → API keys. Shown once; stored as SHA-256; last use recorded (at most every 5 minutes); revocable.
+- **Orders page:** open orders as cards sorted by ship-by (urgent ones tinted), a "to make" list (same aggregation as HA), and searchable history.
+- **HA integration** (`homeassistant/custom_components/etsy_shop_manager`, HA 2024.11+): config flow (URL, key, SSL verification), re-authentication when the key is revoked, options flow for the interval, one device + Open orders sensor per shop (new shops appear automatically), `etsy_shop_manager_new_order` event + device trigger (orders open at startup are not announced), large attributes excluded from the recorder. Tests run in a real HA (`pytest-homeassistant-custom-component`) against a mocked service. The existing card is in `homeassistant/www/`, unchanged.
 
 ## Deployment
 - Source: private Gitea repo `github.com/TopHATTwaffle/etsy-shop-manager`, default branch `master`.

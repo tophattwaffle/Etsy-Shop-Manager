@@ -70,3 +70,16 @@
 .json-block { white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; max-height: 600px; overflow: auto; margin: 0; }
 .taxonomy-list { max-height: 520px; overflow: auto; }
 .app-version { opacity: 0.75; white-space: nowrap; }
+
+/* ---- Orders (Phase 2) ---- */
+.order-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.order-card { border: 1px solid var(--mud-palette-lines-default, #ddd); border-radius: 8px; padding: 12px; }
+.order-card.urgent { background: rgba(219, 68, 55, 0.12); border-color: rgba(219, 68, 55, 0.5); }
+.order-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.order-buyer { font-weight: 600; }
+.order-item { display: flex; gap: 10px; padding: 6px 0; border-top: 1px solid var(--mud-palette-lines-default, #eee); }
+.order-item img, .order-item .noimg { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; flex: none; }
+.order-item .noimg { background: var(--mud-palette-background-gray, #eee); }
+.order-item-body { min-width: 0; }
+.order-note { margin-top: 4px; padding: 4px 8px; border-radius: 4px; white-space: pre-wrap; background: var(--mud-palette-background-gray, #eee); }
+.order-message { margin-top: 8px; font-size: 0.9rem; white-space: pre-wrap; }

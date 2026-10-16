@@ -4,7 +4,7 @@ Self-hosted manager for two Etsy shops. Runs as a Windows Service, web UI (Blazo
 device on the LAN or over VPN, behind HAProxy. This app is the system of record for listings; see
 [docs/PLAN.md](docs/PLAN.md) for the full design.
 
-**Status: Phases 0 (Foundation) and 1 (Import) implemented.** Next is Phase 2 (orders + Home Assistant).
+**Status: Phases 0–2 implemented (foundation, listing import, orders + Home Assistant).** Next is Phase 3 (editor + push).
 
 ## Quick start (Windows)
 
@@ -42,6 +42,16 @@ After that, merges to `master` deploy automatically: [docs/DEPLOY.md](docs/DEPLO
   Phase 3 drift detection.
 - Read-only UI: Listings (search, filters, paging), listing detail (fields, photos, inventory grid, Etsy state) and Lookups.
 
+## What's in Phase 2
+
+- Order polling for every shop (default every 5 minutes, set in Admin → Settings), stored locally with full history.
+- Orders page: open orders by ship-by date with items, variations, personalization, notes and photos; a combined
+  "to make" list; searchable history.
+- API keys (Admin → API keys) and a read-only Home Assistant API (`/api/ha/v1`) with the open-orders payload the
+  existing card reads.
+- A new Home Assistant integration, `etsy_shop_manager` (`homeassistant/`): an Open orders sensor per shop, a
+  new-order event and device trigger. See [homeassistant/README.md](homeassistant/README.md).
+
 ## Solution layout
 
 ```
@@ -54,7 +64,7 @@ tests/EtsyShopManager.Tests/
 scripts/                  install-prereqs, build, add-migration, install-service, deploy, grant-deploy-rights, uninstall-service
 .gitea/workflows/         deploy on push to master (self-hosted runner on the Windows host)
 docs/                     PLAN.md, SETUP.md, DEPLOY.md
-homeassistant/            (Phase 2) HA integration and the existing card
+homeassistant/            HA integration (HACS layout: custom_components/, hacs.json, tests/) and the card (www/)
 ```
 
 ## Adding a feature module

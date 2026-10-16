@@ -8,6 +8,7 @@
 @inject IJobQueue Queue
 @inject IEnumerable<RecurringJobDefinition> RecurringDefinitions
 @inject ISnackbar Snackbar
+@inject ISettingsStore Settings
 
 <PageTitle>Jobs · Etsy Shop Manager</PageTitle>
 
@@ -26,7 +27,7 @@
                 <tr>
                     <td>@def.Name</td>
                     <td><code>@def.JobType</code></td>
-                    <td>@def.Interval</td>
+                    <td>@(_intervals.GetValueOrDefault(def.Name, def.Interval))@(def.IntervalSettingKey is null ? "" : " (setting)")</td>
                     <td>@Local(last)</td>
                     <td class="text-right">
                         <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => RunNowAsync(def)">Run now</MudButton>
@@ -97,6 +98,7 @@
 
     private List<Job> _jobs = [];
     private Dictionary<string, DateTime?> _recurringState = [];
+    private Dictionary<string, TimeSpan> _intervals = [];
     private string _filter = "all";
     private bool _autoRefresh = true;
     private Timer? _timer;
@@ -123,6 +125,8 @@
         };
         _jobs = await q.OrderByDescending(j => j.Id).Take(200).ToListAsync();
         _recurringState = await db.RecurringJobs.AsNoTracking().ToDictionaryAsync(r => r.Name, r => r.LastEnqueuedAtUtc);
+        foreach (var def in RecurringDefinitions)
+            _intervals[def.Name] = await RecurringJobScheduler.GetIntervalAsync(def, Settings);
     }
 
     private async Task OnFilterChanged(string value)

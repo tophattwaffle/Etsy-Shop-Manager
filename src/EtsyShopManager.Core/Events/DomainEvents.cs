@@ -48,7 +48,7 @@ public sealed class DomainEventPublisher(IServiceScopeFactory scopeFactory, ILog
     }
 }
 
-// ---- Events raised in Phase 0. Later phases add OrderReceived, ListingPushed, DriftDetected, StockRefilled… ----
+// ---- Events. Later phases add ListingPushed, DriftDetected, StockRefilled… ----
 
 public sealed record ShopConnected(int ShopId, long EtsyShopId, string ShopName, bool IsReconnect) : IDomainEvent
 {
@@ -61,6 +61,12 @@ public sealed record ShopDisconnected(int ShopId, string ShopName) : IDomainEven
 }
 
 public sealed record ShopNeedsReauth(int ShopId, string Reason) : IDomainEvent
+{
+    public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
+}
+
+/// <summary>A paid order this app had not seen before (not raised for the initial backfill).</summary>
+public sealed record OrderReceived(int ShopId, int OrderId, long EtsyReceiptId) : IDomainEvent
 {
     public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
 }

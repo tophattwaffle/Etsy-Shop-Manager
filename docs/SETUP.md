@@ -124,6 +124,7 @@ All Etsy work runs through a persistent job queue (survives restarts; interrupte
 | Refresh shop details | 24 h | Updates shop name, URL, icon, currency |
 | Clean up old jobs | 24 h | Deletes succeeded jobs after 30 days, failed after 90 |
 | Import listings (all shops) | 24 h | Pulls every shop's listings, lookups, then photos and taxonomy |
+| Poll orders (all shops) | 5 min (Admin → Settings) | Fetches new and changed orders; the first run pulls the order history |
 
 **Listing import.** Connecting a shop queues its first import. After that it runs every 24 h, or on demand from
 **Listings → Import now** (Admin/Editor). "Full re-import" also re-reads every listing's category attributes (normally
@@ -133,7 +134,17 @@ Lookups can be refreshed on their own from the **Lookups** page.
 
 A rejected refresh token marks the shop **Reconnect needed** (dashboard and Shops page) and is recorded in the audit log.
 
-## 9. Etsy rate limits
+## 9. Home Assistant
+
+1. **Admin → API keys → Create key** (e.g. "Home Assistant"); copy it, it's shown once.
+2. Install the integration from `homeassistant/` (HACS once it's published as a GitHub repository, or copy
+   `custom_components/etsy_shop_manager` into HA's `config/custom_components/`) and add **Etsy Shop Manager** with
+   the app's address and the key.
+3. Point the `etsy-orders-card` at the new `sensor.<shop>_open_orders` sensors.
+
+Details: [homeassistant/README.md](../homeassistant/README.md). Revoking a key in the app makes HA ask for a new one.
+
+## 10. Etsy rate limits
 
 One token bucket is shared by both shops (Etsy limits per API key): 5 requests/second by default (`Etsy:RequestsPerSecond`).
 429 and 5xx responses are retried with back-off and `Retry-After`. Waits longer than 30 seconds reschedule the job
