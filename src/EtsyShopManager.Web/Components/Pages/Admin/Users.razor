@@ -244,7 +244,7 @@
             return;
         }
 
-        var confirmed = await Dialogs.ShowMessageBox("Delete user", $"Delete {row.UserName}? This cannot be undone.",
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Delete user", $"Delete {row.UserName}? This cannot be undone.",
             yesText: "Delete", cancelText: "Cancel");
         if (confirmed != true) return;
 

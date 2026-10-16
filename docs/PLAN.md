@@ -154,8 +154,15 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 ## Phase 0 implementation notes
 - **Etsy client:** Phase 0 uses a thin hand-written client (`users/me`, `shops/{id}`) on the same HTTP pipeline the generated client will use (x-api-key, rate limiter, retry). The OpenAPI-generated client is added in Phase 1, when listing and inventory calls are needed.
 - **x-api-key:** Etsy v3 requires `keystring:shared_secret` in the header; the app sends it on every `/v3/application` call.
-- **Migrations:** the first `scripts/build.ps1` run creates `InitialCreate`; commit `src/EtsyShopManager.Data/Migrations`. Pending migrations apply on startup.
+- **Migrations:** committed in `src/EtsyShopManager.Data/Migrations` (starting with `InitialCreate`). The build fails if the model changed without a migration; pending migrations apply on startup.
 - **Dates:** stored as UTC `DateTime`, not `DateTimeOffset`, because EF's SQLite provider can't sort or compare `DateTimeOffset` in SQL.
 - **Rendering:** Interactive Server without prerendering. Sign-in and the "create Admin" step are static SSR, because they set the auth cookie.
 - **Service account:** `NT SERVICE\EtsyShopManager`, with modify rights on `C:\ProgramData\EtsyShopManager` only. Data Protection keys use machine-scope DPAPI; back up the `keys` folder with the database.
+- **Packages:** EF Core / ASP.NET 10.0.13, MudBlazor 9.x. Verified with a real build, the test suite and a live run of the first-run flow.
 - **Recurring jobs:** token keep-alive every 12 h (keeps the ~90-day refresh token rolling), shop details every 24 h, job cleanup every 24 h.
+
+## Deployment
+- Source: private Gitea repo `github.com/TopHATTwaffle/etsy-shop-manager`, default branch `master`.
+- Claude pushes to branches and opens PRs; `master` is protected so only TopHATTwaffle merges.
+- Every push to `master` deploys automatically: Gitea Actions on a self-hosted `gitea-runner` on the Windows host (label `esm-deploy`, host mode) builds, tests, publishes, backs up the DB, upgrades the service, checks `/health`, and rolls back on failure. Setup: `docs/DEPLOY.md`.
+- The runner account is not an admin: it can only control the EtsyShopManager service and write its install and data folders.

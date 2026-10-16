@@ -2,10 +2,21 @@
 
 ## 1. Prerequisites (Windows host)
 
-- **.NET 10 SDK** (to build): https://dotnet.microsoft.com/download/dotnet/10.0
-- **PowerShell 7** (`pwsh`) for the scripts.
+One script installs everything (skipping anything already present). In an elevated **Windows PowerShell** window,
+from the repo folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-prereqs.ps1
+```
+
+It installs the .NET 10 SDK and PowerShell 7, plus the auto-deploy tools (Git, Node.js LTS, NSSM, gitea-runner).
+Add `-SkipRunner` to install only the first two. Then open a **new** elevated PowerShell 7 (`pwsh`) window for the
+remaining steps, so the PATH changes apply.
+
 - The repo can live in Dropbox. The live data cannot: it goes to `C:\ProgramData\EtsyShopManager`, and the app
   refuses to start if `Storage:DataRoot` points into Dropbox or OneDrive.
+- Run the scripts from a local path on the host, not a mapped drive or `\\server\share` path: elevated sessions
+  don't see mapped drives, and PowerShell may block scripts on network paths.
 
 ## 2. First build
 
@@ -13,9 +24,9 @@
 pwsh scripts/build.ps1
 ```
 
-On the first run this also creates the `InitialCreate` EF Core migration in `src/EtsyShopManager.Data/Migrations`.
-**Commit that folder.** After any later model change: `pwsh scripts/add-migration.ps1 -Name <Change>`.
-Pending migrations are applied automatically when the app starts.
+EF Core migrations are committed in `src/EtsyShopManager.Data/Migrations`. After a model change, run
+`pwsh scripts/add-migration.ps1 -Name <Change>` and commit the result; the build fails if the model and migrations
+don't match. Pending migrations are applied automatically when the app starts.
 
 ## 3. Try it locally (optional)
 
@@ -64,6 +75,8 @@ This publishes a self-contained build to `C:\Program Files\EtsyShopManager`, cre
 
 Re-run the same command to upgrade. Host-specific settings live in
 `C:\Program Files\EtsyShopManager\appsettings.Production.json`, which upgrades never overwrite.
+
+After this first install, upgrades can be automatic: see [DEPLOY.md](DEPLOY.md).
 
 Uninstall: `pwsh -File scripts/uninstall-service.ps1` (add `-RemoveData` to delete the data folder too).
 
