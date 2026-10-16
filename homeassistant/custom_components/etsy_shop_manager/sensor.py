@@ -44,7 +44,7 @@ class EtsyOpenOrdersSensor(CoordinatorEntity[EtsyShopManagerCoordinator], Sensor
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "orders"
     # The order lists can be large; HA's recorder caps attributes at 16 KB, so keep them out of history.
-    _unrecorded_attributes = frozenset({"open_orders", "items_needed"})
+    _unrecorded_attributes = frozenset({"open_orders", "items_needed", "color_config"})
 
     def __init__(self, coordinator: EtsyShopManagerCoordinator, shop_id: str) -> None:
         super().__init__(coordinator)
@@ -87,4 +87,7 @@ class EtsyOpenOrdersSensor(CoordinatorEntity[EtsyShopManagerCoordinator], Sensor
         attributes["shop_id"] = self._shop_id
         attributes["shop_name"] = shop.get("shop_name")
         attributes["orders_synced_at"] = shop.get("orders_synced_at")
+        # The app's order color list; the etsy-orders-card colors variations and notes with it.
+        if self.coordinator.color_config is not None:
+            attributes["color_config"] = self.coordinator.color_config
         return attributes

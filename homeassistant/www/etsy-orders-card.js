@@ -1,7 +1,11 @@
-// etsy-orders-card v2.3.1 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.4.0 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
-// sensors. Config:
+// sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
+// Etsy Shop Manager app (Settings -> Order colors) through the sensors'
+// `color_config` attribute; any of those set here are merged on top of it.
+// The coloring engine (EtsyOrderColors) is shared with the app's Orders page,
+// which loads this same file. Config:
 //   shops:             list of { entity, name?, icon? (emoji or text),
 //                      order_url? (desktop-only override of order_url) }
 //   android_package:   on Android, open orders in this app (an intent link
@@ -14,8 +18,8 @@
 //   red_hours:         ...and fully red at this many hours or fewer, blending
 //                      green → yellow → red in between; below it the whole
 //                      order card is tinted red (default 12)
-//   colors:            extra color names for tinting variation and
-//                      personalization boxes, as { "Name": "#hex" } or
+//   colors:            color names for tinting variation and personalization
+//                      boxes, added to the app's list (same name: this wins), as { "Name": "#hex" } or
 //                      { "Name": ["#hex", "#hex"] } for multi-color filaments.
 //                      CSS color names (black, purple, dark green, …) are
 //                      recognised without being listed; several colors in one
@@ -23,14 +27,15 @@
 //   color_tint:        strength (%) of that tint; 0 turns coloring off (default 35)
 //   metallic:          color names (keys of `colors`, or CSS names) that get a
 //                      metal effect over their part of a box: a bevel sheen and
-//                      a glint of light sweeping across (default ["Copper"])
+//                      a glint of light sweeping across (default: the app's list,
+//                      else ["Copper"])
 //   metallic_shine:    strength (%) of that sheen and glint; 0 turns it off
 //                      (default 60)
 //   animate_metallic:  the glint sweeps across every few seconds (default true;
 //                      paused and off like animate_random)
 //   random_words:      words or phrases that mark a "random color" choice; such
 //                      boxes get the random_style effect in colors drawn from
-//                      `colors` (default ["random"])
+//                      `colors` (default: the app's list, else ["random"])
 //   random_style:      "lava" (soft blobs drifting like a lava lamp) or
 //                      "confetti" (falling dots) (default "lava")
 //   random_min_brightness: 0–100; `colors` darker than this (by their brightest
@@ -74,6 +79,208 @@ const rng = (seed) => {
   };
 };
 
+// The coloring engine: tints variation pills and personalization notes by the colors they name, with
+// metal and "random" effects. Shared with the Etsy Shop Manager app (its Orders page loads this file and
+// uses window.EtsyOrderColors), so both always color the same way. `base` is the background the tints are
+// mixed with.
+class EtsyOrderColors {
+  static DEFAULTS = {
+    colors: {},
+    color_tint: 35,
+    metallic: ["Copper"],
+    metallic_shine: 60,
+    animate_metallic: true,
+    random_words: ["random"],
+    random_style: "lava",
+    random_min_brightness: 60,
+    animate_random: true,
+  };
+
+  constructor(config, base = "var(--ha-card-background, var(--card-background-color, #fff))") {
+    this.c = { ...EtsyOrderColors.DEFAULTS, ...config };
+    this.base = base;
+    // Color names are matched word by word, so "Dark  Green!" finds the key "dark green".
+    this._colorMap = new Map(Object.entries(this.c.colors || {}).map(([k, v]) => [words(k).join(" "), [].concat(v).map(String)]));
+    this._colorMaxWords = Math.max(3, ...[...this._colorMap.keys()].map((k) => k.split(" ").length));
+    this._metallic = new Set([].concat(this.c.metallic || []).map((w) => words(w).join(" ")).filter(Boolean));
+    // The random effects skip dark colors, dull greys and browns (both look muddy) and near-whites
+    // (which vanish on a light theme); vivid colors stay even when they read darkish, like a deep red.
+    const minV = Number(this.c.random_min_brightness) / 100;
+    const palette = [...new Set([...this._colorMap.values()].flat())].filter((col) => {
+      const { v, s, luma } = tone(col);
+      return v >= minV && !(s < 0.3 && v < 0.8) && luma < 0.9;
+    });
+    this._palette = palette.length ? palette : RAINBOW;
+    this._randomWords = [].concat(this.c.random_words || []).map((w) => words(w).join(" ")).filter(Boolean);
+  }
+
+  // The shared color list (from the app, via a sensor's `color_config` attribute) with the card's own
+  // settings on top: `colors` entries are merged by name, other keys replace the shared ones.
+  static merge(shared, own) {
+    const out = { ...(shared || {}) };
+    for (const [k, v] of Object.entries(own || {})) {
+      out[k] = k === "colors" ? { ...(out.colors || {}), ...(v || {}) } : v;
+    }
+    return out;
+  }
+
+  // How to draw a box of `text`: { cls: extra classes ("" when uncolored), style, inner (HTML before the
+  // text) }. A "random" choice gets the random effect, seeded by `seed` so it stays put between renders.
+  box(text, seed, small) {
+    const fx = this.isRandom(text) ? this.randomFx(`${seed}|${text}`, small) : null;
+    if (fx) return { cls: ` colored random ${fx.kind}${this.c.animate_random ? "" : " still"}`, style: fx.style, inner: fx.inner };
+    const groups = this.colorsIn(text);
+    const metal = this.metalStyle(groups);
+    const style = this.colorStyle(groups) + (metal ? ` ${metal}` : "");
+    if (!style) return { cls: "", style: "", inner: "" };
+    return { cls: ` colored${metal ? ` metal${this.c.animate_metallic ? "" : " still"}` : ""}`, style, inner: "" };
+  }
+
+  // Colors named in free text, in the order written: the `colors` map first
+  // (longest name wins), then CSS color names, joining words ("Dark Green" → darkgreen).
+  // Each name is one group, so a multi-color filament stays together: [["black"], ["#4fc3f7", "#ff1fd1"]].
+  // A group named in `metallic` carries metal: true.
+  colorsIn(text) {
+    const w = words(text);
+    const out = [];
+    for (let i = 0; i < w.length; ) {
+      let used = 1;
+      for (let n = Math.min(this._colorMaxWords, w.length - i); n > 0; n--) {
+        const parts = w.slice(i, i + n);
+        const cols = this._colorMap.get(parts.join(" ")) || (isCssColor(parts.join("")) ? [parts.join("")] : null);
+        if (cols) {
+          const hit = Object.assign([...cols], { metal: this._metallic.has(parts.join(" ")) });
+          if (out[out.length - 1]?.join() !== hit.join()) out.push(hit);
+          used = n;
+          break;
+        }
+      }
+      i += used;
+    }
+    return out;
+  }
+
+  // A tinted fill fading through the colors, with a full-strength outline in the same colors.
+  // Each named color gets an equal share of the width, and a multi-color filament splits its
+  // share between its colors (black + a dual filament = ½ black, ¼, ¼); stops sit at the
+  // middle of each share so neighbours fade into each other.
+  // The fill is mixed with the background so it stays opaque over the outline layer.
+  colorStyle(groups) {
+    const t = Number(this.c.color_tint);
+    if (!groups.length || !(t > 0)) return "";
+    const stops = [];
+    groups.forEach((g, gi) => g.forEach((col, ci) => stops.push([col, ((gi + (ci + 0.5) / g.length) / groups.length) * 100])));
+    if (stops.length === 1) stops.splice(0, 1, [stops[0][0], 0], [stops[0][0], 100]);
+    const grad = (fn) => `linear-gradient(90deg, ${stops.map(([col, p]) => `${fn(col)} ${p.toFixed(1)}%`).join(", ")})`;
+    const tint = (col) => `color-mix(in srgb, ${col} ${Math.min(100, t)}%, ${this.base})`;
+    return `background: ${grad(tint)} padding-box, ${grad((col) => col)} border-box; border-color: transparent;`;
+  }
+
+  // The metal layer (.metal::after) over the metallic groups' shares of the box, or "" when none.
+  // A mask fades it in and out at the edges of those shares, so in "Black & Copper" only the
+  // copper half shines; when every group is metallic the whole box does.
+  metalStyle(groups) {
+    const shine = Number(this.c.metallic_shine);
+    if (!(shine > 0) || !(Number(this.c.color_tint) > 0) || !groups.some((g) => g.metal)) return "";
+    let mask = "none";
+    if (!groups.every((g) => g.metal)) {
+      const share = 100 / groups.length;
+      const fade = share / 4;
+      const stops = groups.flatMap((g, gi) => {
+        if (!g.metal) return [];
+        const [a, b] = [gi * share, (gi + 1) * share];
+        // Full strength right up to the box's own edges; faded only where it meets another color.
+        const from = a > 0 ? [`transparent ${a.toFixed(1)}%`, `#000 ${(a + fade).toFixed(1)}%`] : ["#000 0%"];
+        const to = b < 100 ? [`#000 ${(b - fade).toFixed(1)}%`, `transparent ${b.toFixed(1)}%`] : ["#000 100%"];
+        return [...from, ...to];
+      });
+      mask = `linear-gradient(90deg, ${stops.join(", ")})`;
+    }
+    return `--shine: ${Math.min(100, shine) / 100}; --metal-mask: ${mask};`;
+  }
+
+  isRandom(text) {
+    const s = ` ${words(text).join(" ")} `;
+    return this._randomWords.some((w) => s.includes(` ${w} `));
+  }
+
+  // A "random" box: colors drawn from the palette. Behind the effect is a slow drift through tinted
+  // palette colors (mixed with the background, so opaque and readable), and around it a
+  // multicolor outline. Both are horizontal tiles sized in pixels rather than box widths, so a small
+  // pill and a wide note show the same colors per inch; each tile ends on its first color, so sliding
+  // it a whole tile loops seamlessly. Returns { kind, style, inner } or null when coloring is off.
+  randomFx(seed, small) {
+    const t = Number(this.c.color_tint);
+    if (!(t > 0)) return null;
+    const r = rng(seed);
+    const pick = () => this._palette[Math.floor(r() * this._palette.length)];
+    const loop = (cols) => [...cols, cols[0]].join(", ");
+    const wash = Array.from({ length: 4 }, pick).map((col) => `color-mix(in srgb, ${col} ${Math.min(100, t + 10)}%, ${this.base})`);
+    const ring = Array.from({ length: 5 }, pick);
+    const frame = `background: linear-gradient(90deg, ${loop(wash)}) padding-box, linear-gradient(90deg, ${loop(ring)}) border-box; background-size: 480px 100%, 240px 100%; border-color: transparent;`;
+
+    if (this.c.random_style === "confetti") {
+      // Dots go in --confetti for the .confetti::before layer, which tiles them vertically so they
+      // can fall in a seamless loop (dots stay off the tile edges so none pop at the seam).
+      const [dots, maxSize] = small ? [9, 1.8] : [27, 3];
+      const strength = Math.min(100, t + 40);
+      const confetti = Array.from({ length: dots }, () => {
+        const size = maxSize / 2 + (r() * maxSize) / 2;
+        const at = `${Math.round(r() * 100)}% ${Math.round(10 + r() * 80)}%`;
+        return `radial-gradient(circle at ${at}, color-mix(in srgb, ${pick()} ${strength}%, transparent) ${size.toFixed(1)}px, transparent ${(size + 0.8).toFixed(1)}px)`;
+      });
+      return { kind: "confetti", style: `--confetti: ${confetti.join(", ")}; ${frame}`, inner: "" };
+    }
+
+    // Lava lamp: a few soft blobs spread across the box, each drifting and swelling on its own
+    // path and pace. The soft edges come from the gradient itself, so the motion is transform-only.
+    const n = small ? 3 : 4;
+    const strength = Math.min(100, t + 30);
+    const blobs = Array.from({ length: n }, (_, k) => {
+      const x = Math.round(((k + 0.2 + r() * 0.6) / n) * 100);
+      const y = Math.round(25 + r() * 50);
+      const d = [10, 12, 15, 20][Math.floor(r() * 4)];
+      const style = `left: ${x}%; top: ${y}%; --c: color-mix(in srgb, ${pick()} ${strength}%, transparent); --d: ${d}s; --k: lava-${(k % 4) + 1}`;
+      return `<i class="blob" style="${esc(style)}"></i>`;
+    });
+    return { kind: "lava", style: frame, inner: blobs.join("") };
+  }
+
+  // The styles behind .colored, .random and .metal boxes (pills use .var, notes .note). Animations use
+  // var(--phase) so a re-render continues them where they were.
+  static CSS = `
+        .var.colored { color: var(--primary-text-color); font-weight: 500; }
+        .note.colored { border-width: 1px 1px 1px 4px; border-style: solid; }
+        .random { position: relative; overflow: hidden; isolation: isolate; animation: random-drift 48s linear infinite var(--phase, 0ms); }
+        .confetti::before { content: ""; position: absolute; left: 0; right: 0; top: -100%; height: 200%; z-index: -1; pointer-events: none;
+                            background: var(--confetti); background-size: 100% 50%; animation: confetti-fall 4s linear infinite var(--phase, 0ms); }
+        .blob { position: absolute; z-index: -1; pointer-events: none; width: 70%; height: 300%; translate: -50% -50%; border-radius: 50%;
+                background: radial-gradient(closest-side, var(--c) 25%, transparent);
+                animation: var(--k) var(--d) ease-in-out infinite alternate var(--phase, 0ms); }
+        .random.still, .random.still::before, .random.still .blob { animation: none; }
+        @keyframes confetti-fall { to { transform: translateY(50%); } }
+        /* Per cycle the background moves one 480px tile and the outline two 240px tiles. */
+        @keyframes random-drift { to { background-position: 480px 0, 480px 0; } }
+        @keyframes lava-1 { from { transform: translate(-40%, -15%) scale(0.9); } to { transform: translate(45%, 20%) scale(1.25); } }
+        @keyframes lava-2 { from { transform: translate(35%, 20%) scale(1.2); } to { transform: translate(-45%, -20%) scale(0.85); } }
+        @keyframes lava-3 { from { transform: translate(-20%, 25%) scale(1); } to { transform: translate(30%, -25%) scale(1.3); } }
+        @keyframes lava-4 { from { transform: translate(25%, -25%) scale(1.15); } to { transform: translate(-35%, 15%) scale(0.9); } }
+        /* Metal: a bevel (light top edge, darker band below the middle) and a glint that sweeps
+           left to right in the first third of each cycle. The layer covers the border too and sits
+           under the text; the glint is a 300%-wide tile, off the box at either end position. */
+        .metal { position: relative; isolation: isolate; }
+        .metal::after { content: ""; position: absolute; inset: -1px; z-index: -1; pointer-events: none; border-radius: inherit;
+                        background: linear-gradient(105deg, transparent 43%, rgba(255, 255, 255, calc(var(--shine) * 0.95)) 50%, transparent 57%) 100% 0 / 300% 100% no-repeat,
+                                    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--shine) * 0.5)), rgba(255, 255, 255, 0) 42%,
+                                                    rgba(0, 0, 0, calc(var(--shine) * 0.22)) 58%, rgba(255, 255, 255, calc(var(--shine) * 0.18)));
+                        -webkit-mask-image: var(--metal-mask); mask-image: var(--metal-mask);
+                        animation: metal-glint 6s ease-in-out infinite var(--phase, 0ms); }
+        .note.metal::after { inset: -1px -1px -1px -4px; }
+        .metal.still::after { animation: none; }
+        @keyframes metal-glint { 0% { background-position: 100% 0, 0 0; } 33%, 100% { background-position: 0% 0, 0 0; } }`;
+}
+window.EtsyOrderColors = EtsyOrderColors;
+
 class EtsyOrdersCard extends HTMLElement {
   setConfig(config) {
     if (!Array.isArray(config.shops) || !config.shops.length) {
@@ -84,43 +291,39 @@ class EtsyOrdersCard extends HTMLElement {
       show_make_list: true,
       green_hours: 72,
       red_hours: 12,
-      colors: {},
-      color_tint: 35,
-      metallic: ["Copper"],
-      metallic_shine: 60,
-      animate_metallic: true,
-      random_words: ["random"],
-      random_style: "lava",
-      random_min_brightness: 60,
-      animate_random: true,
       order_url: "https://www.etsy.com/your/orders/sold?order_id={receipt_id}",
       ...config,
       shops: config.shops.map((s) => (typeof s === "string" ? { entity: s } : s)),
     };
-    // Color names are matched word by word, so "Dark  Green!" finds the key "dark green".
-    this._colorMap = new Map(Object.entries(this._config.colors || {}).map(([k, v]) => [words(k).join(" "), [].concat(v).map(String)]));
-    this._colorMaxWords = Math.max(3, ...[...this._colorMap.keys()].map((k) => k.split(" ").length));
-    this._metallic = new Set([].concat(this._config.metallic || []).map((w) => words(w).join(" ")).filter(Boolean));
-    // The random effects skip dark colors, dull greys and browns (both look muddy) and near-whites
-    // (which vanish on a light theme); vivid colors stay even when they read darkish, like a deep red.
-    const minV = Number(this._config.random_min_brightness) / 100;
-    const palette = [...new Set([...this._colorMap.values()].flat())].filter((col) => {
-      const { v, s, luma } = tone(col);
-      return v >= minV && !(s < 0.3 && v < 0.8) && luma < 0.9;
-    });
-    this._palette = palette.length ? palette : RAINBOW;
-    this._randomWords = [].concat(this._config.random_words || []).map((w) => words(w).join(" ")).filter(Boolean);
+    this._own = config;
+    this._colors = null;
     this._signature = null;
     if (this._hass) this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
+    const shared = this._sharedColors(hass);
+    const colorsSig = JSON.stringify(shared?.version ?? shared ?? null);
+    if (!this._colors || colorsSig !== this._colorsSig) {
+      this._colorsSig = colorsSig;
+      this._colors = new EtsyOrderColors(EtsyOrderColors.merge(shared, this._own));
+      this._signature = null;
+    }
     const sig = this._config.shops.map((s) => hass.states[s.entity]?.last_updated).join("|");
     if (sig !== this._signature) {
       this._signature = sig;
       this._render();
     }
+  }
+
+  // The app's color list, from the first shop sensor that carries it.
+  _sharedColors(hass) {
+    for (const s of this._config.shops) {
+      const cc = hass.states[s.entity]?.attributes?.color_config;
+      if (cc && typeof cc === "object") return cc;
+    }
+    return null;
   }
 
   getCardSize() {
@@ -202,118 +405,6 @@ class EtsyOrdersCard extends HTMLElement {
     return { text: span, cls: "", style, urgent };
   }
 
-  // Colors named in free text, in the order written: the `colors` map first
-  // (longest name wins), then CSS color names, joining words ("Dark Green" → darkgreen).
-  // Each name is one group, so a multi-color filament stays together: [["black"], ["#4fc3f7", "#ff1fd1"]].
-  // A group named in `metallic` carries metal: true.
-  _colorsIn(text) {
-    const w = words(text);
-    const out = [];
-    for (let i = 0; i < w.length; ) {
-      let used = 1;
-      for (let n = Math.min(this._colorMaxWords, w.length - i); n > 0; n--) {
-        const parts = w.slice(i, i + n);
-        const cols = this._colorMap.get(parts.join(" ")) || (isCssColor(parts.join("")) ? [parts.join("")] : null);
-        if (cols) {
-          const hit = Object.assign([...cols], { metal: this._metallic.has(parts.join(" ")) });
-          if (out[out.length - 1]?.join() !== hit.join()) out.push(hit);
-          used = n;
-          break;
-        }
-      }
-      i += used;
-    }
-    return out;
-  }
-
-  // A tinted fill fading through the colors, with a full-strength outline in the same colors.
-  // Each named color gets an equal share of the width, and a multi-color filament splits its
-  // share between its colors (black + a dual filament = ½ black, ¼, ¼); stops sit at the
-  // middle of each share so neighbours fade into each other.
-  // The fill is mixed with the card background so it stays opaque over the outline layer.
-  _colorStyle(groups) {
-    const t = Number(this._config.color_tint);
-    if (!groups.length || !(t > 0)) return "";
-    const stops = [];
-    groups.forEach((g, gi) => g.forEach((col, ci) => stops.push([col, ((gi + (ci + 0.5) / g.length) / groups.length) * 100])));
-    if (stops.length === 1) stops.splice(0, 1, [stops[0][0], 0], [stops[0][0], 100]);
-    const base = "var(--ha-card-background, var(--card-background-color, #fff))";
-    const grad = (fn) => `linear-gradient(90deg, ${stops.map(([col, p]) => `${fn(col)} ${p.toFixed(1)}%`).join(", ")})`;
-    const tint = (col) => `color-mix(in srgb, ${col} ${Math.min(100, t)}%, ${base})`;
-    return `background: ${grad(tint)} padding-box, ${grad((col) => col)} border-box; border-color: transparent;`;
-  }
-
-  // The metal layer (.metal::after) over the metallic groups' shares of the box, or "" when none.
-  // A mask fades it in and out at the edges of those shares, so in "Black & Copper" only the
-  // copper half shines; when every group is metallic the whole box does.
-  _metalStyle(groups) {
-    const shine = Number(this._config.metallic_shine);
-    if (!(shine > 0) || !(Number(this._config.color_tint) > 0) || !groups.some((g) => g.metal)) return "";
-    let mask = "none";
-    if (!groups.every((g) => g.metal)) {
-      const share = 100 / groups.length;
-      const fade = share / 4;
-      const stops = groups.flatMap((g, gi) => {
-        if (!g.metal) return [];
-        const [a, b] = [gi * share, (gi + 1) * share];
-        // Full strength right up to the box's own edges; faded only where it meets another color.
-        const from = a > 0 ? [`transparent ${a.toFixed(1)}%`, `#000 ${(a + fade).toFixed(1)}%`] : ["#000 0%"];
-        const to = b < 100 ? [`#000 ${(b - fade).toFixed(1)}%`, `transparent ${b.toFixed(1)}%`] : ["#000 100%"];
-        return [...from, ...to];
-      });
-      mask = `linear-gradient(90deg, ${stops.join(", ")})`;
-    }
-    return `--shine: ${Math.min(100, shine) / 100}; --metal-mask: ${mask};`;
-  }
-
-  _isRandom(text) {
-    const s = ` ${words(text).join(" ")} `;
-    return this._randomWords.some((w) => s.includes(` ${w} `));
-  }
-
-  // A "random" box: colors drawn from the palette. Behind the effect is a slow drift through tinted
-  // palette colors (mixed with the card background, so opaque and readable), and around it a
-  // multicolor outline. Both are horizontal tiles sized in pixels rather than box widths, so a small
-  // pill and a wide note show the same colors per inch; each tile ends on its first color, so sliding
-  // it a whole tile loops seamlessly. Returns { kind, style, inner } or null when coloring is off.
-  _randomFx(seed, small) {
-    const t = Number(this._config.color_tint);
-    if (!(t > 0)) return null;
-    const r = rng(seed);
-    const pick = () => this._palette[Math.floor(r() * this._palette.length)];
-    const base = "var(--ha-card-background, var(--card-background-color, #fff))";
-    const loop = (cols) => [...cols, cols[0]].join(", ");
-    const wash = Array.from({ length: 4 }, pick).map((col) => `color-mix(in srgb, ${col} ${Math.min(100, t + 10)}%, ${base})`);
-    const ring = Array.from({ length: 5 }, pick);
-    const frame = `background: linear-gradient(90deg, ${loop(wash)}) padding-box, linear-gradient(90deg, ${loop(ring)}) border-box; background-size: 480px 100%, 240px 100%; border-color: transparent;`;
-
-    if (this._config.random_style === "confetti") {
-      // Dots go in --confetti for the .confetti::before layer, which tiles them vertically so they
-      // can fall in a seamless loop (dots stay off the tile edges so none pop at the seam).
-      const [dots, maxSize] = small ? [9, 1.8] : [27, 3];
-      const strength = Math.min(100, t + 40);
-      const confetti = Array.from({ length: dots }, () => {
-        const size = maxSize / 2 + (r() * maxSize) / 2;
-        const at = `${Math.round(r() * 100)}% ${Math.round(10 + r() * 80)}%`;
-        return `radial-gradient(circle at ${at}, color-mix(in srgb, ${pick()} ${strength}%, transparent) ${size.toFixed(1)}px, transparent ${(size + 0.8).toFixed(1)}px)`;
-      });
-      return { kind: "confetti", style: `--confetti: ${confetti.join(", ")}; ${frame}`, inner: "" };
-    }
-
-    // Lava lamp: a few soft blobs spread across the box, each drifting and swelling on its own
-    // path and pace. The soft edges come from the gradient itself, so the motion is transform-only.
-    const n = small ? 3 : 4;
-    const strength = Math.min(100, t + 30);
-    const blobs = Array.from({ length: n }, (_, k) => {
-      const x = Math.round(((k + 0.2 + r() * 0.6) / n) * 100);
-      const y = Math.round(25 + r() * 50);
-      const d = [10, 12, 15, 20][Math.floor(r() * 4)];
-      const style = `left: ${x}%; top: ${y}%; --c: color-mix(in srgb, ${pick()} ${strength}%, transparent); --d: ${d}s; --k: lava-${(k % 4) + 1}`;
-      return `<i class="blob" style="${esc(style)}"></i>`;
-    });
-    return { kind: "lava", style: frame, inner: blobs.join("") };
-  }
-
   _money(amount, currency) {
     try {
       return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(amount);
@@ -386,15 +477,9 @@ class EtsyOrdersCard extends HTMLElement {
     // A variation pill or personalization note, tinted by the colors it names. A "random" choice
     // gets the random effect instead, seeded by order and position so it stays put between renders.
     const box = (tag, cls, text, seed, small, attrs = "") => {
-      const fx = this._isRandom(text) ? this._randomFx(`${o.receipt_id}|${seed}|${text}`, small) : null;
-      const groups = fx ? [] : this._colorsIn(text);
-      const metal = fx ? "" : this._metalStyle(groups);
-      const style = fx ? fx.style : this._colorStyle(groups) + (metal ? ` ${metal}` : "");
-      if (!style) return `<${tag} class="${cls}"${attrs}>${esc(text)}</${tag}>`;
-      const extra = fx
-        ? ` random ${fx.kind}${c.animate_random ? "" : " still"}`
-        : metal ? ` metal${c.animate_metallic ? "" : " still"}` : "";
-      return `<${tag} class="${cls} colored${extra}" style="${esc(style)}"${attrs}>${fx?.inner || ""}${esc(text)}</${tag}>`;
+      const b = this._colors.box(text, `${o.receipt_id}|${seed}`, small);
+      if (!b.style) return `<${tag} class="${cls}"${attrs}>${esc(text)}</${tag}>`;
+      return `<${tag} class="${cls}${b.cls}" style="${esc(b.style)}"${attrs}>${b.inner}${esc(text)}</${tag}>`;
     };
     const items = (o.items || [])
       .map((i, ii) => {
@@ -451,35 +536,7 @@ class EtsyOrdersCard extends HTMLElement {
                border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3)); }
         .note { font-size: 13px; padding: 4px 8px; border-left: 3px solid var(--accent-color, var(--primary-color));
                 border-radius: 4px; background: rgba(127, 127, 127, 0.1); color: var(--primary-text-color); white-space: pre-wrap; }
-        .var.colored { color: var(--primary-text-color); font-weight: 500; }
-        .note.colored { border-width: 1px 1px 1px 4px; border-style: solid; }
-        .random { position: relative; overflow: hidden; isolation: isolate; animation: random-drift 48s linear infinite var(--phase, 0ms); }
-        .confetti::before { content: ""; position: absolute; left: 0; right: 0; top: -100%; height: 200%; z-index: -1; pointer-events: none;
-                            background: var(--confetti); background-size: 100% 50%; animation: confetti-fall 4s linear infinite var(--phase, 0ms); }
-        .blob { position: absolute; z-index: -1; pointer-events: none; width: 70%; height: 300%; translate: -50% -50%; border-radius: 50%;
-                background: radial-gradient(closest-side, var(--c) 25%, transparent);
-                animation: var(--k) var(--d) ease-in-out infinite alternate var(--phase, 0ms); }
-        .random.still, .random.still::before, .random.still .blob { animation: none; }
-        @keyframes confetti-fall { to { transform: translateY(50%); } }
-        /* Per cycle the background moves one 480px tile and the outline two 240px tiles. */
-        @keyframes random-drift { to { background-position: 480px 0, 480px 0; } }
-        @keyframes lava-1 { from { transform: translate(-40%, -15%) scale(0.9); } to { transform: translate(45%, 20%) scale(1.25); } }
-        @keyframes lava-2 { from { transform: translate(35%, 20%) scale(1.2); } to { transform: translate(-45%, -20%) scale(0.85); } }
-        @keyframes lava-3 { from { transform: translate(-20%, 25%) scale(1); } to { transform: translate(30%, -25%) scale(1.3); } }
-        @keyframes lava-4 { from { transform: translate(25%, -25%) scale(1.15); } to { transform: translate(-35%, 15%) scale(0.9); } }
-        /* Metal: a bevel (light top edge, darker band below the middle) and a glint that sweeps
-           left to right in the first third of each cycle. The layer covers the border too and sits
-           under the text; the glint is a 300%-wide tile, off the box at either end position. */
-        .metal { position: relative; isolation: isolate; }
-        .metal::after { content: ""; position: absolute; inset: -1px; z-index: -1; pointer-events: none; border-radius: inherit;
-                        background: linear-gradient(105deg, transparent 43%, rgba(255, 255, 255, calc(var(--shine) * 0.95)) 50%, transparent 57%) 100% 0 / 300% 100% no-repeat,
-                                    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--shine) * 0.5)), rgba(255, 255, 255, 0) 42%,
-                                                    rgba(0, 0, 0, calc(var(--shine) * 0.22)) 58%, rgba(255, 255, 255, calc(var(--shine) * 0.18)));
-                        -webkit-mask-image: var(--metal-mask); mask-image: var(--metal-mask);
-                        animation: metal-glint 6s ease-in-out infinite var(--phase, 0ms); }
-        .note.metal::after { inset: -1px -1px -1px -4px; }
-        .metal.still::after { animation: none; }
-        @keyframes metal-glint { 0% { background-position: 100% 0, 0 0; } 33%, 100% { background-position: 0% 0, 0 0; } }
+        ${EtsyOrderColors.CSS}
         /* One switch for every animation on the card (random, metal and any added later): while the card is
            paused (window unfocused or hidden, see _updatePaused) all of them hold their frame, and they resume
            in place. With reduced motion requested, none of them run. */

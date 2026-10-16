@@ -41,10 +41,12 @@ class EtsyShopManagerCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         # announce every open order as new.
         self._known_receipts: dict[str, set[str]] | None = None
         self._last_success = None
+        # The order color list from the app (colors, metallic, random_words), passed to the card unchanged.
+        self.color_config: dict[str, Any] | None = None
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:
-            shops = await self.api.async_get_open_orders()
+            payload = await self.api.async_get_open_orders()
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed("The Etsy Shop Manager API key was rejected") from err
         except CannotConnect as err:
@@ -53,7 +55,14 @@ class EtsyShopManagerCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 return self.data
             raise UpdateFailed(f"Can't reach Etsy Shop Manager: {err}") from err
 
+        shops = payload.get("shops") or []
         data = {str(shop["shop_id"]): shop for shop in shops if shop.get("shop_id") is not None}
+        color_config = payload.get("color_config") or None
+        if color_config != self.color_config:
+            self.color_config = color_config
+            # always_update=False skips listeners when the orders are unchanged, so tell them about the colors.
+            if data == self.data:
+                self.async_update_listeners()
         self._last_success = dt_util.utcnow()
         self._announce_new_orders(data)
         return data

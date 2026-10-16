@@ -10,10 +10,20 @@
 @inject TimeProvider Time
 @inject ISnackbar Snackbar
 @inject IJobEvents JobEvents
+@inject OrderColorService Colors
+@inject IJSRuntime Js
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
 
-<PageHeader Title="Orders" />
+<PageHeader Title="Orders">
+    <Actions>
+        <AuthorizeView Roles="@Roles.Admin">
+            <MudButton Variant="Variant.Text" Href="admin/order-colors" StartIcon="@Icons.Material.Filled.Palette">Order colors</MudButton>
+        </AuthorizeView>
+    </Actions>
+</PageHeader>
+
+<div class="esm-orders">
 
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
@@ -66,7 +76,7 @@
                             <div class="small muted">@OrderTotal(o)</div>
                         </div>
                     </div>
-                    @foreach (var i in o.Items.OrderBy(i => i.EtsyTransactionId))
+                    @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
                     {
                         var (variations, personalization) = Split(i);
                         <div class="order-item">
@@ -82,9 +92,17 @@
                                 <div><b>@(i.Quantity > 1 ? $"×{i.Quantity} " : "")</b>@ShortTitle(i.Title)</div>
                                 @if (variations.Count > 0)
                                 {
-                                    <div>@foreach (var v in variations) { <span class="tag-chip" title="@v.Name">@v.Value</span> }</div>
+                                    <div class="order-vars">
+                                        @foreach (var (v, vi) in variations.Select((v, n) => (v, n)))
+                                        {
+                                            <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                        }
+                                    </div>
                                 }
-                                @if (personalization is not null) { <div class="order-note">@personalization</div> }
+                                @if (personalization is not null)
+                                {
+                                    <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
+                                }
                                 @if (i.Sku is not null) { <div class="muted small">SKU @i.Sku</div> }
                             </div>
                         </div>
@@ -117,8 +135,8 @@
                         <tr>
                             <td class="text-right"><b>@((int)row["quantity"]!)</b></td>
                             <td>@ShortTitle((string?)row["title"])</td>
-                            <td>@((string?)row["variations_text"])</td>
-                            <td>@((string?)row["personalization"])</td>
+                            <td>@if ((string?)row["variations_text"] is { Length: > 0 } vars) { <ColorBox Text="@vars" Seed="@($"make|{vars}")" /> }</td>
+                            <td>@if ((string?)row["personalization"] is { Length: > 0 } note) { <ColorBox Text="@note" Kind="@ColorBox.Note" Seed="@($"make|{note}")" /> }</td>
                             <td>@(row["ship_by_ts"] is { } ts ? ListingFormat.Local(DateTime.UnixEpoch.AddSeconds((long)ts), "ddd MMM d") : "—")</td>
                         </tr>
                     }
@@ -154,6 +172,7 @@
         </MudTable>
     </MudTabPanel>
 </MudTabs>
+</div>
 
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
@@ -167,9 +186,11 @@
     private string? _historyText;
     private Timer? _timer;
     private IDisposable? _live;
+    private JsonObject? _colorConfig;
 
     protected override async Task OnInitializedAsync()
     {
+        _colorConfig = (await Colors.GetAsync()).ToCardJson();
         await LoadAsync();
         // Orders change when a check for orders runs (or a shop is (re)connected): reload then.
         _live = JobEvents.Subscribe(
@@ -192,6 +213,10 @@
         _toMake = payload["items_needed"]!.AsArray().Select(n => n!.AsObject()).ToList();
         _toMakeTotal = (int)payload["total_items_needed"]!;
     }
+
+    // Color the variation pills and personalization notes rendered by <ColorBox> (new or changed ones only).
+    protected override async Task OnAfterRenderAsync(bool firstRender) =>
+        await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
 
     private async Task OnShopChanged(int? id)
     {

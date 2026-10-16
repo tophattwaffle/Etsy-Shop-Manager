@@ -16,6 +16,8 @@
     <Routes @rendermode="PageRenderMode" />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
+    @* The Home Assistant card: the Orders page uses its coloring engine (window.EtsyOrderColors). *@
+    <script src="@EtsyShopManager.Web.Modules.Orders.OrderCardScript.VersionedUrl"></script>
     <script src="@Assets["app.js"]"></script>
 </body>
 

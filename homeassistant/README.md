@@ -51,7 +51,7 @@ last values for up to 5 minutes instead of going unavailable, so dashboards don'
 
 ## Switch the card over
 
-`www/etsy-orders-card.js` is the card (v2.3.1); it reads the same attributes as before. Point each shop at the new sensor:
+`www/etsy-orders-card.js` is the card (v2.4.0); it reads the same attributes as before. Point each shop at the new sensor:
 
 ```yaml
 type: custom:etsy-orders-card
@@ -65,6 +65,14 @@ shops:
 `order_url` overrides and every other card option keep working. Photos (`image_url`) are Etsy's own image
 addresses, as before. Once the card and automations use the new sensors and event, remove the `etsyapp`
 integration.
+
+### Order colors
+
+The color list (`colors`, `metallic`, `random_words`) is managed in the app under **Admin → Order colors** and reaches
+the card through the sensors' `color_config` attribute (integration 0.3.0 or later). The app's Orders page colors with
+the same engine, so both always match. Anything still set in the card's YAML is merged on top (YAML wins per color
+name), so once the app has your list you can delete `colors`, `metallic` and `random_words` from the card config. The
+look settings (`color_tint`, `metallic_shine`, `random_style`, animations) stay in the card config.
 
 ## Development
 

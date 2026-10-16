@@ -60,11 +60,14 @@ def shop_payload(shop_id: str, name: str, orders: list[dict]) -> dict:
     }
 
 
-def mock_service(aioclient_mock, shops: list[dict], status: int = 200) -> None:
+def mock_service(aioclient_mock, shops: list[dict], status: int = 200, color_config: dict | None = None) -> None:
     aioclient_mock.clear_requests()
     aioclient_mock.get(
         f"{URL}/api/ha/v1/shops",
         status=status,
         json={"shops": [{"shop_id": s["shop_id"], "shop_name": s["shop_name"]} for s in shops]},
     )
-    aioclient_mock.get(f"{URL}/api/ha/v1/open-orders", status=status, json={"shops": shops})
+    payload = {"shops": shops}
+    if color_config is not None:
+        payload["color_config"] = color_config
+    aioclient_mock.get(f"{URL}/api/ha/v1/open-orders", status=status, json=payload)

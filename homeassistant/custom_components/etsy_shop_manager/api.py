@@ -36,10 +36,10 @@ class EtsyShopManagerApi:
         data = await self._get("/shops")
         return data.get("shops") or []
 
-    async def async_get_open_orders(self) -> list[dict[str, Any]]:
-        """Every shop with its open orders, in the payload shape the etsy-orders-card reads."""
-        data = await self._get("/open-orders")
-        return data.get("shops") or []
+    async def async_get_open_orders(self) -> dict[str, Any]:
+        """Every shop with its open orders ("shops", in the payload shape the etsy-orders-card reads), plus the
+        order color list the app manages ("color_config"; missing from older versions of the app)."""
+        return await self._get("/open-orders")
 
     async def _get(self, path: str) -> dict[str, Any]:
         try:
