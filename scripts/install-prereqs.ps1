@@ -177,20 +177,30 @@ else {
     }
 
     # ---- NSSM ----------------------------------------------------------------------------------------
+    # NSSM registers its own path as the service binary, so it must be a real file the runner account can read.
+    # winget installs it as a link under C:\Program Files\WinGet\Links, which a service account can't start
+    # ("Access is denied"). Always keep a real copy in C:\Program Files\nssm.
     Write-Step 'NSSM'
-    if (Test-Command nssm) { Write-Ok 'already installed' }
+    $nssmDir = Join-Path $env:ProgramFiles 'nssm'
+    $nssmExe = Join-Path $nssmDir 'nssm.exe'
+    if (Test-Path $nssmExe) { Write-Ok "already installed ($nssmExe)" }
     else {
-        if (-not (Install-WithWinget 'NSSM.NSSM') -or -not (Test-Command nssm)) {
+        New-Item -ItemType Directory -Force $nssmDir | Out-Null
+        $existing = Get-Command nssm -ErrorAction SilentlyContinue
+        if (-not $existing -and (Install-WithWinget 'NSSM.NSSM')) {
+            $existing = Get-Command nssm -ErrorAction SilentlyContinue
+        }
+        if ($existing) {
+            Copy-Item $existing.Source $nssmExe -Force # copies the real file behind a winget link
+        }
+        else {
             $zip = Save-Download 'https://nssm.cc/release/nssm-2.24.zip' 'nssm-2.24.zip'
             $extract = Join-Path $temp 'nssm'
             Expand-Archive $zip -DestinationPath $extract -Force
-            $nssmDir = Join-Path $env:ProgramFiles 'nssm'
-            New-Item -ItemType Directory -Force $nssmDir | Out-Null
-            Copy-Item (Join-Path $extract 'nssm-2.24\win64\nssm.exe') $nssmDir -Force
-            Add-MachinePath $nssmDir
+            Copy-Item (Join-Path $extract 'nssm-2.24\win64\nssm.exe') $nssmExe -Force
         }
-        if (-not (Test-Command nssm)) { throw 'NSSM is still not available after installing.' }
-        Write-Ok 'installed'
+        if (-not (Test-Path $nssmExe)) { throw 'NSSM is still not available after installing.' }
+        Write-Ok "installed ($nssmExe)"
     }
 
     # ---- gitea-runner --------------------------------------------------------------------------------
@@ -248,7 +258,7 @@ Write-Host ("  PowerShell : " + (& $pwshExe -NoProfile -Command '$PSVersionTable
 if (-not $SkipRunner) {
     Write-Host ("  Git        : " + ((& git --version) -replace '^git version ', ''))
     Write-Host ("  Node.js    : " + (& node --version))
-    Write-Host ("  NSSM       : " + (Get-Command nssm).Source)
+    Write-Host ("  NSSM       : " + (Join-Path $env:ProgramFiles 'nssm\nssm.exe'))
     Write-Host ("  Runner     : " + (Join-Path $RunnerDir 'gitea-runner.exe'))
 }
 

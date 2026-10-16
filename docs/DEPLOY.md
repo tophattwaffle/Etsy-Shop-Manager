@@ -74,16 +74,23 @@ This adds start/stop/query on the `EtsyShopManager` service only, plus Modify on
    (no Docker).
 
 ### 5. Run gitea-runner as a service under the runner account
-The runner has no built-in Windows service installer; NSSM (installed in step 1) wraps it:
+The runner has no built-in Windows service installer; NSSM (installed in step 1) wraps it. Use the full path to
+`C:\Program Files\nssm\nssm.exe`: NSSM records the path it was run from as the service binary, and the winget link
+(`C:\Program Files\WinGet\Links\nssm.exe`) can't be started by the runner account ("Access is denied").
 ```powershell
-nssm install gitea-runner C:\gitea-runner\gitea-runner.exe -c C:\gitea-runner\config.yaml daemon
-nssm set gitea-runner AppDirectory C:\gitea-runner
-nssm set gitea-runner ObjectName "$env:COMPUTERNAME\gitea-runner" "<password>"
-nssm set gitea-runner Start SERVICE_DELAYED_AUTO_START
-nssm start gitea-runner
+$nssm = "$env:ProgramFiles\nssm\nssm.exe"
+& $nssm install gitea-runner C:\gitea-runner\gitea-runner.exe -c C:\gitea-runner\config.yaml daemon
+& $nssm set gitea-runner AppDirectory C:\gitea-runner
+& $nssm set gitea-runner ObjectName "$env:COMPUTERNAME\gitea-runner" (Read-Host 'gitea-runner password')
+& $nssm set gitea-runner Start SERVICE_DELAYED_AUTO_START
+& $nssm start gitea-runner
 ```
-If it fails to start with a logon error, give the `gitea-runner` account the **Log on as a service** right
-(`secpol.msc` → Local Policies → User Rights Assignment) and start it again.
+If it fails to start:
+- **Access is denied:** check `sc.exe qc gitea-runner`. `BINARY_PATH_NAME` must be `C:\Program Files\nssm\nssm.exe`;
+  fix it with `sc.exe config gitea-runner binPath= "\"C:\Program Files\nssm\nssm.exe\""`. Also confirm step 4.1 (Modify on
+  `C:\gitea-runner`).
+- **Logon failure:** give the `gitea-runner` account the **Log on as a service** right
+  (`secpol.msc` → Local Policies → User Rights Assignment).
 
 The runner should now show as online under the repo's **Settings → Actions → Runners**.
 
