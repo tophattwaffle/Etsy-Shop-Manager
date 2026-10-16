@@ -1,4 +1,42 @@
 window.esm = {
+    // The reconnect dialog (Components/Layout/ReconnectModal.razor). Blazor finds it by id, sets its
+    // components-reconnect-* classes and raises components-reconnect-state-changed on it; this opens and
+    // closes it and wires the buttons, as the .NET template's ReconnectModal.razor.js does.
+    initReconnect: function () {
+        const dialog = document.getElementById("components-reconnect-modal");
+        if (!dialog) return;
+        const retryWhenVisible = async () => { if (document.visibilityState === "visible") await retry(); };
+        async function retry() {
+            document.removeEventListener("visibilitychange", retryWhenVisible);
+            try {
+                if (!await Blazor.reconnect() && !await Blazor.resumeCircuit()) location.reload();
+            } catch {
+                document.addEventListener("visibilitychange", retryWhenVisible);
+            }
+        }
+        dialog.addEventListener("components-reconnect-state-changed", (e) => {
+            const state = e.detail.state;
+            if ((state === "show" || state === "paused") && !dialog.open) dialog.showModal();
+            else if (state === "hide") dialog.close();
+            else if (state === "failed") document.addEventListener("visibilitychange", retryWhenVisible);
+            else if (state === "rejected") location.reload();
+        });
+        dialog.addEventListener("cancel", (e) => e.preventDefault()); // Escape can't dismiss it
+        document.getElementById("components-reconnect-button")?.addEventListener("click", retry);
+        document.getElementById("components-resume-button")?.addEventListener("click", async () => {
+            try {
+                if (!await Blazor.resumeCircuit()) location.reload();
+            } catch {
+                dialog.classList.replace("components-reconnect-paused", "components-reconnect-resume-failed");
+            }
+        });
+        dialog.querySelector(".esm-reconnect-reload")?.addEventListener("click", () => location.reload());
+        // Each shop icon gets its shop's accent ring, as on the listings page.
+        for (const img of dialog.querySelectorAll(".esm-reconnect-mark img")) {
+            esm.dominantColor(img.src).then((c) => c && img.parentElement.style.setProperty("--shop", c));
+        }
+    },
+
     // Clipboard API requires a secure context (HTTPS via HAProxy, or localhost).
     copy: async function (text) {
         try {
@@ -121,3 +159,5 @@ window.esm = {
         }
     }
 };
+
+esm.initReconnect();

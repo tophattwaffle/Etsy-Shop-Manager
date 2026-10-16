@@ -67,6 +67,21 @@ public partial class DesignRulesTests
         Assert.DoesNotMatch(ColourLiteral(), "#@context.EtsyListingId");
     }
 
+    /// <summary>
+    /// Blazor shows our reconnect dialog instead of its own only if the ids it looks for are there (it falls back to
+    /// its built-in, off-style box otherwise).
+    /// </summary>
+    [Fact]
+    public void Reconnect_dialog_replaces_Blazors_default()
+    {
+        var modal = File.ReadAllText(Path.Combine(Components, "Layout", "ReconnectModal.razor"));
+        foreach (var id in new[] { "components-reconnect-modal", "components-reconnect-button", "components-resume-button",
+                     "components-seconds-to-next-attempt", "components-reconnect-current-attempt", "components-reconnect-max-retries" })
+            Assert.Contains($"id=\"{id}\"", modal);
+        Assert.Contains("<ReconnectModal />", File.ReadAllText(Path.Combine(Components, "App.razor")));
+        Assert.Contains("esm.initReconnect();", File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.js")));
+    }
+
     [GeneratedRegex("Typo=\"Typo\\.h[1-4]\"")]
     private static partial Regex HeadingTypo();
 

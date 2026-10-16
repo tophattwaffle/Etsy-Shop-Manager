@@ -328,3 +328,67 @@ a.lp-status-error:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
     .lp-grid.is-loading, .lp-list.is-loading { transition: none; }
 }
+
+/* ---- Reconnect dialog (Components/Layout/ReconnectModal.razor) ----
+   Blazor sets components-reconnect-show / -retrying / -failed / -paused / -resume-failed on the dialog; those
+   classes pick which lines and buttons show. The throbber is the shop icons hopping in turn. */
+.esm-reconnect {
+    width: min(400px, calc(100vw - 32px)); padding: 28px 28px 24px; border: 1px solid var(--esm-line);
+    border-radius: var(--esm-radius); background: var(--esm-paper); color: var(--esm-ink); font-family: var(--esm-font);
+    text-align: center;
+}
+.esm-reconnect::backdrop { background: rgba(0, 0, 0, 0.45); }
+/* MudBlazor styles #components-reconnect-modal for its own dialog (page background and uppercase buttons with
+   40px margins, some !important); the id selectors here put ours back. Mud's reset also zeroes the margin that
+   centres a modal dialog. */
+#components-reconnect-modal.esm-reconnect { margin: auto; background-color: var(--esm-paper) !important; }
+#components-reconnect-modal .esm-button {
+    margin: 0 !important; min-width: 0; padding: 8px 18px; font: inherit; font-size: 0.95rem; font-weight: 600; line-height: 1.4;
+    letter-spacing: normal; text-transform: none; border-radius: 999px; color: var(--esm-paper);
+}
+#components-reconnect-modal .esm-button-secondary { color: var(--esm-ink); }
+#components-reconnect-modal .esm-button:hover { background-color: var(--esm-ink); opacity: 0.85; }
+#components-reconnect-modal .esm-button-secondary:hover { background-color: var(--esm-hover); opacity: 1; }
+.esm-reconnect-title { font-size: 1.25rem; font-weight: 600; margin: 0 0 8px; }
+.esm-reconnect-text { margin: 0 0 4px; color: var(--esm-muted); line-height: 1.5; }
+.esm-reconnect-actions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+
+.esm-reconnect-throbber { display: flex; justify-content: center; align-items: flex-end; gap: 14px; height: 64px; margin-bottom: 12px; }
+.esm-reconnect-mark {
+    width: 40px; height: 40px; border-radius: 50%; overflow: hidden; flex: none; background: var(--esm-sunk);
+    box-shadow: 0 0 0 2px var(--shop, var(--esm-line)), 0 0 0 4px var(--esm-paper);
+    animation: esm-hop 1.4s ease-in-out infinite;
+}
+.esm-reconnect-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.esm-reconnect-dot { width: 14px; height: 14px; background: var(--esm-brand); box-shadow: none; }
+.esm-reconnect-mark:nth-child(2) { animation-delay: 0.18s; }
+.esm-reconnect-mark:nth-child(3) { animation-delay: 0.36s; }
+.esm-reconnect-mark:nth-child(4) { animation-delay: 0.54s; }
+@keyframes esm-hop {
+    0%, 55%, 100% { transform: translateY(0) scale(1); }
+    20% { transform: translateY(-18px) scale(1.06); }
+    40% { transform: translateY(0) scale(0.96, 1.04); }
+}
+
+/* Which lines show in which state */
+.esm-reconnect [class*="esm-reconnect-when-"], .esm-reconnect-first, .esm-reconnect-repeated, .esm-reconnect-reload { display: none; }
+.components-reconnect-show .esm-reconnect-when-trying, .components-reconnect-show .esm-reconnect-first { display: block; }
+.components-reconnect-retrying .esm-reconnect-first { display: none; }
+.components-reconnect-retrying .esm-reconnect-repeated { display: block; }
+.components-reconnect-failed .esm-reconnect-when-failed,
+.components-reconnect-paused .esm-reconnect-when-paused,
+.components-reconnect-resume-failed .esm-reconnect-when-resume-failed,
+.components-reconnect-resume-failed .esm-reconnect-title .esm-reconnect-when-failed { display: block; }
+.components-reconnect-failed .esm-reconnect-reload,
+.components-reconnect-paused .esm-reconnect-reload,
+.components-reconnect-resume-failed .esm-reconnect-reload { display: inline-block; }
+.esm-reconnect .esm-button.esm-reconnect-when-failed, .esm-reconnect .esm-button.esm-reconnect-when-paused { display: none; }
+.components-reconnect-failed .esm-button.esm-reconnect-when-failed,
+.components-reconnect-paused .esm-button.esm-reconnect-when-paused { display: inline-block; }
+/* Only hop while it is actually trying; stopped and dimmed once it has given up or is paused. */
+.components-reconnect-failed .esm-reconnect-mark, .components-reconnect-paused .esm-reconnect-mark,
+.components-reconnect-resume-failed .esm-reconnect-mark { animation: none; opacity: 0.45; filter: grayscale(1); }
+@media (prefers-reduced-motion: reduce) {
+    .esm-reconnect-mark { animation: esm-breathe 2s ease-in-out infinite; }
+    @keyframes esm-breathe { 50% { opacity: 0.5; } }
+}
