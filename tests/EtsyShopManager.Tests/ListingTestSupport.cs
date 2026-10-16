@@ -278,6 +278,7 @@ internal sealed class FakeEtsyShop : IDisposable
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (path.StartsWith($"{shop}/listings/") && path.EndsWith("/properties"))
         {
+            if (ListingsWithoutProperties.Contains(long.Parse(parts[5]))) return new HttpResponseMessage(HttpStatusCode.NotFound);
             return Page([new JsonObject
             {
                 ["property_id"] = 200,
@@ -348,6 +349,9 @@ internal sealed class FakeEtsyShop : IDisposable
 
     private static HttpResponseMessage Json(JsonNode node) =>
         ScriptedHandler.Json(HttpStatusCode.OK, node.ToJsonString(new JsonSerializerOptions()));
+
+    /// <summary>Listings whose getListingProperties call returns 404.</summary>
+    public HashSet<long> ListingsWithoutProperties { get; } = [];
 
     public void Dispose()
     {

@@ -194,9 +194,20 @@ public sealed class ListingImporter(
             // Attributes need one call per listing, so only fetch them when the listing changed.
             if (force || listing.AttributesFetchedAtUtc is null || previousModified != listing.EtsyUpdatedAtUtc)
             {
-                var attributes = await etsy.GetListingPropertiesAsync(etsyShopId, src.ListingId, auth, ct);
-                ListingMapper.SetAttributes(listing, attributes);
-                listing.AttributesFetchedAtUtc = now;
+                try
+                {
+                    var attributes = await etsy.GetListingPropertiesAsync(etsyShopId, src.ListingId, auth, ct);
+                    ListingMapper.SetAttributes(listing, attributes);
+                    listing.AttributesFetchedAtUtc = now;
+                }
+                catch (EtsyApiException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound
+                                                      or System.Net.HttpStatusCode.Forbidden)
+                {
+                    // One listing's attributes being unavailable must not fail the whole shop's import. Left unfetched,
+                    // so the next import tries again.
+                    logger.LogWarning("Attributes for listing {ListingId} unavailable ({Status}); keeping the previous ones",
+                        src.ListingId, (int)ex.StatusCode);
+                }
             }
 
             ListingMapper.SetEtsyState(listing, raw, now);

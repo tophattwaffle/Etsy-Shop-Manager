@@ -5,7 +5,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Modules.Listings;
 
-public sealed record ImageDownloadResult(int Downloaded, int Failed, int Pending);
+/// <param name="Gone">Images Etsy no longer serves (404/410): recorded on the image, not retried as failures.</param>
+public sealed record ImageDownloadResult(int Downloaded, int Failed, int Pending, int Gone = 0);
 
 /// <summary>
 /// Downloads listing photos (full size plus a 570px display copy) from Etsy's CDN into the <see cref="ImageStore"/>.
@@ -37,7 +38,7 @@ public sealed class ImageDownloader(
         }
 
         var client = httpClientFactory.CreateClient(EtsyServiceCollectionExtensions.EtsyImageClientName);
-        int downloaded = 0, failed = 0;
+        int downloaded = 0, failed = 0, gone = 0;
         foreach (var id in pending)
         {
             ct.ThrowIfCancellationRequested();
@@ -60,6 +61,13 @@ public sealed class ImageDownloader(
                 image.DownloadError = null;
                 downloaded++;
             }
+            catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Gone)
+            {
+                // The photo was removed on Etsy (the next import drops the row). Retrying won't help, so don't fail the job.
+                logger.LogInformation("Image {ImageId} is gone from Etsy's CDN ({Status})", image.EtsyImageId, (int)ex.StatusCode!);
+                image.DownloadError = $"Etsy no longer has this image ({(int)ex.StatusCode!})";
+                gone++;
+            }
             catch (Exception ex) when (ex is HttpRequestException or IOException
                                            || (ex is TaskCanceledException && !ct.IsCancellationRequested))
             {
@@ -70,7 +78,7 @@ public sealed class ImageDownloader(
             await db.SaveChangesAsync(ct);
         }
 
-        return new ImageDownloadResult(downloaded, failed, pending.Count);
+        return new ImageDownloadResult(downloaded, failed, pending.Count, gone);
     }
 
     private async Task<(string Name, long Size)> FetchAsync(HttpClient client, string url, CancellationToken ct)
