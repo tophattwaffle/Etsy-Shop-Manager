@@ -1,0 +1,220 @@
+[
+  {
+    "receipt_id": 3001,
+    "buyer_user_id": 501,
+    "name": "Alice Example",
+    "status": "Paid",
+    "message_from_buyer": "Please hurry!",
+    "is_paid": true,
+    "is_shipped": false,
+    "created_timestamp": 1760500000,
+    "updated_timestamp": 1760500100,
+    "is_gift": true,
+    "gift_message": "Happy birthday",
+    "grandtotal": {
+      "amount": 5398,
+      "divisor": 100,
+      "currency_code": "USD"
+    },
+    "subtotal": {
+      "amount": 4998,
+      "divisor": 100,
+      "currency_code": "USD"
+    },
+    "total_shipping_cost": {
+      "amount": 400,
+      "divisor": 100,
+      "currency_code": "USD"
+    },
+    "total_tax_cost": {
+      "amount": 0,
+      "divisor": 100,
+      "currency_code": "USD"
+    },
+    "discount_amt": {
+      "amount": 0,
+      "divisor": 100,
+      "currency_code": "USD"
+    },
+    "transactions": [
+      {
+        "transaction_id": 9001,
+        "title": "Galaxy vase | 3D printed | PLA",
+        "receipt_id": 3001,
+        "listing_id": 7001,
+        "product_id": 1,
+        "listing_image_id": 71,
+        "sku": "GV-S-BLK",
+        "quantity": 2,
+        "price": {
+          "amount": 1999,
+          "divisor": 100,
+          "currency_code": "USD"
+        },
+        "created_timestamp": 1760500000,
+        "expected_ship_date": 1760800000,
+        "variations": [
+          {
+            "property_id": 100,
+            "value_id": 1,
+            "formatted_name": "Size",
+            "formatted_value": "Small"
+          },
+          {
+            "property_id": 200,
+            "value_id": 2,
+            "formatted_name": "Color",
+            "formatted_value": "Black"
+          },
+          {
+            "property_id": 54,
+            "formatted_name": "Personalization",
+            "formatted_value": "ALICE"
+          }
+        ],
+        "buyer_user_id": 501
+      },
+      {
+        "transaction_id": 9002,
+        "title": "Plant pot",
+        "receipt_id": 3001,
+        "listing_id": 7002,
+        "product_id": 2,
+        "listing_image_id": 72,
+        "sku": null,
+        "quantity": 1,
+        "price": {
+          "amount": 1000,
+          "divisor": 100,
+          "currency_code": "USD"
+        },
+        "created_timestamp": 1760500000,
+        "expected_ship_date": 1760700000,
+        "variations": [
+          {
+            "property_id": 54,
+            "formatted_name": "Name on pot",
+            "formatted_value": "Bob"
+          }
+        ],
+        "buyer_user_id": 501
+      }
+    ]
+  },
+  {
+    "receipt_id": 3002,
+    "buyer_user_id": 502,
+    "name": "",
+    "status": "Paid",
+    "is_paid": true,
+    "is_shipped": false,
+    "created_timestamp": 1760600000,
+    "updated_timestamp": 1760600100,
+    "is_gift": false,
+    "gift_message": "",
+    "grandtotal": {
+      "amount": 1999,
+      "divisor": 100,
+      "currency_code": "USD"
+    },
+    "subtotal": {
+      "amount": 1999,
+      "divisor": 100,
+      "currency_code": "USD"
+    },
+    "discount_amt": {
+      "amount": 250,
+      "divisor": 100,
+      "currency_code": "USD"
+    },
+    "transactions": [
+      {
+        "transaction_id": 9003,
+        "title": "Galaxy vase | 3D printed | PLA",
+        "receipt_id": 3002,
+        "listing_id": 7001,
+        "listing_image_id": 71,
+        "quantity": 1,
+        "price": {
+          "amount": 1999,
+          "divisor": 100,
+          "currency_code": "USD"
+        },
+        "created_timestamp": 1760600000,
+        "expected_ship_date": 1760650000,
+        "variations": [
+          {
+            "property_id": 100,
+            "value_id": 1,
+            "formatted_name": "Size",
+            "formatted_value": "Small"
+          },
+          {
+            "property_id": 200,
+            "value_id": 2,
+            "formatted_name": "Color",
+            "formatted_value": "Black"
+          },
+          {
+            "property_id": 54,
+            "formatted_name": "Personalization",
+            "formatted_value": "ALICE"
+          }
+        ],
+        "buyer_user_id": 502
+      }
+    ]
+  },
+  {
+    "receipt_id": 3003,
+    "buyer_user_id": 503,
+    "name": "Shipped Already",
+    "status": "Completed",
+    "is_paid": true,
+    "is_shipped": true,
+    "created_timestamp": 1760400000,
+    "updated_timestamp": 1760450000,
+    "transactions": [
+      {
+        "transaction_id": 9004,
+        "title": "Old",
+        "receipt_id": 3003,
+        "listing_id": 7001,
+        "quantity": 1,
+        "price": {
+          "amount": 500,
+          "divisor": 100,
+          "currency_code": "USD"
+        },
+        "variations": [],
+        "buyer_user_id": 503
+      }
+    ]
+  },
+  {
+    "receipt_id": 3004,
+    "buyer_user_id": 504,
+    "name": "Canceled Unshipped",
+    "status": "Canceled",
+    "is_paid": true,
+    "is_shipped": false,
+    "created_timestamp": 1760410000,
+    "updated_timestamp": 1760460000,
+    "transactions": [
+      {
+        "transaction_id": 9005,
+        "title": "Never",
+        "receipt_id": 3004,
+        "listing_id": 7001,
+        "quantity": 1,
+        "price": {
+          "amount": 500,
+          "divisor": 100,
+          "currency_code": "USD"
+        },
+        "variations": [],
+        "buyer_user_id": 504
+      }
+    ]
+  }
+]

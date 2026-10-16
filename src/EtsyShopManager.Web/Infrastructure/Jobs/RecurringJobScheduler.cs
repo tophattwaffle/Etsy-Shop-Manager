@@ -1,5 +1,6 @@
 using EtsyShopManager.Core.Jobs;
 using EtsyShopManager.Data;
+using EtsyShopManager.Core.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Infrastructure.Jobs;
@@ -10,6 +11,7 @@ namespace EtsyShopManager.Web.Infrastructure.Jobs;
 /// </summary>
 public sealed class RecurringJobScheduler(
     IEnumerable<RecurringJobDefinition> definitions,
+    ISettingsStore settings,
     IDbContextFactory<AppDbContext> dbFactory,
     IJobQueue queue,
     TimeProvider time,
@@ -51,6 +53,11 @@ public sealed class RecurringJobScheduler(
             CreatedBy = user,
         }, ct);
 
+    /// <summary>The definition's interval, or the value of its interval setting when one is set.</summary>
+    public static async Task<TimeSpan> GetIntervalAsync(RecurringJobDefinition def, ISettingsStore settings,
+        CancellationToken ct = default) =>
+        def.IntervalSettingKey is null ? def.Interval : def.EffectiveInterval(await settings.GetAsync(def.IntervalSettingKey, ct));
+
     private async Task ScheduleDueAsync(CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -67,7 +74,8 @@ public sealed class RecurringJobScheduler(
                 await db.SaveChangesAsync(ct);
             }
 
-            if (state.LastEnqueuedAtUtc + def.Interval > now) continue;
+            var interval = await GetIntervalAsync(def, settings, ct);
+            if (state.LastEnqueuedAtUtc + interval > now) continue;
 
             var id = await queue.EnqueueAsync(new JobRequest
             {

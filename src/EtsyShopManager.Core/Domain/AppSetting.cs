@@ -20,6 +20,9 @@ public static class SettingKeys
     public const string EtsyKeystring = "Etsy.Keystring";
     public const string EtsySharedSecret = "Etsy.SharedSecret";
     public const string SetupCompleted = "Setup.Completed";
+
+    /// <summary>Seconds between order polls (default 300, as the old HA integration used).</summary>
+    public const string OrdersPollIntervalSeconds = "Orders.PollIntervalSeconds";
 }
 
 /// <summary>Who changed what. Written for user, settings and shop changes.</summary>

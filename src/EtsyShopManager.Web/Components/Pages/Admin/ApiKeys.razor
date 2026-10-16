@@ -1,0 +1,100 @@
+@page "/admin/api-keys"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Orders
+@inject ApiKeyService Keys
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>API keys · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">API keys</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Keys let other systems read from this app. Home Assistant uses one to read open orders
+    (<code>@(Nav.BaseUri)api/ha/v1/open-orders</code>). A key is shown once, when you create it.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.End" Spacing="2">
+        <MudTextField T="string" @bind-Value="_name" Label="Name (e.g. Home Assistant)" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width: 360px" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateAsync">Create key</MudButton>
+    </MudStack>
+    @if (_newKey is not null)
+    {
+        <MudAlert Severity="Severity.Success" Class="mt-3">
+            Copy this key now; it won't be shown again.
+            <div class="mt-2 d-flex align-center">
+                <code class="redirect-uri">@_newKey</code>
+                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" OnClick="CopyAsync" title="Copy" />
+            </div>
+        </MudAlert>
+    }
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead><tr><th>Name</th><th>Key</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var k in _keys)
+            {
+                <tr class="@(k.RevokedAtUtc is null ? "" : "muted")">
+                    <td>@k.Name</td>
+                    <td><code>@k.Prefix…</code></td>
+                    <td>@ListingFormat.Local(k.CreatedAtUtc) @(k.CreatedBy is null ? "" : $"by {k.CreatedBy}")</td>
+                    <td>@ListingFormat.Local(k.LastUsedAtUtc)</td>
+                    <td>@(k.RevokedAtUtc is null ? "Active" : $"Revoked {ListingFormat.Local(k.RevokedAtUtc)}")</td>
+                    <td class="text-right">
+                        @if (k.RevokedAtUtc is null)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="() => RevokeAsync(k)">Revoke</MudButton>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (_keys.Count == 0) { <MudText Class="mt-2 muted">No keys yet.</MudText> }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private List<ApiKeyInfo> _keys = [];
+    private string? _name = "Home Assistant";
+    private string? _newKey;
+
+    protected override async Task OnInitializedAsync() => _keys = await Keys.ListAsync();
+
+    private async Task CreateAsync()
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var (_, key) = await Keys.CreateAsync(_name ?? "", user);
+        _newKey = key;
+        _keys = await Keys.ListAsync();
+    }
+
+    private async Task CopyAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", _newKey);
+            Snackbar.Add("Copied", Severity.Success);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add("Copy failed; select the key and copy it manually", Severity.Warning);
+        }
+    }
+
+    private async Task RevokeAsync(ApiKeyInfo k)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Revoke key",
+            $"Revoke \"{k.Name}\"? Anything using it (e.g. Home Assistant) stops working until it gets a new key.",
+            yesText: "Revoke", cancelText: "Cancel");
+        if (confirmed != true) return;
+        await Keys.RevokeAsync(k.Id, (await AuthState).User.Identity?.Name);
+        _keys = await Keys.ListAsync();
+    }
+}

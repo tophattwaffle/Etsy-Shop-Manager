@@ -7,6 +7,8 @@ using EtsyShopManager.Core.Events;
 using EtsyShopManager.Data;
 using EtsyShopManager.Etsy;
 using EtsyShopManager.Web.Modules.Listings;
+using EtsyShopManager.Web.Modules.Orders;
+using EtsyShopManager.Core.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -72,6 +74,20 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>Paths that fail with 500 (e.g. to interrupt an import). Remove an entry to let it succeed again.</summary>
     public HashSet<string> FailingStates { get; } = [];
 
+    /// <summary>The shop's receipts (Etsy's shape). Paged by offset, filtered by min_last_modified, sorted as asked.</summary>
+    public List<JsonObject> Receipts { get; } = [];
+
+    /// <summary>Runs after each receipts page is served (to change receipts in the middle of a poll).</summary>
+    public Action<int>? AfterReceiptsPage { get; set; }
+
+    /// <summary>Receipt offsets that fail with 500 (to interrupt a poll).</summary>
+    public HashSet<int> FailingReceiptOffsets { get; } = [];
+
+    /// <summary>Listings only the batch endpoint knows (e.g. deleted from the shop but still on old orders).</summary>
+    public List<JsonObject> BatchOnlyListings { get; } = [];
+
+    public RecordingPublisher Events { get; } = new();
+
     public ListingImporter Importer => Provider.GetRequiredService<ListingImporter>();
     public ImageDownloader Downloader => Provider.GetRequiredService<ImageDownloader>();
     public TaxonomyImporter Taxonomy => Provider.GetRequiredService<TaxonomyImporter>();
@@ -95,7 +111,8 @@ internal sealed class FakeEtsyShop : IDisposable
             RefreshTokenIssuedAtUtc = Time.Now.UtcDateTime,
         };
         services.AddSingleton<IEtsyTokenStore>(tokens);
-        services.AddSingleton<IDomainEventPublisher>(new RecordingPublisher());
+        services.AddSingleton<IDomainEventPublisher>(Events);
+        services.AddSingleton<IAuditLog, NullAuditLog>();
         services.AddSingleton<IDbContextFactory<AppDbContext>>(Db);
         services.AddSingleton(Storage.Options);
         services.AddEtsy(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
@@ -110,6 +127,9 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddSingleton<TaxonomyImporter>();
         services.AddSingleton<ImageDownloader>();
         services.AddSingleton<ListingQueries>();
+        services.AddSingleton<OrderPoller>();
+        services.AddSingleton<OrderQueries>();
+        services.AddSingleton<ApiKeyService>();
         Provider = services.BuildServiceProvider();
 
         using var db = Db.CreateDbContext();
@@ -234,6 +254,25 @@ internal sealed class FakeEtsyShop : IDisposable
             var limit = int.Parse(query["limit"] ?? "25");
             var inState = Listings.Where(l => (string)l["state"]! == state).ToList();
             return Page(inState.Skip(offset).Take(limit), inState.Count);
+        }
+
+        if (path == $"{shop}/receipts")
+        {
+            var offset = int.Parse(query["offset"] ?? "0");
+            if (FailingReceiptOffsets.Contains(offset)) return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            var limit = int.Parse(query["limit"] ?? "25");
+            var since = long.TryParse(query["min_last_modified"], out var m) ? m : 0;
+            var sortKey = query["sort_on"] == "updated" ? "updated_timestamp" : "created_timestamp";
+            var matching = Receipts.Where(r => (long)r["updated_timestamp"]! >= since)
+                .OrderBy(r => (long)r[sortKey]!).ThenBy(r => (long)r["receipt_id"]!).ToList();
+            var response = Page(matching.Skip(offset).Take(limit), matching.Count);
+            AfterReceiptsPage?.Invoke(offset);
+            return response;
+        }
+        if (path == "/v3/application/listings/batch")
+        {
+            var ids = (query["listing_ids"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(long.Parse).ToHashSet();
+            return Page(Listings.Concat(BatchOnlyListings).Where(l => ids.Contains((long)l["listing_id"]!)));
         }
 
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);

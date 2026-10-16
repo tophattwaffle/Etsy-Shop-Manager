@@ -85,3 +85,9 @@ internal sealed class RecordingPublisher : IDomainEventPublisher
         return Task.CompletedTask;
     }
 }
+
+internal sealed class NullAuditLog : EtsyShopManager.Core.Services.IAuditLog
+{
+    public Task WriteAsync(string action, string? entityType = null, string? entityId = null, string? details = null,
+        string? userName = null, CancellationToken ct = default) => Task.CompletedTask;
+}

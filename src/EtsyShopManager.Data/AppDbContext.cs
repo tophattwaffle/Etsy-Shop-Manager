@@ -30,6 +30,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<TaxonomyNode> TaxonomyNodes => Set<TaxonomyNode>();
     public DbSet<TaxonomyProperty> TaxonomyProperties => Set<TaxonomyProperty>();
 
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<ShopOrderSyncState> ShopOrderSyncStates => Set<ShopOrderSyncState>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -72,6 +77,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 
         ConfigureListings(b);
         ConfigureLookups(b);
+        ConfigureOrders(b);
 
         // SQLite has no DateTime kind; everything we store is UTC, so mark it as such on the way out.
         // (DateTimeOffset is avoided on purpose: EF's SQLite provider cannot order or compare it in SQL.)
@@ -169,5 +175,40 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         });
 
         b.Entity<TaxonomyProperty>(e => e.HasKey(x => new { x.TaxonomyId, x.PropertyId }));
+    }
+
+    private static void ConfigureOrders(ModelBuilder b)
+    {
+        b.Entity<Order>(e =>
+        {
+            e.HasIndex(x => x.EtsyReceiptId).IsUnique();
+            e.HasIndex(x => new { x.ShopId, x.IsPaid, x.IsShipped });
+            e.HasIndex(x => x.EtsyCreatedAtUtc);
+            e.Property(x => x.Status).HasMaxLength(40);
+            e.Property(x => x.CurrencyCode).HasMaxLength(8);
+            e.HasOne(x => x.Shop).WithMany().HasForeignKey(x => x.ShopId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.Items).WithOne(i => i.Order).HasForeignKey(i => i.OrderId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<OrderItem>(e =>
+        {
+            e.HasIndex(x => new { x.OrderId, x.EtsyTransactionId }).IsUnique();
+            e.HasIndex(x => x.EtsyListingId);
+            e.Property(x => x.Variations).HasJsonConversion();
+        });
+
+        b.Entity<ShopOrderSyncState>(e =>
+        {
+            e.HasKey(x => x.ShopId);
+            e.HasOne(x => x.Shop).WithOne().HasForeignKey<ShopOrderSyncState>(x => x.ShopId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ApiKey>(e =>
+        {
+            e.HasIndex(x => x.Hash).IsUnique();
+            e.Property(x => x.Name).HasMaxLength(100);
+            e.Property(x => x.Prefix).HasMaxLength(16);
+            e.Property(x => x.Hash).HasMaxLength(64);
+        });
     }
 }
