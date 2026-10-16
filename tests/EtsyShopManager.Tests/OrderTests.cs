@@ -265,6 +265,23 @@ public class OrderPollerTests
     }
 
     [Fact]
+    public async Task Item_photo_skips_a_listing_photo_that_is_gone_from_Etsy()
+    {
+        using var shop = new FakeEtsyShop();
+        shop.Listings.Add(FakeEtsyShop.Listing(1, "Imported"));
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        await using (var db = shop.Db.CreateDbContext())
+            await db.ListingImages.Where(i => i.EtsyImageId == 12)
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.DownloadError, "Etsy no longer has this image (404)"));
+        shop.Receipts.Add(Receipt(1, shop.Time.Now.ToUnixTimeSeconds(), listingId: 1, imageId: 12));
+
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        await using var check = shop.Db.CreateDbContext();
+        Assert.Equal("https://i.etsystatic.com/11/il_570xN.jpg", (await check.OrderItems.SingleAsync()).ImageUrl);
+    }
+
+    [Fact]
     public async Task HA_open_orders_lists_each_shop_with_the_card_fields()
     {
         using var shop = new FakeEtsyShop();

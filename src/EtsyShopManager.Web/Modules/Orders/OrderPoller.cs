@@ -161,8 +161,10 @@ public sealed class OrderPoller(
         if (withListing.Count == 0) return;
 
         var listingIds = withListing.Select(i => i.EtsyListingId!.Value).Distinct().ToList();
+        // Photos the download job found gone from Etsy's CDN (DownloadError set while no file is stored) are skipped,
+        // so the card isn't given a dead link.
         var local = await db.ListingImages.AsNoTracking()
-            .Where(img => listingIds.Contains(img.Listing.EtsyListingId))
+            .Where(img => listingIds.Contains(img.Listing.EtsyListingId) && !(img.FileName == null && img.DownloadError != null))
             .Select(img => new { img.Listing.EtsyListingId, img.EtsyImageId, img.Rank, Url = img.SourceThumbUrl ?? img.SourceUrl })
             .ToListAsync(ct);
         var byListing = local.GroupBy(x => x.EtsyListingId).ToDictionary(g => g.Key, g => g.OrderBy(x => x.Rank).ToList());
