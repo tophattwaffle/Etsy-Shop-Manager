@@ -332,6 +332,40 @@ public class ListingImporterTests
     }
 
     [Fact]
+    public async Task Status_follows_the_job_queue_not_the_saved_resume_point()
+    {
+        using var shop = new FakeEtsyShop();
+        shop.Listings.Add(FakeEtsyShop.Listing(1, "One", state: "draft"));
+        shop.FailingStates.Add("draft");
+        await Assert.ThrowsAsync<EtsyApiException>(() =>
+            shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None));
+        var queries = shop.Provider.GetRequiredService<ListingQueries>();
+
+        // The run is still open (so it can resume), but no job is working on it.
+        var status = (await queries.GetImportStatusAsync()).Single();
+        Assert.True(status.IsRunOpen);
+        Assert.Equal(ImportActivity.Paused, status.Activity);
+
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            db.Jobs.Add(new EtsyShopManager.Core.Jobs.Job
+            {
+                JobType = ImportShopListingsJob.Type, ShopId = FakeEtsyShop.ShopId,
+                Status = EtsyShopManager.Core.Jobs.JobStatus.Pending,
+                CreatedAtUtc = shop.Time.Now.UtcDateTime, RunAfterUtc = shop.Time.Now.UtcDateTime,
+            });
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(ImportActivity.Queued, (await queries.GetImportStatusAsync()).Single().Activity);
+
+        shop.FailingStates.Clear();
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        await using (var db = shop.Db.CreateDbContext())
+            await db.Jobs.ExecuteDeleteAsync();
+        Assert.Equal(ImportActivity.Idle, (await queries.GetImportStatusAsync()).Single().Activity);
+    }
+
+    [Fact]
     public async Task Missing_includes_fall_back_to_per_listing_calls()
     {
         using var shop = new FakeEtsyShop();

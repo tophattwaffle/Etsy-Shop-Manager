@@ -45,11 +45,29 @@
                             {
                                 <MudChip T="string" Size="Size.Small" Color="Color.Error">Reconnect needed</MudChip>
                             }
-                            else if (s.IsRunOpen)
+                            else
                             {
-                                <MudTooltip Text="@($"Started {ListingFormat.Local(s.RunStartedAtUtc)}")">
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Info">Importing…</MudChip>
-                                </MudTooltip>
+                                switch (s.Activity)
+                                {
+                                    case ImportActivity.Importing:
+                                        <MudTooltip Text="@($"Run started {ListingFormat.Local(s.RunStartedAtUtc)}")">
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Info">Importing…</MudChip>
+                                        </MudTooltip>
+                                        break;
+                                    case ImportActivity.Queued:
+                                        <MudTooltip Text="@($"Runs at {ListingFormat.Local(s.ImportJobRunAfterUtc, "HH:mm:ss")}{(s.IsRunOpen ? ", continuing the unfinished run" : "")}")">
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">Queued</MudChip>
+                                        </MudTooltip>
+                                        break;
+                                    case ImportActivity.Paused:
+                                        <MudTooltip Text="An import stopped part-way. The next import continues from where it stopped.">
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Unfinished</MudChip>
+                                        </MudTooltip>
+                                        break;
+                                    case ImportActivity.DownloadingPhotos:
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">Downloading photos</MudChip>
+                                        break;
+                                }
                             }
                             @if (!string.IsNullOrEmpty(s.LastError))
                             {
