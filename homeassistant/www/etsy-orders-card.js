@@ -1,4 +1,4 @@
-// etsy-orders-card v2.2.0 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.3.1 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. Config:
@@ -21,6 +21,13 @@
 //                      recognised without being listed; several colors in one
 //                      box fade from one to the next in the order written.
 //   color_tint:        strength (%) of that tint; 0 turns coloring off (default 35)
+//   metallic:          color names (keys of `colors`, or CSS names) that get a
+//                      metal effect over their part of a box: a bevel sheen and
+//                      a glint of light sweeping across (default ["Copper"])
+//   metallic_shine:    strength (%) of that sheen and glint; 0 turns it off
+//                      (default 60)
+//   animate_metallic:  the glint sweeps across every few seconds (default true;
+//                      paused and off like animate_random)
 //   random_words:      words or phrases that mark a "random color" choice; such
 //                      boxes get the random_style effect in colors drawn from
 //                      `colors` (default ["random"])
@@ -79,6 +86,9 @@ class EtsyOrdersCard extends HTMLElement {
       red_hours: 12,
       colors: {},
       color_tint: 35,
+      metallic: ["Copper"],
+      metallic_shine: 60,
+      animate_metallic: true,
       random_words: ["random"],
       random_style: "lava",
       random_min_brightness: 60,
@@ -90,6 +100,7 @@ class EtsyOrdersCard extends HTMLElement {
     // Color names are matched word by word, so "Dark  Green!" finds the key "dark green".
     this._colorMap = new Map(Object.entries(this._config.colors || {}).map(([k, v]) => [words(k).join(" "), [].concat(v).map(String)]));
     this._colorMaxWords = Math.max(3, ...[...this._colorMap.keys()].map((k) => k.split(" ").length));
+    this._metallic = new Set([].concat(this._config.metallic || []).map((w) => words(w).join(" ")).filter(Boolean));
     // The random effects skip dark colors, dull greys and browns (both look muddy) and near-whites
     // (which vanish on a light theme); vivid colors stay even when they read darkish, like a deep red.
     const minV = Number(this._config.random_min_brightness) / 100;
@@ -123,7 +134,8 @@ class EtsyOrdersCard extends HTMLElement {
   connectedCallback() {
     // Countdowns are relative to now, so refresh them every minute.
     this._timer = setInterval(() => this._render(), 60000);
-    // The random effect only moves while the window has focus; pausing (not stopping) resumes it in place.
+    // Animations (random and metal alike) only move while the window has focus; pausing (not stopping)
+    // resumes them in place. The "paused" class on ha-card is the single switch the CSS uses for all of them.
     // document.hasFocus() reads false in the Companion app's WebView until something is tapped,
     // so it only decides the starting state on mouse-driven (desktop) devices; touch devices
     // start unpaused and rely on blur/focus events and visibility.
@@ -193,6 +205,7 @@ class EtsyOrdersCard extends HTMLElement {
   // Colors named in free text, in the order written: the `colors` map first
   // (longest name wins), then CSS color names, joining words ("Dark Green" → darkgreen).
   // Each name is one group, so a multi-color filament stays together: [["black"], ["#4fc3f7", "#ff1fd1"]].
+  // A group named in `metallic` carries metal: true.
   _colorsIn(text) {
     const w = words(text);
     const out = [];
@@ -200,8 +213,9 @@ class EtsyOrdersCard extends HTMLElement {
       let used = 1;
       for (let n = Math.min(this._colorMaxWords, w.length - i); n > 0; n--) {
         const parts = w.slice(i, i + n);
-        const hit = this._colorMap.get(parts.join(" ")) || (isCssColor(parts.join("")) ? [parts.join("")] : null);
-        if (hit) {
+        const cols = this._colorMap.get(parts.join(" ")) || (isCssColor(parts.join("")) ? [parts.join("")] : null);
+        if (cols) {
+          const hit = Object.assign([...cols], { metal: this._metallic.has(parts.join(" ")) });
           if (out[out.length - 1]?.join() !== hit.join()) out.push(hit);
           used = n;
           break;
@@ -227,6 +241,29 @@ class EtsyOrdersCard extends HTMLElement {
     const grad = (fn) => `linear-gradient(90deg, ${stops.map(([col, p]) => `${fn(col)} ${p.toFixed(1)}%`).join(", ")})`;
     const tint = (col) => `color-mix(in srgb, ${col} ${Math.min(100, t)}%, ${base})`;
     return `background: ${grad(tint)} padding-box, ${grad((col) => col)} border-box; border-color: transparent;`;
+  }
+
+  // The metal layer (.metal::after) over the metallic groups' shares of the box, or "" when none.
+  // A mask fades it in and out at the edges of those shares, so in "Black & Copper" only the
+  // copper half shines; when every group is metallic the whole box does.
+  _metalStyle(groups) {
+    const shine = Number(this._config.metallic_shine);
+    if (!(shine > 0) || !(Number(this._config.color_tint) > 0) || !groups.some((g) => g.metal)) return "";
+    let mask = "none";
+    if (!groups.every((g) => g.metal)) {
+      const share = 100 / groups.length;
+      const fade = share / 4;
+      const stops = groups.flatMap((g, gi) => {
+        if (!g.metal) return [];
+        const [a, b] = [gi * share, (gi + 1) * share];
+        // Full strength right up to the box's own edges; faded only where it meets another color.
+        const from = a > 0 ? [`transparent ${a.toFixed(1)}%`, `#000 ${(a + fade).toFixed(1)}%`] : ["#000 0%"];
+        const to = b < 100 ? [`#000 ${(b - fade).toFixed(1)}%`, `transparent ${b.toFixed(1)}%`] : ["#000 100%"];
+        return [...from, ...to];
+      });
+      mask = `linear-gradient(90deg, ${stops.join(", ")})`;
+    }
+    return `--shine: ${Math.min(100, shine) / 100}; --metal-mask: ${mask};`;
   }
 
   _isRandom(text) {
@@ -350,9 +387,13 @@ class EtsyOrdersCard extends HTMLElement {
     // gets the random effect instead, seeded by order and position so it stays put between renders.
     const box = (tag, cls, text, seed, small, attrs = "") => {
       const fx = this._isRandom(text) ? this._randomFx(`${o.receipt_id}|${seed}|${text}`, small) : null;
-      const style = fx ? fx.style : this._colorStyle(this._colorsIn(text));
+      const groups = fx ? [] : this._colorsIn(text);
+      const metal = fx ? "" : this._metalStyle(groups);
+      const style = fx ? fx.style : this._colorStyle(groups) + (metal ? ` ${metal}` : "");
       if (!style) return `<${tag} class="${cls}"${attrs}>${esc(text)}</${tag}>`;
-      const extra = fx ? ` random ${fx.kind}${c.animate_random ? "" : " still"}` : "";
+      const extra = fx
+        ? ` random ${fx.kind}${c.animate_random ? "" : " still"}`
+        : metal ? ` metal${c.animate_metallic ? "" : " still"}` : "";
       return `<${tag} class="${cls} colored${extra}" style="${esc(style)}"${attrs}>${fx?.inner || ""}${esc(text)}</${tag}>`;
     };
     const items = (o.items || [])
@@ -419,7 +460,6 @@ class EtsyOrdersCard extends HTMLElement {
                 background: radial-gradient(closest-side, var(--c) 25%, transparent);
                 animation: var(--k) var(--d) ease-in-out infinite alternate var(--phase, 0ms); }
         .random.still, .random.still::before, .random.still .blob { animation: none; }
-        ha-card.paused .random, ha-card.paused .random::before, ha-card.paused .blob { animation-play-state: paused; }
         @keyframes confetti-fall { to { transform: translateY(50%); } }
         /* Per cycle the background moves one 480px tile and the outline two 240px tiles. */
         @keyframes random-drift { to { background-position: 480px 0, 480px 0; } }
@@ -427,7 +467,24 @@ class EtsyOrdersCard extends HTMLElement {
         @keyframes lava-2 { from { transform: translate(35%, 20%) scale(1.2); } to { transform: translate(-45%, -20%) scale(0.85); } }
         @keyframes lava-3 { from { transform: translate(-20%, 25%) scale(1); } to { transform: translate(30%, -25%) scale(1.3); } }
         @keyframes lava-4 { from { transform: translate(25%, -25%) scale(1.15); } to { transform: translate(-35%, 15%) scale(0.9); } }
-        @media (prefers-reduced-motion: reduce) { .random, .random::before, .blob { animation: none; } }
+        /* Metal: a bevel (light top edge, darker band below the middle) and a glint that sweeps
+           left to right in the first third of each cycle. The layer covers the border too and sits
+           under the text; the glint is a 300%-wide tile, off the box at either end position. */
+        .metal { position: relative; isolation: isolate; }
+        .metal::after { content: ""; position: absolute; inset: -1px; z-index: -1; pointer-events: none; border-radius: inherit;
+                        background: linear-gradient(105deg, transparent 43%, rgba(255, 255, 255, calc(var(--shine) * 0.95)) 50%, transparent 57%) 100% 0 / 300% 100% no-repeat,
+                                    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--shine) * 0.5)), rgba(255, 255, 255, 0) 42%,
+                                                    rgba(0, 0, 0, calc(var(--shine) * 0.22)) 58%, rgba(255, 255, 255, calc(var(--shine) * 0.18)));
+                        -webkit-mask-image: var(--metal-mask); mask-image: var(--metal-mask);
+                        animation: metal-glint 6s ease-in-out infinite var(--phase, 0ms); }
+        .note.metal::after { inset: -1px -1px -1px -4px; }
+        .metal.still::after { animation: none; }
+        @keyframes metal-glint { 0% { background-position: 100% 0, 0 0; } 33%, 100% { background-position: 0% 0, 0 0; } }
+        /* One switch for every animation on the card (random, metal and any added later): while the card is
+           paused (window unfocused or hidden, see _updatePaused) all of them hold their frame, and they resume
+           in place. With reduced motion requested, none of them run. */
+        ha-card.paused *, ha-card.paused *::before, ha-card.paused *::after { animation-play-state: paused !important; }
+        @media (prefers-reduced-motion: reduce) { ha-card *, ha-card *::before, ha-card *::after { animation: none !important; } }
         .empty { color: var(--secondary-text-color); font-size: 14px; padding: 4px 0; }
       </style>
       <ha-card class="${this._paused ? "paused" : ""}" style="--phase: -${this._animClock() % 240000}ms">${this._config.shops.map((s) => this._shop(s)).join("")}</ha-card>`;
