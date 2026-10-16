@@ -20,6 +20,7 @@ public sealed class ListingsModule : IModule
         services.AddSingleton<ImageDownloader>();
         services.AddSingleton<ListingImportQueue>();
         services.AddSingleton<ListingQueries>();
+        services.AddSingleton<ShopIconCache>();
 
         services.AddJobHandler<ImportShopListingsJob>();
         services.AddJobHandler<ImportShopLookupsJob>();
@@ -42,17 +43,28 @@ public sealed class ListingsModule : IModule
             {
                 if (!store.Exists(fileName)) return Results.NotFound();
                 http.Response.Headers[HeaderNames.CacheControl] = "public, max-age=31536000, immutable";
-                var type = Path.GetExtension(fileName) switch
-                {
-                    ".png" => "image/png",
-                    ".gif" => "image/gif",
-                    ".webp" => "image/webp",
-                    _ => "image/jpeg",
-                };
-                return Results.File(store.PathFor(fileName), type);
+                return Results.File(store.PathFor(fileName), ContentTypeFor(fileName));
             })
             .AllowAnonymous();
+
+        // Signed-in only: unlike the hashed photo names, shop ids are guessable.
+        endpoints.MapGet(ShopIconCache.UrlPrefix + "{shopId:int}", async (int shopId, ShopIconCache icons, ImageStore store,
+                HttpContext http, CancellationToken ct) =>
+            {
+                if (await icons.GetFileNameAsync(shopId, ct) is not { } fileName) return Results.NotFound();
+                http.Response.Headers[HeaderNames.CacheControl] = "private, max-age=3600";
+                return Results.File(store.PathFor(fileName), ContentTypeFor(fileName));
+            })
+            .RequireAuthorization();
     }
+
+    private static string ContentTypeFor(string fileName) => Path.GetExtension(fileName) switch
+    {
+        ".png" => "image/png",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        _ => "image/jpeg",
+    };
 
     public IEnumerable<NavItem> NavItems =>
     [

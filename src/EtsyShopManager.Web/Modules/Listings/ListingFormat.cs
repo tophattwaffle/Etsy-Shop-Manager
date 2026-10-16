@@ -13,6 +13,35 @@ public static class ListingFormat
         return value.ToString("N" + digits, CultureInfo.CurrentCulture) + (currency is null ? "" : " " + currency);
     }
 
+    /// <summary>Etsy's style for the listing cards: "$24.00", or "24.00 CAD" for currencies without a clear symbol.</summary>
+    public static string PriceWithSymbol(long amount, int divisor, string? currency)
+    {
+        var symbol = currency switch
+        {
+            "USD" => "$",
+            "EUR" => "€",
+            "GBP" => "£",
+            _ => null,
+        };
+        return symbol is null ? Price(amount, divisor, currency) : symbol + Price(amount, divisor, null);
+    }
+
+    /// <summary>A short relative time ("5 min ago", "3 h ago", "2 days ago"), or the date once it is over a week old.</summary>
+    public static string Ago(DateTime? utc, DateTime nowUtc)
+    {
+        if (utc is null) return "never";
+        var age = nowUtc - utc.Value;
+        return age switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalHours: < 1 } => $"{(int)age.TotalMinutes} min ago",
+            { TotalDays: < 1 } => $"{(int)age.TotalHours} h ago",
+            { TotalDays: < 2 } => "yesterday",
+            { TotalDays: < 7 } => $"{(int)age.TotalDays} days ago",
+            _ => Local(utc, "yyyy-MM-dd"),
+        };
+    }
+
     public static Color StateColor(string state) => state switch
     {
         "active" => Color.Success,

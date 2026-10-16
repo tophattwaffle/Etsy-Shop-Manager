@@ -1,0 +1,23 @@
+@using EtsyShopManager.Web.Modules.Listings
+@* A shop's profile image in a ring of its accent colour (the parent sets --shop). Falls back to the first letter. *@
+
+<span class="lp-shopmark @(Small ? "lp-shopmark-small" : "")" title="@Name"
+      role="@(Decorative ? null : "img")" aria-label="@(Decorative ? null : Name)" aria-hidden="@(Decorative ? "true" : null)">
+    @if (Shop is { HasIcon: true })
+    {
+        <img src="@ShopIconCache.UrlFor(Shop.ShopId)" alt="" />
+    }
+    else
+    {
+        @(string.IsNullOrEmpty(Name) ? "?" : Name[..1].ToUpperInvariant())
+    }
+</span>
+
+@code {
+    [Parameter] public ShopImportStatus? Shop { get; set; }
+    [Parameter] public string Name { get; set; } = "";
+    [Parameter] public bool Small { get; set; }
+
+    /// <summary>True where the shop's name is already written next to the mark.</summary>
+    [Parameter] public bool Decorative { get; set; }
+}
