@@ -74,8 +74,11 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>Paths that fail with 500 (e.g. to interrupt an import). Remove an entry to let it succeed again.</summary>
     public HashSet<string> FailingStates { get; } = [];
 
-    /// <summary>The shop's receipts (Etsy's shape). Paged by offset, filtered by min_last_modified, oldest change first.</summary>
+    /// <summary>The shop's receipts (Etsy's shape). Paged by offset, filtered by min_last_modified, sorted as asked.</summary>
     public List<JsonObject> Receipts { get; } = [];
+
+    /// <summary>Runs after each receipts page is served (to change receipts in the middle of a poll).</summary>
+    public Action<int>? AfterReceiptsPage { get; set; }
 
     /// <summary>Receipt offsets that fail with 500 (to interrupt a poll).</summary>
     public HashSet<int> FailingReceiptOffsets { get; } = [];
@@ -259,9 +262,12 @@ internal sealed class FakeEtsyShop : IDisposable
             if (FailingReceiptOffsets.Contains(offset)) return new HttpResponseMessage(HttpStatusCode.InternalServerError);
             var limit = int.Parse(query["limit"] ?? "25");
             var since = long.TryParse(query["min_last_modified"], out var m) ? m : 0;
+            var sortKey = query["sort_on"] == "updated" ? "updated_timestamp" : "created_timestamp";
             var matching = Receipts.Where(r => (long)r["updated_timestamp"]! >= since)
-                .OrderBy(r => (long)r["updated_timestamp"]!).ThenBy(r => (long)r["receipt_id"]!).ToList();
-            return Page(matching.Skip(offset).Take(limit), matching.Count);
+                .OrderBy(r => (long)r[sortKey]!).ThenBy(r => (long)r["receipt_id"]!).ToList();
+            var response = Page(matching.Skip(offset).Take(limit), matching.Count);
+            AfterReceiptsPage?.Invoke(offset);
+            return response;
         }
         if (path == "/v3/application/listings/batch")
         {

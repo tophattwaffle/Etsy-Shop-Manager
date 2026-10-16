@@ -122,7 +122,7 @@ All Etsy work runs through a persistent job queue (survives restarts; interrupte
 |---|---|---|
 | Etsy token keep-alive | 12 h | Refreshes both shops' tokens so the ~90-day refresh token keeps rolling |
 | Refresh shop details | 24 h | Updates shop name, URL, icon, currency |
-| Clean up old jobs | 24 h | Deletes succeeded jobs after 30 days, failed after 90 |
+| Clean up old jobs | 6 h | Deletes succeeded jobs after 30 days (routine scheduled ones, like order polls, after 24 h), failed after 90 |
 | Import listings (all shops) | 24 h | Pulls every shop's listings, lookups, then photos and taxonomy |
 | Poll orders (all shops) | 5 min (Admin → Settings) | Fetches new and changed orders; the first run pulls the order history |
 

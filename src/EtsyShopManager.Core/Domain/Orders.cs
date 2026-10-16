@@ -97,6 +97,9 @@ public class ShopOrderSyncState
     /// <summary>Offset within the current poll, so an interrupted backfill resumes where it stopped.</summary>
     public int Offset { get; set; }
 
+    /// <summary>When the current (or last) poll started; the next poll asks for changes since then.</summary>
+    public DateTime? PollStartedAtUtc { get; set; }
+
     /// <summary>Set after the first complete pull; new-order events only fire after that.</summary>
     public DateTime? BackfillCompletedAtUtc { get; set; }
 

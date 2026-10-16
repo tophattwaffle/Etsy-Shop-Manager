@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import EtsyShopManagerApi
-from .const import CONF_VERIFY_SSL
+from .const import CONF_VERIFY_SSL, scan_interval
 from .coordinator import EtsyShopManagerConfigEntry, EtsyShopManagerCoordinator
 
 PLATFORMS = [Platform.SENSOR]
@@ -36,5 +36,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: EtsyShopManagerConfigEn
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: EtsyShopManagerConfigEntry) -> None:
-    """Reload so a new polling interval takes effect."""
-    await hass.config_entries.async_reload(entry.entry_id)
+    """Apply a new polling interval in place (no reload, so entities don't flicker)."""
+    entry.runtime_data.update_interval = scan_interval(entry.options)

@@ -46,7 +46,8 @@ public sealed class JobsModule : IModule
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddJobHandler<JobsCleanupJob>();
-        services.AddRecurringJob(new RecurringJobDefinition("Clean up old jobs", JobsCleanupJob.Type, TimeSpan.FromHours(24))
+        // Every 6 h, so routine scheduled jobs (kept 24 h) don't pile up between runs.
+        services.AddRecurringJob(new RecurringJobDefinition("Clean up old jobs", JobsCleanupJob.Type, TimeSpan.FromHours(6))
         {
             InitialDelay = TimeSpan.FromMinutes(10),
         });
@@ -88,6 +89,9 @@ public sealed class JobsCleanupJob(IDbContextFactory<AppDbContext> dbFactory, IO
         var failedCutoff = now.AddDays(-options.Value.FailedRetentionDays);
 
         await db.Jobs.Where(j => (j.Status == JobStatus.Succeeded || j.Status == JobStatus.Cancelled) && j.CompletedAtUtc < okCutoff)
+            .ExecuteDeleteAsync(ct);
+        var scheduledCutoff = now.AddHours(-options.Value.ScheduledSucceededRetentionHours);
+        await db.Jobs.Where(j => j.Status == JobStatus.Succeeded && j.CreatedBy == "scheduler" && j.CompletedAtUtc < scheduledCutoff)
             .ExecuteDeleteAsync(ct);
         await db.Jobs.Where(j => j.Status == JobStatus.Failed && j.CompletedAtUtc < failedCutoff)
             .ExecuteDeleteAsync(ct);

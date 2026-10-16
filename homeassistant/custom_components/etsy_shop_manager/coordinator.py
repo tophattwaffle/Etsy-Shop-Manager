@@ -10,9 +10,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import CannotConnect, EtsyShopManagerApi, InvalidAuth
-from .const import DOMAIN, EVENT_NEW_ORDER, scan_interval
+from .const import DOMAIN, EVENT_NEW_ORDER, STALE_DATA_GRACE, scan_interval
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class EtsyShopManagerCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         # Receipt ids seen per shop; None until the first successful poll, so a restart doesn't
         # announce every open order as new.
         self._known_receipts: dict[str, set[str]] | None = None
+        self._last_success = None
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:
@@ -46,9 +48,13 @@ class EtsyShopManagerCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed("The Etsy Shop Manager API key was rejected") from err
         except CannotConnect as err:
+            if self.data is not None and self._last_success and dt_util.utcnow() - self._last_success < STALE_DATA_GRACE:
+                _LOGGER.warning("Etsy Shop Manager is unreachable (%s); keeping the last data for now", err)
+                return self.data
             raise UpdateFailed(f"Can't reach Etsy Shop Manager: {err}") from err
 
         data = {str(shop["shop_id"]): shop for shop in shops if shop.get("shop_id") is not None}
+        self._last_success = dt_util.utcnow()
         self._announce_new_orders(data)
         return data
 

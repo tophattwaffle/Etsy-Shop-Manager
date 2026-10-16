@@ -860,6 +860,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<int>("Offset")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("PollStartedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("ShopId");
 
                     b.ToTable("ShopOrderSyncStates");

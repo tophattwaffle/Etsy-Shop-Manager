@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EtsyShopManager.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261016062530_OrdersAndApiKeys")]
+    [Migration("20261016064602_OrdersAndApiKeys")]
     partial class OrdersAndApiKeys
     {
         /// <inheritdoc />
@@ -862,6 +862,9 @@ namespace EtsyShopManager.Data.Migrations
 
                     b.Property<int>("Offset")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("PollStartedAtUtc")
+                        .HasColumnType("TEXT");
 
                     b.HasKey("ShopId");
 

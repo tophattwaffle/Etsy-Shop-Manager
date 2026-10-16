@@ -13,6 +13,10 @@ DEFAULT_SCAN_INTERVAL = 30
 MIN_SCAN_INTERVAL = 5
 MAX_SCAN_INTERVAL = 3600
 
+# Keep showing the last data while the service is briefly unreachable (e.g. restarting after a deploy), so
+# dashboards don't blank out; after this long, entities go unavailable.
+STALE_DATA_GRACE = timedelta(minutes=5)
+
 EVENT_NEW_ORDER = f"{DOMAIN}_new_order"
 TRIGGER_NEW_ORDER = "new_order"
 

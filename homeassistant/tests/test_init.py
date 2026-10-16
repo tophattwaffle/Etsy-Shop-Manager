@@ -128,3 +128,30 @@ async def test_options_set_polling_interval(hass: HomeAssistant, aioclient_mock)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert entry.runtime_data.update_interval.total_seconds() == 120
+
+
+async def test_brief_outage_keeps_last_data_then_goes_unavailable(hass: HomeAssistant, aioclient_mock, freezer) -> None:
+    entry = await _setup(hass, aioclient_mock)
+    mock_service(aioclient_mock, SHOPS, status=503)  # e.g. the service restarting after a deploy
+
+    freezer.tick(60)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.shopone_open_orders")
+    assert state.state == "1"
+    assert state.attributes["open_orders"][0]["receipt_id"] == "1"
+
+    freezer.tick(600)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.shopone_open_orders").state == "unavailable"
+
+
+async def test_options_change_does_not_reload(hass: HomeAssistant, aioclient_mock) -> None:
+    entry = await _setup(hass, aioclient_mock)
+    coordinator = entry.runtime_data
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(result["flow_id"], {CONF_SCAN_INTERVAL: 45})
+    await hass.async_block_till_done()
+    assert entry.runtime_data is coordinator
+    assert coordinator.update_interval.total_seconds() == 45

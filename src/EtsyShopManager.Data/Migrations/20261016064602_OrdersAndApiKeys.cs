@@ -78,6 +78,7 @@ namespace EtsyShopManager.Data.Migrations
                     ShopId = table.Column<int>(type: "INTEGER", nullable: false),
                     ModifiedSinceUtc = table.Column<DateTime>(type: "TEXT", nullable: true),
                     Offset = table.Column<int>(type: "INTEGER", nullable: false),
+                    PollStartedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: true),
                     BackfillCompletedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: true),
                     LastPolledAtUtc = table.Column<DateTime>(type: "TEXT", nullable: true),
                     LastError = table.Column<string>(type: "TEXT", nullable: true),

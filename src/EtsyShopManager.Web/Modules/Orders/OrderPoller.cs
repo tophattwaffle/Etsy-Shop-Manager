@@ -14,8 +14,13 @@ public sealed record OrderPollResult(int Received, int New, bool WasBackfill);
 /// Pulls a shop's receipts changed since the last poll (all of them the first time) into the local DB.
 /// <para>
 /// Idempotent: orders and items are matched by Etsy id. Resumable: the offset is saved after every page, so an
-/// interrupted backfill continues where it stopped. Each poll overlaps the previous one by a couple of minutes,
-/// which re-reads a few receipts but never misses one modified while the last poll ran.
+/// interrupted backfill continues where it stopped.
+/// </para>
+/// <para>
+/// No gaps: pages are read in creation order, which a receipt being modified mid-poll doesn't change (in update
+/// order it would jump to the end and shift the rest, so one could be skipped). A receipt modified during a poll is
+/// picked up by the next one, which asks for changes since this poll <i>started</i>, minus a small overlap for
+/// clock differences between this host and Etsy.
 /// </para>
 /// </summary>
 public sealed class OrderPoller(
@@ -35,6 +40,7 @@ public sealed class OrderPoller(
         DateTime? since;
         int offset;
         bool backfill;
+        DateTime pollStarted;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             var shop = await db.Shops.AsNoTracking().FirstOrDefaultAsync(s => s.Id == shopId, ct)
@@ -51,22 +57,27 @@ public sealed class OrderPoller(
             since = sync.ModifiedSinceUtc;
             offset = sync.Offset;
             backfill = sync.BackfillCompletedAtUtc is null;
+
+            // A resumed poll keeps its original start, so changes made since then are still covered next time.
+            if (offset == 0 || sync.PollStartedAtUtc is null)
+            {
+                sync.PollStartedAtUtc = time.GetUtcNow().UtcDateTime;
+                await db.SaveChangesAsync(ct);
+            }
+            pollStarted = sync.PollStartedAtUtc.Value;
         }
 
         var auth = EtsyAuth.ForShop(shopId);
-        var maxModified = since;
         int received = 0, created = 0;
         while (true)
         {
             var page = await etsy.GetShopReceiptsAsync(etsyShopId, since, offset, PageSize, auth, ct);
-            var (pageNew, pageMax) = await UpsertPageAsync(shopId, page.Results, raiseEvents: !backfill, ct);
+            created += await UpsertPageAsync(shopId, page.Results, raiseEvents: !backfill, ct);
             received += page.Results.Count;
-            created += pageNew;
-            if (pageMax is not null && (maxModified is null || pageMax > maxModified)) maxModified = pageMax;
 
             offset += page.Results.Count;
             var done = page.Results.Count < PageSize || offset >= page.Count;
-            await SaveProgressAsync(shopId, done ? 0 : offset, done ? Next(maxModified) : since, done, ct);
+            await SaveProgressAsync(shopId, done ? 0 : offset, done ? pollStarted - Overlap : since, done, ct);
             if (done) break;
         }
 
@@ -75,9 +86,6 @@ public sealed class OrderPoller(
                 shopId, received, created, backfill ? " (initial backfill)" : "");
         return new OrderPollResult(received, created, backfill);
     }
-
-    /// <summary>Where the next poll starts: the newest change seen, minus the overlap.</summary>
-    private static DateTime? Next(DateTime? maxModified) => maxModified is { } m ? m - Overlap : null;
 
     public async Task RecordErrorAsync(int shopId, string error, CancellationToken ct)
     {
@@ -105,10 +113,10 @@ public sealed class OrderPoller(
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<(int New, DateTime? MaxModified)> UpsertPageAsync(int shopId, List<EtsyRaw<EtsyReceipt>> page,
-        bool raiseEvents, CancellationToken ct)
+    private async Task<int> UpsertPageAsync(int shopId, List<EtsyRaw<EtsyReceipt>> page, bool raiseEvents,
+        CancellationToken ct)
     {
-        if (page.Count == 0) return (0, null);
+        if (page.Count == 0) return 0;
         var now = time.GetUtcNow().UtcDateTime;
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -118,7 +126,6 @@ public sealed class OrderPoller(
             .ToDictionaryAsync(o => o.EtsyReceiptId, ct);
 
         var received = new List<Order>();
-        DateTime? maxModified = null;
         var created = 0;
         foreach (var (receipt, raw) in page)
         {
@@ -133,8 +140,6 @@ public sealed class OrderPoller(
             var wasPaid = !isNew && order.IsPaid;
             OrderMapper.Apply(order, receipt, raw, now);
             if (order.IsPaid && !wasPaid) received.Add(order);
-            // (A lifted comparison with null is always false, so handle the first value explicitly.)
-            if (order.EtsyUpdatedAtUtc is { } updated && (maxModified is null || updated > maxModified)) maxModified = updated;
         }
 
         await ResolveImagesAsync(db, shopId, existing.Values.SelectMany(o => o.Items).Where(i => i.ImageUrl is null).ToList(), ct);
@@ -143,7 +148,7 @@ public sealed class OrderPoller(
         if (raiseEvents)
             foreach (var order in received)
                 await events.PublishAsync(new OrderReceived(shopId, order.Id, order.EtsyReceiptId), ct);
-        return (created, maxModified);
+        return created;
     }
 
     /// <summary>

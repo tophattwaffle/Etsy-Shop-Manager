@@ -11,7 +11,8 @@ public sealed partial class EtsyApiClient
 
     /// <summary>
     /// One page of a shop's receipts modified at or after <paramref name="minLastModifiedUtc"/> (all receipts when
-    /// null), oldest change first, so a poll can page forward and remember where it got to.
+    /// null), oldest first by creation. Creation order is stable while receipts are being modified, so paging by
+    /// offset neither skips nor reorders them (update order would move a modified receipt to the end).
     /// </summary>
     public Task<EtsyRawPage<EtsyReceipt>> GetShopReceiptsAsync(long etsyShopId, DateTime? minLastModifiedUtc, int offset,
         int limit, EtsyAuth auth, CancellationToken ct = default)
@@ -20,7 +21,7 @@ public sealed partial class EtsyApiClient
         {
             ["limit"] = Math.Clamp(limit, 1, MaxReceiptsPageSize).ToString(),
             ["offset"] = Math.Max(0, offset).ToString(),
-            ["sort_on"] = "updated",
+            ["sort_on"] = "created",
             ["sort_order"] = "asc",
         };
         if (minLastModifiedUtc is { } since)

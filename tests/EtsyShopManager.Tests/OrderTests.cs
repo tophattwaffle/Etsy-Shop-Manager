@@ -103,7 +103,7 @@ public class HaPayloadTests
 public class OrderPollerTests
 {
     private static JsonObject Receipt(long id, long updated, bool shipped = false, string status = "Paid", long listingId = 1,
-        long? imageId = 11) => new()
+        long? imageId = 11, long? created = null) => new()
     {
         ["receipt_id"] = id,
         ["buyer_user_id"] = 500 + id,
@@ -111,7 +111,7 @@ public class OrderPollerTests
         ["status"] = status,
         ["is_paid"] = true,
         ["is_shipped"] = shipped,
-        ["created_timestamp"] = updated - 100,
+        ["created_timestamp"] = created ?? updated - 100,
         ["updated_timestamp"] = updated,
         ["grandtotal"] = FakeEtsyShop.Money(1999),
         ["subtotal"] = FakeEtsyShop.Money(1999),
@@ -136,7 +136,8 @@ public class OrderPollerTests
         using var shop = new FakeEtsyShop();
         var poller = shop.Provider.GetRequiredService<OrderPoller>();
         poller.PageSize = 2;
-        for (var i = 1; i <= 5; i++) shop.Receipts.Add(Receipt(i, 1_760_000_000 + i));
+        var now = shop.Time.Now.ToUnixTimeSeconds();
+        for (var i = 1; i <= 5; i++) shop.Receipts.Add(Receipt(i, now - 10_000 + i));
 
         var first = await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
 
@@ -145,7 +146,7 @@ public class OrderPollerTests
         Assert.Empty(shop.Events.Events);
         Assert.Equal(3, shop.RequestedPaths.Count(p => p.Contains("/receipts")));
 
-        shop.Receipts.Add(Receipt(6, 1_760_000_100));
+        shop.Receipts.Add(Receipt(6, now + 60));
         shop.Api.Requests.Clear();
         var second = await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
 
@@ -153,10 +154,30 @@ public class OrderPollerTests
         Assert.Equal(1, second.New);
         var received = Assert.Single(shop.Events.Events.OfType<OrderReceived>());
         Assert.Equal(6, received.EtsyReceiptId);
-        // Asks only for receipts changed since the last poll (minus the overlap).
-        var since = DateTime.UnixEpoch.AddSeconds(1_760_000_005) - OrderPoller.Overlap;
+        // Asks only for receipts changed since the last poll started (minus the overlap).
+        var since = shop.Time.Now.UtcDateTime - OrderPoller.Overlap;
         Assert.True(shop.RequestedPaths.Any(p => p.Contains($"min_last_modified={new DateTimeOffset(since).ToUnixTimeSeconds()}")),
             string.Join(" | ", shop.RequestedPaths));
+    }
+
+    [Fact]
+    public async Task A_receipt_modified_mid_poll_does_not_make_another_one_skipped()
+    {
+        using var shop = new FakeEtsyShop();
+        var poller = shop.Provider.GetRequiredService<OrderPoller>();
+        poller.PageSize = 2;
+        for (var i = 1; i <= 5; i++) shop.Receipts.Add(Receipt(i, 1_760_000_000 + i));
+        // After the first page, receipt 1 is shipped on Etsy: its update time jumps past all the others.
+        shop.AfterReceiptsPage = offset =>
+        {
+            if (offset == 0) shop.Receipts[0] = Receipt(1, 1_760_009_999, shipped: true, status: "Completed", created: 1_759_999_901);
+        };
+
+        await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        await using var db = shop.Db.CreateDbContext();
+        Assert.Equal([1L, 2L, 3L, 4L, 5L], await db.Orders.OrderBy(o => o.EtsyReceiptId).Select(o => o.EtsyReceiptId).ToListAsync());
+        Assert.All(shop.RequestedPaths.Where(p => p.Contains("/receipts")), p => Assert.Contains("sort_on=created", p));
     }
 
     [Fact]
@@ -164,7 +185,8 @@ public class OrderPollerTests
     {
         using var shop = new FakeEtsyShop();
         var poller = shop.Provider.GetRequiredService<OrderPoller>();
-        shop.Receipts.Add(Receipt(1, 1_760_000_000));
+        var now = shop.Time.Now.ToUnixTimeSeconds();
+        shop.Receipts.Add(Receipt(1, now - 1000, created: now - 2000));
         await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
         int orderId, itemId;
         await using (var db = shop.Db.CreateDbContext())
@@ -175,7 +197,7 @@ public class OrderPollerTests
         }
 
         await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None); // overlap re-reads it: no change
-        shop.Receipts[0] = Receipt(1, 1_760_000_500, shipped: true, status: "Completed");
+        shop.Receipts[0] = Receipt(1, now + 500, shipped: true, status: "Completed", created: now - 2000);
         await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
 
         await using (var db = shop.Db.CreateDbContext())
@@ -333,4 +355,37 @@ public class RecurringIntervalTests
     [InlineData("0", 300)]
     public void Setting_overrides_interval(string? setting, int expectedSeconds) =>
         Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), Def.EffectiveInterval(setting));
+}
+
+public class JobCleanupTests
+{
+    [Fact]
+    public async Task Routine_scheduled_successes_go_after_a_day_everything_else_is_kept_longer()
+    {
+        using var db = new TestDb();
+        var time = new ImmediateTimeProvider();
+        var now = time.Now.UtcDateTime;
+        Job Make(string type, JobStatus status, string? by, double hoursAgo) => new()
+        {
+            JobType = type, Status = status, CreatedBy = by, CreatedAtUtc = now.AddHours(-hoursAgo),
+            RunAfterUtc = now.AddHours(-hoursAgo), CompletedAtUtc = now.AddHours(-hoursAgo),
+        };
+        await using (var ctx = db.CreateDbContext())
+        {
+            ctx.Jobs.AddRange(
+                Make("poll", JobStatus.Succeeded, "scheduler", 30),    // deleted
+                Make("poll", JobStatus.Succeeded, "scheduler", 2),     // kept: recent
+                Make("poll", JobStatus.Failed, "scheduler", 30),       // kept: failures stay
+                Make("import", JobStatus.Succeeded, "tophattwaffle", 30));      // kept: not routine
+            await ctx.SaveChangesAsync();
+        }
+
+        await new EtsyShopManager.Web.Modules.JobsCleanupJob(db,
+                Microsoft.Extensions.Options.Options.Create(new EtsyShopManager.Web.Infrastructure.Jobs.JobOptions()), time)
+            .HandleAsync(new JobExecutionContext { JobId = 1, JobType = "jobs.cleanup", Attempt = 1 }, CancellationToken.None);
+
+        await using var check = db.CreateDbContext();
+        Assert.Equal(3, await check.Jobs.CountAsync());
+        Assert.DoesNotContain(await check.Jobs.ToListAsync(), j => j.Status == JobStatus.Succeeded && j.CreatedBy == "scheduler" && j.CompletedAtUtc < now.AddHours(-24));
+    }
 }

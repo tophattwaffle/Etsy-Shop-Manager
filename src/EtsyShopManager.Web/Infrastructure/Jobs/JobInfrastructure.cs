@@ -16,6 +16,12 @@ public sealed class JobOptions
     public TimeSpan JobTimeout { get; set; } = TimeSpan.FromMinutes(30);
 
     public int SucceededRetentionDays { get; set; } = 30;
+
+    /// <summary>
+    /// Succeeded jobs the scheduler queued (e.g. order polls every few minutes) are routine; keep them only this long
+    /// so they don't bury everything else on the Jobs page. Failures are kept as long as any other.
+    /// </summary>
+    public int ScheduledSucceededRetentionHours { get; set; } = 24;
     public int FailedRetentionDays { get; set; } = 90;
 }
 

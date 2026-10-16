@@ -46,6 +46,9 @@ folder and restart.
 
 If the key is revoked in the app, Home Assistant asks for a new one (a repair/re-authenticate prompt).
 
+If the service is briefly unreachable (for example while it restarts after an update), the sensors keep their
+last values for up to 5 minutes instead of going unavailable, so dashboards don't blank out.
+
 ## Switch the card over
 
 `www/etsy-orders-card.js` is the existing card, unchanged. Point each shop at the new sensor:
