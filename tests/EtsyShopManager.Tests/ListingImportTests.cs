@@ -313,6 +313,25 @@ public class ListingImporterTests
     }
 
     [Fact]
+    public async Task Listings_copied_on_Etsy_can_share_image_ids()
+    {
+        // Etsy reuses listing_image_id when a listing is copied; seen on a real shop (active + sold_out copy).
+        using var shop = new FakeEtsyShop();
+        var copy = FakeEtsyShop.Listing(2, "Copy", state: "sold_out");
+        copy["images"] = FakeEtsyShop.Images(1);
+        shop.Listings.AddRange([FakeEtsyShop.Listing(1, "Original"), copy]);
+
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+
+        await using var db = shop.Db.CreateDbContext();
+        Assert.Equal(4, await db.ListingImages.CountAsync());
+        Assert.Equal(2, await db.ListingImages.CountAsync(i => i.EtsyImageId == 11));
+        var downloaded = await shop.Downloader.DownloadForShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+        Assert.Equal(0, downloaded.Failed);
+    }
+
+    [Fact]
     public async Task Missing_includes_fall_back_to_per_listing_calls()
     {
         using var shop = new FakeEtsyShop();

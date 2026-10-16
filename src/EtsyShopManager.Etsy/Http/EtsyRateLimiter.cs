@@ -15,9 +15,11 @@ public sealed class EtsyRateLimiter : IAsyncDisposable
         var o = options.Value;
         _limiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
         {
+            // One token every 1/RPS seconds (not RPS tokens once a second), so requests are spread evenly.
+            // Refilling the whole bucket at once let a burst straddle a second boundary and drew 429s from Etsy.
             TokenLimit = Math.Max(1, o.BurstSize),
-            TokensPerPeriod = Math.Max(1, o.RequestsPerSecond),
-            ReplenishmentPeriod = TimeSpan.FromSeconds(1),
+            TokensPerPeriod = 1,
+            ReplenishmentPeriod = TimeSpan.FromSeconds(1.0 / Math.Max(1, o.RequestsPerSecond)),
             QueueLimit = 100_000,
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             AutoReplenishment = true,
