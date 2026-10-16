@@ -36,11 +36,12 @@ public sealed class ListingsModule : IModule
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
-        // Content-hashed, so a URL always means the same bytes: cache for a year.
+        // Content-hashed, so a URL always means the same bytes: cache for a year. No sign-in needed: the names are
+        // unguessable SHA-256 hashes, and the same photos are public on Etsy's CDN anyway.
         endpoints.MapGet(ImageStore.UrlPrefix + "{fileName}", (string fileName, ImageStore store, HttpContext http) =>
             {
                 if (!store.Exists(fileName)) return Results.NotFound();
-                http.Response.Headers[HeaderNames.CacheControl] = "private, max-age=31536000, immutable";
+                http.Response.Headers[HeaderNames.CacheControl] = "public, max-age=31536000, immutable";
                 var type = Path.GetExtension(fileName) switch
                 {
                     ".png" => "image/png",
@@ -50,7 +51,7 @@ public sealed class ListingsModule : IModule
                 };
                 return Results.File(store.PathFor(fileName), type);
             })
-            .RequireAuthorization();
+            .AllowAnonymous();
     }
 
     public IEnumerable<NavItem> NavItems =>
