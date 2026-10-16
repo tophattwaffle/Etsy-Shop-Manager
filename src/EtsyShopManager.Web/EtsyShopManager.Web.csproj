@@ -22,4 +22,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="EtsyShopManager.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Shown in the app bar with the git commit, so it's clear which build is running. -->
+    <AssemblyMetadata Include="BuildTimeUtc" Value="$([System.DateTime]::UtcNow.ToString('o'))" />
+  </ItemGroup>
 </Project>

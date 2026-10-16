@@ -10,6 +10,9 @@
     <MudAppBar Elevation="1" Dense="true">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="() => _drawerOpen = !_drawerOpen" />
         <MudText Typo="Typo.h6" Class="ml-2">Etsy Shop Manager</MudText>
+        <MudTooltip Text="@VersionTooltip">
+            <MudText Typo="Typo.caption" Class="ml-3 app-version">v@(AppVersion.Display)</MudText>
+        </MudTooltip>
         <MudSpacer />
         <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit" OnClick="() => _dark = !_dark" title="Toggle dark mode" />
@@ -67,6 +70,11 @@
             Primary = "#F1823A",
         },
     };
+
+    private static string VersionTooltip =>
+        $"Version {AppVersion.Version}" +
+        (AppVersion.Commit is null ? "" : $", commit {AppVersion.Commit}") +
+        (AppVersion.BuiltAtUtc is { } built ? $", built {built.ToLocalTime():yyyy-MM-dd HH:mm}" : "");
 
     protected override async Task OnInitializedAsync() =>
         _setupIncomplete = !await Setup.IsSetupCompletedAsync();

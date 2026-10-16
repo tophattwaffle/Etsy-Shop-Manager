@@ -58,3 +58,21 @@ public class JobBackoffTests
     public void Backoff_doubles_and_caps_at_an_hour(int attempt, int seconds) =>
         Assert.Equal(TimeSpan.FromSeconds(seconds), JobProcessor.Backoff(attempt));
 }
+
+public class AppVersionTests
+{
+    [Theory]
+    [InlineData("0.1.0+52a92198648dd3de4bbd0979aa4427176d0879e1", "0.1.0", "52a92198648dd3de4bbd0979aa4427176d0879e1")]
+    [InlineData("0.1.0", "0.1.0", null)]
+    [InlineData("0.1.0+", "0.1.0", null)]
+    public void Splits_version_and_commit(string info, string version, string? commit) =>
+        Assert.Equal((version, commit), AppVersion.Parse(info));
+
+    [Fact]
+    public void Build_from_git_carries_commit_and_build_time()
+    {
+        Assert.NotNull(AppVersion.Commit);
+        Assert.StartsWith(AppVersion.Version + " · ", AppVersion.Display);
+        Assert.NotNull(AppVersion.BuiltAtUtc);
+    }
+}

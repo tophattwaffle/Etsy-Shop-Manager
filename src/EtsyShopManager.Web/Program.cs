@@ -140,6 +140,7 @@ app.MapRazorComponents<App>()
 
 app.MapAccountEndpoints();
 app.MapModuleEndpoints(modules);
-app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+app.MapGet("/health", () => Results.Ok(new { status = "ok", version = AppVersion.Version, commit = AppVersion.Commit }))
+    .AllowAnonymous();
 
 await app.RunAsync();
