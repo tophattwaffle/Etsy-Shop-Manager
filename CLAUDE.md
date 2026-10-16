@@ -89,6 +89,10 @@ read-only API at `/api/ha/v1` protected by API keys (`esm_…`, `ApiKeyEndpointF
 the exact attribute shape the old `etsyapp` sensor had, so `homeassistant/www/etsy-orders-card.js` works unchanged;
 keep that payload backward compatible. Order images in the HA payload are Etsy's public CDN URLs. The repo copy of the
 card is the source of truth; the HA dashboard loads it with `?v=<version>`, so bump the card version on every change.
+Order colors: the list lives in the app (`OrderColorService`, Admin → Order colors) and rides along in the HA payload
+as `color_config`; the card's coloring engine (`EtsyOrderColors`) is also what the Orders page uses, because the app
+embeds and serves the card file itself (`OrderCardScript`). Change coloring in the card only; `OrderColorTests` checks
+the embedded copy matches.
 
 ### Hosting details
 - Live data root defaults to `C:\ProgramData\EtsyShopManager` (DB, images, Data Protection keys, backups, logs).

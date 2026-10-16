@@ -178,8 +178,24 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .order-item img, .order-item .noimg { width: 56px; height: 56px; object-fit: cover; border-radius: var(--esm-radius-sm); flex: none; }
 .order-item .noimg { background: var(--esm-sunk); }
 .order-item-body { min-width: 0; }
-.order-note { margin-top: 4px; padding: 4px 10px; border-radius: var(--esm-radius-sm); white-space: pre-wrap; background: var(--esm-sunk); }
 .order-message { margin-top: 8px; font-size: 0.9rem; white-space: pre-wrap; }
+
+/* Variation pills (.var) and personalization notes (.note), filled in by esm.colorOrders with the HA card's coloring
+   engine; its .colored/.random/.metal rules arrive as EtsyOrderColors.CSS. The card's theme variables map to tokens. */
+.esm-orders { --primary-text-color: var(--esm-ink); --divider-color: var(--esm-line); }
+.order-vars { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.esm-colorbox-note { display: block; margin-top: 6px; }
+.esm-orders .var {
+    display: inline-block; font-size: 0.75rem; line-height: 1.5; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--esm-line); color: var(--esm-muted);
+}
+.esm-orders .note {
+    display: block; font-size: 0.85rem; line-height: 1.4; padding: 4px 10px; border-radius: var(--esm-radius-sm);
+    border-left: 3px solid var(--esm-line); background: var(--esm-sunk); color: var(--esm-ink); white-space: pre-wrap;
+}
+@media (prefers-reduced-motion: reduce) {
+    .esm-orders *, .esm-orders *::before, .esm-orders *::after { animation: none !important; }
+}
 
 /* ---- Jobs ---- */
 .job-table tr.job-stack { cursor: pointer; background: var(--esm-sunk); }

@@ -1,0 +1,168 @@
+@page "/admin/order-colors"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Web.Components.Pages.Orders
+@using EtsyShopManager.Web.Modules.Orders
+@inject OrderColorService Colors
+@inject IAuditLog Audit
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+
+<PageTitle>Order colors · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Order colors">
+    <Summary>
+        Color names found in variations and personalization tint those boxes on the Orders page and on the Home Assistant
+        orders card. Home Assistant picks up changes on its next poll.
+    </Summary>
+    <Actions>
+        <MudButton Variant="Variant.Outlined" OnClick="RevertAsync" Disabled="!_dirty">Discard changes</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="!_dirty">Save colors</MudButton>
+    </Actions>
+</PageHeader>
+
+@if (_problems.Count > 0)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">
+        @foreach (var p in _problems) { <div>@p</div> }
+    </MudAlert>
+}
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Random</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-2">
+        Words that mean "any color". Those boxes get a slow multi-color effect drawn from the colors below.
+    </MudText>
+    <MudTextField T="string" Value="_randomWords" ValueChanged="OnRandomWordsChanged" Label="Words, separated by commas"
+                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-lg" />
+</MudPaper>
+
+<MudPaper Class="pa-4 esm-orders" Elevation="0" Outlined="true">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+        <MudText Typo="Typo.h6">Colors (@_rows.Count)</MudText>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudTextField T="string" @bind-Value="_filter" Placeholder="Find a color" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" Clearable="true" />
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="Add">Add color</MudButton>
+        </MudStack>
+    </MudStack>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Give one color, or several separated by commas for a multi-color filament (they fade from one to the next).
+        Metallic colors get a sheen and a glint of light.
+    </MudText>
+
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr><th>Preview</th><th>Name</th><th>Colors</th><th>Metallic</th><th class="esm-col-icon"></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var row in Visible)
+            {
+                <tr @key="row">
+                    <td class="esm-minw-sm"><ColorBox Text="@(string.IsNullOrWhiteSpace(row.Name) ? "New color" : row.Name)" Seed="preview" /></td>
+                    <td><MudTextField T="string" @bind-Value="row.Name" @bind-Value:after="Changed" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Name" /></td>
+                    <td><MudTextField T="string" @bind-Value="row.Hex" @bind-Value:after="Changed" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Colors" Placeholder="@OrderColorService.ExampleHex" /></td>
+                    <td><MudCheckBox T="bool" @bind-Value="row.Metallic" @bind-Value:after="Changed" aria-label="Metallic" /></td>
+                    <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="@($"Remove {row.Name}")" OnClick="() => Remove(row)" /></td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private sealed class Row
+    {
+        public string Name { get; set; } = "";
+        public string Hex { get; set; } = "";
+        public bool Metallic { get; set; }
+    }
+
+    private List<Row> _rows = [];
+    private string _randomWords = "";
+    private string? _filter;
+    private bool _dirty;
+    private List<string> _problems = [];
+    private JsonObject? _preview;
+
+    private IEnumerable<Row> Visible => string.IsNullOrWhiteSpace(_filter)
+        ? _rows
+        : _rows.Where(r => r.Name.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase) || r.Name.Length == 0);
+
+    protected override Task OnInitializedAsync() => RevertAsync();
+
+    private async Task RevertAsync()
+    {
+        var config = await Colors.GetAsync();
+        _rows = config.Colors.Select(c => new Row { Name = c.Name, Hex = string.Join(", ", c.Hex), Metallic = c.Metallic }).ToList();
+        _randomWords = string.Join(", ", config.RandomWords);
+        _dirty = false;
+        _problems = [];
+        UpdatePreview();
+    }
+
+    // The previews use the list as edited, before it is saved.
+    protected override async Task OnAfterRenderAsync(bool firstRender) =>
+        await Js.InvokeVoidAsync("esm.colorOrders", _preview);
+
+    private OrderColorConfig Current() => new(
+        _rows.Select(r => new OrderColor(r.Name, Split(r.Hex), r.Metallic)).ToList(),
+        Split(_randomWords));
+
+    private static List<string> Split(string text) =>
+        text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private void UpdatePreview()
+    {
+        var current = Current();
+        // Skip colors that don't parse yet, so a half-typed value doesn't break the preview.
+        var usable = current with
+        {
+            Colors = current.Colors.Select(c => c with { Hex = c.Hex.Where(OrderColorService.IsHex).ToList() })
+                .Where(c => c.Hex.Count > 0 && c.Name.Trim().Length > 0)
+                .DistinctBy(c => c.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+        };
+        _preview = usable.ToCardJson();
+    }
+
+    private void Changed()
+    {
+        _dirty = true;
+        UpdatePreview();
+    }
+
+    private void OnRandomWordsChanged(string? value)
+    {
+        _randomWords = value ?? "";
+        Changed();
+    }
+
+    private void Add()
+    {
+        _filter = null;
+        _rows.Insert(0, new Row());
+        Changed();
+    }
+
+    private void Remove(Row row)
+    {
+        _rows.Remove(row);
+        Changed();
+    }
+
+    private async Task SaveAsync()
+    {
+        var config = Current();
+        _problems = OrderColorService.Validate(config);
+        if (_problems.Count > 0) return;
+
+        var user = (await AuthState).User.Identity?.Name;
+        await Colors.SaveAsync(config, user);
+        await Audit.WriteAsync("orders.colors.saved", details: $"{config.Colors.Count} colors", userName: user);
+        Snackbar.Add("Saved order colors", Severity.Success);
+        await RevertAsync();
+    }
+}

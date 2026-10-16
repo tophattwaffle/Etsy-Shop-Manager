@@ -155,3 +155,31 @@ async def test_options_change_does_not_reload(hass: HomeAssistant, aioclient_moc
     await hass.async_block_till_done()
     assert entry.runtime_data is coordinator
     assert coordinator.update_interval.total_seconds() == 45
+
+
+COLORS = {"colors": {"Copper": ["#B87333"]}, "metallic": ["Copper"], "random_words": ["random"], "version": "a1"}
+
+
+async def test_color_list_from_the_app_reaches_every_shop_sensor(hass: HomeAssistant, aioclient_mock) -> None:
+    mock_service(aioclient_mock, SHOPS, color_config=COLORS)
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=URL, data={CONF_URL: URL, CONF_API_KEY: API_KEY, CONF_VERIFY_SSL: True}
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.shopone_open_orders").attributes["color_config"] == COLORS
+    assert hass.states.get("sensor.shoptwo_open_orders").attributes["color_config"] == COLORS
+
+    # A color edit in the app shows up even when no order changed.
+    changed = {**COLORS, "colors": {"Copper": ["#B87333"], "Teal": ["#008080"]}, "version": "b2"}
+    mock_service(aioclient_mock, SHOPS, color_config=changed)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.shopone_open_orders").attributes["color_config"] == changed
+
+
+async def test_older_app_without_colors_leaves_the_attribute_out(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup(hass, aioclient_mock)
+    assert "color_config" not in hass.states.get("sensor.shopone_open_orders").attributes

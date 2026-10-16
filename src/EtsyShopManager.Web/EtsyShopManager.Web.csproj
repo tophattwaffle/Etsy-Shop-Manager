@@ -20,6 +20,11 @@
     <ProjectReference Include="..\EtsyShopManager.Etsy\EtsyShopManager.Etsy.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The HA card is the single source of the order-coloring engine; the Orders page serves and uses the same file. -->
+    <EmbeddedResource Include="..\..\homeassistant\www\etsy-orders-card.js" LogicalName="etsy-orders-card.js" />
+    <EmbeddedResource Include="Modules\Orders\OrderColors.default.json" LogicalName="OrderColors.default.json" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="EtsyShopManager.Tests" />
   </ItemGroup>
   <ItemGroup>

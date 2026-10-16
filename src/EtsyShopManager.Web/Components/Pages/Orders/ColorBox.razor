@@ -1,0 +1,20 @@
+@* A variation pill or personalization note. It renders empty: esm.colorOrders (app.js) fills it in the browser using
+   the Home Assistant card's own coloring engine, so the Orders page and the card color the same text the same way. *@
+
+<span class="esm-colorbox esm-colorbox-@Kind" data-color-text="@Text" data-color-class="@Kind" data-color-seed="@Seed"
+      data-color-small="@(Kind == Pill ? "true" : "false")" title="@Title"></span>
+
+@code {
+    public const string Pill = "var";
+    public const string Note = "note";
+
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+
+    /// <summary><see cref="Pill"/> for a variation, <see cref="Note"/> for personalization (the card's class names).</summary>
+    [Parameter] public string Kind { get; set; } = Pill;
+
+    /// <summary>Keeps a "random" box's pattern the same between renders (the card uses receipt id and position).</summary>
+    [Parameter] public string Seed { get; set; } = "";
+
+    [Parameter] public string? Title { get; set; }
+}
