@@ -62,6 +62,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         {
             e.Property(x => x.JobType).HasMaxLength(200);
             e.Property(x => x.DedupeKey).HasMaxLength(400);
+            e.Property(x => x.Result).HasMaxLength(500);
             e.Property(x => x.Status).HasConversion<int>();
             e.HasIndex(x => new { x.Status, x.RunAfterUtc, x.Priority });
             e.HasIndex(x => x.DedupeKey);

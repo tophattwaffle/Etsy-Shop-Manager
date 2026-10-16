@@ -1100,6 +1100,10 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<int>("Priority")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Result")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("RunAfterUtc")
                         .HasColumnType("TEXT");
 

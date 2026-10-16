@@ -5,6 +5,8 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject ListingImportQueue ImportQueue
 @inject ISnackbar Snackbar
+@inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
+@implements IDisposable
 
 <PageTitle>Lookups · Etsy Shop Manager</PageTitle>
 
@@ -199,8 +201,24 @@
     private long _selectedTaxonomy;
     private List<TaxonomyProperty> _properties = [];
 
+    private IDisposable? _live;
+
+    public void Dispose() => _live?.Dispose();
+
     protected override async Task OnInitializedAsync()
     {
+        // Lookups, taxonomy and usage counts change when these jobs finish.
+        _live = JobEvents.Subscribe(
+            c => c.IsFinal && c.JobType is ImportShopLookupsJob.Type or ImportShopListingsJob.Type or RefreshTaxonomyJob.Type,
+            _ => InvokeAsync(async () =>
+            {
+                await using (var db = await DbFactory.CreateDbContextAsync())
+                    _taxonomyCount = await db.TaxonomyNodes.CountAsync();
+                await LoadShopAsync();
+                await LoadNodesAsync();
+                if (_selectedTaxonomy != 0) await SelectTaxonomyAsync(_selectedTaxonomy);
+                StateHasChanged();
+            }));
         await using var db = await DbFactory.CreateDbContextAsync();
         _shops = await db.Shops.AsNoTracking().OrderBy(s => s.Name).Select(s => new ShopOption(s.Id, s.Name)).ToListAsync();
         _shopId = _shops.FirstOrDefault()?.Id;

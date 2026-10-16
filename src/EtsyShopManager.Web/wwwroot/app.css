@@ -83,3 +83,7 @@
 .order-item-body { min-width: 0; }
 .order-note { margin-top: 4px; padding: 4px 8px; border-radius: 4px; white-space: pre-wrap; background: var(--mud-palette-background-gray, #eee); }
 .order-message { margin-top: 8px; font-size: 0.9rem; white-space: pre-wrap; }
+
+/* ---- Jobs page stacks ---- */
+.job-table tr.job-stack { cursor: pointer; background: var(--mud-palette-background-gray, rgba(0,0,0,.03)); }
+.job-table tr.job-child td:nth-child(2) { padding-left: 20px; }

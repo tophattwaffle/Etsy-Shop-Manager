@@ -10,6 +10,8 @@
 @inject EtsyQuotaTracker Quota
 @inject EtsyRateLimiter RateLimiter
 @inject TimeProvider Time
+@inject IJobEvents JobEvents
+@inject EtsyShopManager.Web.Modules.Orders.OrderQueries Orders
 
 <PageTitle>Dashboard · Etsy Shop Manager</PageTitle>
 
@@ -32,7 +34,13 @@
                 @foreach (var s in _shops)
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="py-1">
-                        <MudText><b>@s.Name</b></MudText>
+                        <MudText>
+                            <b>@s.Name</b>
+                            @if (_openOrders.TryGetValue(s.Id, out var open))
+                            {
+                                <MudLink Href="orders" Typo="Typo.body2" Class="ml-2">@open open order@(open == 1 ? "" : "s")</MudLink>
+                            }
+                        </MudText>
                         @if (s.IsHealthy)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Success">Connected</MudChip>
@@ -77,13 +85,18 @@
 @code {
     private List<ShopSummary>? _shops;
     private int _pending, _running, _failed24h;
+    private Dictionary<int, int> _openOrders = [];
     private Timer? _timer;
+    private IDisposable? _live;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
-        _timer = new Timer(_ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }),
-            null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        // Job counts, shop health and open orders change when jobs run.
+        _live = JobEvents.Subscribe(_ => true, _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }),
+            TimeSpan.FromSeconds(1));
+        // The Etsy quota figures change with every API call, not per job: re-render them every 10 s.
+        _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
     private async Task LoadAsync()
@@ -94,7 +107,12 @@
         _pending = await db.Jobs.CountAsync(j => j.Status == JobStatus.Pending);
         _running = await db.Jobs.CountAsync(j => j.Status == JobStatus.Running);
         _failed24h = await db.Jobs.CountAsync(j => j.Status == JobStatus.Failed && j.CompletedAtUtc >= since);
+        _openOrders = (await Orders.GetShopStatusAsync()).ToDictionary(o => o.ShopId, o => o.OpenOrders);
     }
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        _live?.Dispose();
+        _timer?.Dispose();
+    }
 }

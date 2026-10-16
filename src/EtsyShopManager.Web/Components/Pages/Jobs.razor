@@ -9,6 +9,8 @@
 @inject IEnumerable<RecurringJobDefinition> RecurringDefinitions
 @inject ISnackbar Snackbar
 @inject ISettingsStore Settings
+@inject IJobEvents JobEvents
+@inject JobCatalog Catalog
 
 <PageTitle>Jobs · Etsy Shop Manager</PageTitle>
 
@@ -48,42 +50,73 @@
                 <MudSelectItem T="string" Value="@("failed")">Failed</MudSelectItem>
                 <MudSelectItem T="string" Value="@("succeeded")">Succeeded</MudSelectItem>
             </MudSelect>
-            <MudSwitch T="bool" @bind-Value="_autoRefresh" Label="Auto-refresh" Color="Color.Primary" />
+            <MudSwitch T="bool" @bind-Value="_autoRefresh" Label="Live updates" Color="Color.Primary" />
             <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
         </MudStack>
     </MudStack>
 
-    <MudSimpleTable Dense="true" Hover="true">
+    <MudSimpleTable Dense="true" Hover="true" Class="job-table">
         <thead>
             <tr>
-                <th>#</th><th>Type</th><th>Status</th><th>Shop</th><th>Attempts</th>
-                <th>Created</th><th>Run after</th><th>Finished</th><th>Error</th><th></th>
+                <th style="width: 32px"></th><th>#</th><th>Job</th><th>Status</th><th>Shop</th><th>Attempts</th>
+                <th>Created</th><th>Finished</th><th>Result / error</th><th></th>
             </tr>
         </thead>
         <tbody>
-            @foreach (var j in _jobs)
+            @foreach (var stack in _stacks)
             {
-                <tr>
-                    <td>@j.Id</td>
-                    <td><code>@j.JobType</code></td>
-                    <td><MudChip T="string" Size="Size.Small" Color="@StatusColor(j.Status)">@j.Status</MudChip></td>
-                    <td>@(j.ShopId?.ToString() ?? "—")</td>
-                    <td>@j.Attempts / @j.MaxAttempts</td>
-                    <td>@Local(j.CreatedAtUtc)</td>
-                    <td>@(j.Status == JobStatus.Pending ? Local(j.RunAfterUtc) : "")</td>
-                    <td>@Local(j.CompletedAtUtc)</td>
-                    <td class="error-cell" title="@j.LastError">@FirstLine(j.LastError)</td>
-                    <td class="text-right">
-                        @if (j.Status is JobStatus.Failed or JobStatus.Cancelled)
-                        {
-                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => RetryAsync(j.Id)">Retry</MudButton>
-                        }
-                        else if (j.Status == JobStatus.Pending)
-                        {
-                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="() => CancelAsync(j.Id)">Cancel</MudButton>
-                        }
-                    </td>
-                </tr>
+                var expanded = stack.Count == 1 || _expanded.Contains(stack.Key);
+                @if (stack.Count > 1)
+                {
+                    <tr class="job-stack" @onclick="() => Toggle(stack.Key)">
+                        <td><MudIcon Icon="@(expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" Size="Size.Small" /></td>
+                        <td class="muted">@stack.Jobs[^1].Id–@stack.Latest.Id</td>
+                        <td>@Catalog.DisplayName(stack.JobType) <span class="muted small">×@stack.Count</span><br /><code class="small">@stack.JobType</code></td>
+                        <td>@StatusChips(stack)</td>
+                        <td>@string.Join(", ", stack.Jobs.Select(j => ShopName(j.ShopId)).Distinct())</td>
+                        <td></td>
+                        <td>@Local(stack.Jobs[^1].CreatedAtUtc) – @Local(stack.Latest.CreatedAtUtc)</td>
+                        <td>@Local(stack.Latest.CompletedAtUtc)</td>
+                        <td class="small">@stack.Latest.Result</td>
+                        <td></td>
+                    </tr>
+                }
+                @if (expanded)
+                {
+                    foreach (var j in stack.Jobs)
+                    {
+                        <tr class="@(stack.Count > 1 ? "job-child" : "")">
+                            <td></td>
+                            <td>@j.Id</td>
+                            <td>@Catalog.DisplayName(j.JobType)<br /><code class="small">@j.JobType</code></td>
+                            <td><MudChip T="string" Size="Size.Small" Color="@StatusColor(j.Status)">@j.Status</MudChip></td>
+                            <td>@ShopName(j.ShopId)</td>
+                            <td>@j.Attempts / @j.MaxAttempts</td>
+                            <td>@Local(j.CreatedAtUtc)@(j.CreatedBy is null ? "" : $" · {j.CreatedBy}")</td>
+                            <td>@(j.Status == JobStatus.Pending ? $"runs {Local(j.RunAfterUtc)}" : Local(j.CompletedAtUtc))</td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(j.LastError) && j.Status != JobStatus.Succeeded)
+                                {
+                                    <div class="error-cell" title="@j.LastError">@FirstLine(j.LastError)</div>
+                                }
+                                else
+                                {
+                                    <span class="small">@j.Result</span>
+                                }
+                            </td>
+                            <td class="text-right">
+                                @if (j.Status is JobStatus.Failed or JobStatus.Cancelled)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => RetryAsync(j.Id)">Retry</MudButton>
+                                }
+                                else if (j.Status == JobStatus.Pending)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="() => CancelAsync(j.Id)">Cancel</MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
             }
         </tbody>
     </MudSimpleTable>
@@ -97,20 +130,41 @@
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private List<Job> _jobs = [];
+    private List<JobStack> _stacks = [];
+    private readonly HashSet<long> _expanded = [];
+    private Dictionary<int, string> _shops = [];
+    private IDisposable? _live;
     private Dictionary<string, DateTime?> _recurringState = [];
     private Dictionary<string, TimeSpan> _intervals = [];
     private string _filter = "all";
     private bool _autoRefresh = true;
-    private Timer? _timer;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
-        _timer = new Timer(_ =>
-        {
-            if (_autoRefresh) InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
-        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        // Re-render when any job is queued, starts, finishes or is retried (bursts are coalesced).
+        _live = JobEvents.Subscribe(_ => _autoRefresh, _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
     }
+
+    private void Toggle(long key)
+    {
+        if (!_expanded.Remove(key)) _expanded.Add(key);
+    }
+
+    private string ShopName(int? shopId) => shopId is { } id ? _shops.GetValueOrDefault(id, $"#{id}") : "—";
+
+    private RenderFragment StatusChips(JobStack stack) => builder =>
+    {
+        var seq = 0;
+        foreach (var group in stack.Jobs.GroupBy(j => j.Status).OrderBy(g => g.Key))
+        {
+            builder.OpenComponent<MudChip<string>>(seq++);
+            builder.AddAttribute(seq++, "Size", Size.Small);
+            builder.AddAttribute(seq++, "Color", StatusColor(group.Key));
+            builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(b => b.AddContent(0, $"{group.Key} {group.Count()}")));
+            builder.CloseComponent();
+        }
+    };
 
     private async Task LoadAsync()
     {
@@ -123,7 +177,9 @@
             "succeeded" => q.Where(j => j.Status == JobStatus.Succeeded),
             _ => q,
         };
-        _jobs = await q.OrderByDescending(j => j.Id).Take(200).ToListAsync();
+        _jobs = await q.OrderByDescending(j => j.Id).Take(500).ToListAsync();
+        _stacks = JobStacks.Group(_jobs);
+        _shops = await db.Shops.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Name);
         _recurringState = await db.RecurringJobs.AsNoTracking().ToDictionaryAsync(r => r.Name, r => r.LastEnqueuedAtUtc);
         foreach (var def in RecurringDefinitions)
             _intervals[def.Name] = await RecurringJobScheduler.GetIntervalAsync(def, Settings);
@@ -174,5 +230,5 @@
         return line.Length > 120 ? line[..120] + "…" : line;
     }
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose() => _live?.Dispose();
 }
