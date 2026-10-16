@@ -1,0 +1,44 @@
+@using EtsyShopManager.Web.Modules.Listings
+@* One line under each shop in the listings filter panel: what its import is doing, or when it last finished. *@
+
+@if (!Shop.IsHealthy)
+{
+    <a class="lp-status lp-status-error" href="shops">Reconnect needed</a>
+}
+else if (!string.IsNullOrEmpty(Shop.LastError) && Shop.Activity is ImportActivity.Idle or ImportActivity.Paused)
+{
+    <MudTooltip Text="@Shop.LastError">
+        <span class="lp-status lp-status-error" tabindex="0">Last import failed</span>
+    </MudTooltip>
+}
+else
+{
+    switch (Shop.Activity)
+    {
+        case ImportActivity.Importing:
+            <span class="lp-status lp-status-busy">Importing now</span>
+            break;
+        case ImportActivity.Queued:
+            <span class="lp-status lp-status-busy">Import queued for @ListingFormat.Local(Shop.ImportJobRunAfterUtc, "HH:mm")</span>
+            break;
+        case ImportActivity.Paused:
+            <MudTooltip Text="An import stopped part-way. The next import continues from where it stopped.">
+                <span class="lp-status lp-status-warn" tabindex="0">Import unfinished</span>
+            </MudTooltip>
+            break;
+        case ImportActivity.DownloadingPhotos:
+            <span class="lp-status lp-status-busy">Downloading @(Shop.ImagesPending > 0 ? $"{Shop.ImagesPending:N0} photos" : "photos")</span>
+            break;
+        case ImportActivity.Idle when Shop.LastCompletedAtUtc is null:
+            <span class="lp-status">Not imported yet</span>
+            break;
+        default:
+            <span class="lp-status" title="@ListingFormat.Local(Shop.LastCompletedAtUtc)">Imported @ListingFormat.Ago(Shop.LastCompletedAtUtc, Now)</span>
+            break;
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public ShopImportStatus Shop { get; set; } = default!;
+    [Parameter, EditorRequired] public DateTime Now { get; set; }
+}

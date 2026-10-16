@@ -1,205 +1,236 @@
 @page "/listings"
 @attribute [Authorize]
-@using EtsyShopManager.Etsy.Models
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Core.Jobs
 @implements IDisposable
 @inject ListingQueries Queries
 @inject ListingImportQueue ImportQueue
-@inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject IJobEvents JobEvents
+@inject IJSRuntime Js
+@inject TimeProvider Time
 
 <PageTitle>Listings · Etsy Shop Manager</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Listings</MudText>
+<div class="listings-page">
+    <header class="lp-header">
+        <h1>Listings</h1>
+        @if (_facets is not null && _shops is { Count: > 0 })
+        {
+            <p class="lp-summary">@_facets.OnEtsy.ToString("N0") on Etsy across @_shops.Count shop@(_shops.Count == 1 ? "" : "s")</p>
+        }
+    </header>
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-        <MudText Typo="Typo.h6">Import from Etsy</MudText>
-        <MudText Typo="Typo.body2" Class="muted">Runs nightly; listings are read-only until the editor arrives (Phase 3).</MudText>
-    </MudStack>
-    @if (_status is null)
-    {
-        <MudProgressLinear Indeterminate="true" />
-    }
-    else if (_status.Count == 0)
-    {
-        <MudText>No shops connected. <MudLink Href="shops">Connect a shop</MudLink></MudText>
-    }
-    else
-    {
-        <MudSimpleTable Dense="true">
-            <thead>
-                <tr><th>Shop</th><th>Listings</th><th>Last import</th><th>Lookups</th><th>Images pending</th><th>Status</th><th></th></tr>
-            </thead>
-            <tbody>
-                @foreach (var s in _status)
-                {
-                    <tr>
-                        <td><b>@s.ShopName</b></td>
-                        <td>@s.ListingCount</td>
-                        <td>@ListingFormat.Local(s.LastCompletedAtUtc)</td>
-                        <td>@ListingFormat.Local(s.LookupsImportedAtUtc)</td>
-                        <td>@s.ImagesPending</td>
-                        <td>
-                            @if (!s.IsHealthy)
-                            {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Error">Reconnect needed</MudChip>
-                            }
-                            else
-                            {
-                                switch (s.Activity)
-                                {
-                                    case ImportActivity.Importing:
-                                        <MudTooltip Text="@($"Run started {ListingFormat.Local(s.RunStartedAtUtc)}")">
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Info">Importing…</MudChip>
-                                        </MudTooltip>
-                                        break;
-                                    case ImportActivity.Queued:
-                                        <MudTooltip Text="@($"Runs at {ListingFormat.Local(s.ImportJobRunAfterUtc, "HH:mm:ss")}{(s.IsRunOpen ? ", continuing the unfinished run" : "")}")">
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">Queued</MudChip>
-                                        </MudTooltip>
-                                        break;
-                                    case ImportActivity.Paused:
-                                        <MudTooltip Text="An import stopped part-way. The next import continues from where it stopped.">
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Unfinished</MudChip>
-                                        </MudTooltip>
-                                        break;
-                                    case ImportActivity.DownloadingPhotos:
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">Downloading photos</MudChip>
-                                        break;
-                                }
-                            }
-                            @if (!string.IsNullOrEmpty(s.LastError))
-                            {
-                                <MudTooltip Text="@s.LastError">
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Error">Last import failed</MudChip>
-                                </MudTooltip>
-                            }
-                        </td>
-                        <td class="text-right">
-                            <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")" Context="auth">
-                                <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="!s.IsHealthy"
-                                           OnClick="() => ImportAsync(s, force: false)">Import now</MudButton>
-                                <MudTooltip Text="Also re-reads every listing's attributes">
-                                    <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="!s.IsHealthy"
-                                               OnClick="() => ImportAsync(s, force: true)">Full re-import</MudButton>
-                                </MudTooltip>
-                            </AuthorizeView>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </MudSimpleTable>
-    }
-</MudPaper>
-
-<MudPaper Class="pa-4" Elevation="1">
-    <MudGrid Spacing="2" Class="mb-2">
-        <MudItem xs="12" md="4">
-            <MudTextField T="string" Value="_text" ValueChanged="OnTextChanged" Label="Search title, SKU, tag or listing id"
-                          Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
-                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
-        </MudItem>
-        <MudItem xs="6" md="2">
-            <MudSelect T="int?" Value="_shopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense">
-                <MudSelectItem T="int?" Value="null">All shops</MudSelectItem>
-                @foreach (var s in _status ?? [])
-                {
-                    <MudSelectItem T="int?" Value="s.ShopId">@s.ShopName</MudSelectItem>
-                }
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="6" md="2">
-            <MudSelect T="string" MultiSelection="true" SelectedValues="_states" SelectedValuesChanged="OnStatesChanged"
-                       Label="State" Variant="Variant.Outlined" Margin="Margin.Dense"
-                       MultiSelectionTextFunc="@(v => v.Count == 0 ? "All" : string.Join(", ", v.Select(ListingFormat.StateLabel)))">
-                @foreach (var state in EtsyListingStates.All)
-                {
-                    <MudSelectItem T="string" Value="state">@ListingFormat.StateLabel(state)</MudSelectItem>
-                }
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="6" md="2">
-            <MudSelect T="ListingSort" Value="_sort" ValueChanged="OnSortChanged" Label="Sort" Variant="Variant.Outlined" Margin="Margin.Dense">
-                <MudSelectItem T="ListingSort" Value="ListingSort.UpdatedDesc">Recently updated</MudSelectItem>
-                <MudSelectItem T="ListingSort" Value="ListingSort.CreatedDesc">Newest</MudSelectItem>
-                <MudSelectItem T="ListingSort" Value="ListingSort.TitleAsc">Title</MudSelectItem>
-                <MudSelectItem T="ListingSort" Value="ListingSort.PriceAsc">Price (low first)</MudSelectItem>
-                <MudSelectItem T="ListingSort" Value="ListingSort.PriceDesc">Price (high first)</MudSelectItem>
-                <MudSelectItem T="ListingSort" Value="ListingSort.QuantityAsc">Quantity (low first)</MudSelectItem>
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="6" md="2" Class="d-flex align-center">
-            <MudSwitch T="bool" Value="_showMissing" ValueChanged="OnShowMissingChanged" Color="Color.Primary"
-                       Label="Gone from Etsy" title="Show only listings a full import no longer found on Etsy" />
-        </MudItem>
-    </MudGrid>
-
-    <MudTable @ref="_table" T="ListingRow" ServerData="LoadAsync" Dense="true" Hover="true" RowsPerPage="50"
-              OnRowClick="@(e => Nav.NavigateTo($"listings/{e.Item!.Id}"))" RowClass="cursor-pointer">
-        <HeaderContent>
-            <MudTh Style="width: 64px"></MudTh>
-            <MudTh>Title</MudTh>
-            <MudTh>State</MudTh>
-            <MudTh Class="text-right">Price</MudTh>
-            <MudTh Class="text-right">Qty</MudTh>
-            <MudTh>SKU</MudTh>
-            <MudTh>Shop</MudTh>
-            <MudTh>Updated on Etsy</MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd>
-                @if (ImageStore.UrlFor(context.ThumbFileName) is { } thumb)
-                {
-                    <img src="@thumb" alt="" class="listing-thumb" loading="lazy" />
-                }
-                else
-                {
-                    <div class="listing-thumb placeholder"></div>
-                }
-            </MudTd>
-            <MudTd>
-                <div class="listing-title">@context.Title</div>
-                <div class="muted small">
-                    #@context.EtsyListingId · @context.ImageCount photo@(context.ImageCount == 1 ? "" : "s")
-                    @if (context.VariationCount > 1) { <span> · @context.VariationCount variations</span> }
+    <div class="lp-layout">
+        <section class="lp-main" aria-label="Listings">
+            <div class="lp-toolbar">
+                <MudTextField T="string" Value="_text" ValueChanged="OnTextChanged" Placeholder="Search by title, SKU, tag or listing id"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Class="lp-search" aria-label="Search listings" />
+                <MudSelect T="ListingSort" Value="_sort" ValueChanged="OnSortChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Class="lp-sort" aria-label="Sort listings">
+                    <MudSelectItem T="ListingSort" Value="ListingSort.UpdatedDesc">Recently updated</MudSelectItem>
+                    <MudSelectItem T="ListingSort" Value="ListingSort.CreatedDesc">Newest</MudSelectItem>
+                    <MudSelectItem T="ListingSort" Value="ListingSort.TitleAsc">Title A–Z</MudSelectItem>
+                    <MudSelectItem T="ListingSort" Value="ListingSort.PriceAsc">Lowest price</MudSelectItem>
+                    <MudSelectItem T="ListingSort" Value="ListingSort.PriceDesc">Highest price</MudSelectItem>
+                    <MudSelectItem T="ListingSort" Value="ListingSort.QuantityAsc">Lowest stock</MudSelectItem>
+                </MudSelect>
+                <div class="lp-viewtoggle" role="group" aria-label="View">
+                    <button type="button" aria-pressed="@(_view == GridView ? "true" : "false")" title="Gallery view"
+                            @onclick="() => SetViewAsync(GridView)">
+                        <MudIcon Icon="@Icons.Material.Filled.GridView" Size="Size.Small" />
+                    </button>
+                    <button type="button" aria-pressed="@(_view == ListView ? "true" : "false")" title="List view"
+                            @onclick="() => SetViewAsync(ListView)">
+                        <MudIcon Icon="@Icons.Material.Filled.ViewList" Size="Size.Small" />
+                    </button>
                 </div>
-            </MudTd>
-            <MudTd>
-                <MudChip T="string" Size="Size.Small" Color="@ListingFormat.StateColor(context.State)">@ListingFormat.StateLabel(context.State)</MudChip>
-                @if (context.IsMissingOnEtsy)
+            </div>
+
+            @if (_rows is null)
+            {
+                <MudProgressLinear Indeterminate="true" Class="my-6" />
+            }
+            else if (_rows.Count == 0)
+            {
+                <div class="lp-empty">
+                    @if (_shops is { Count: 0 })
+                    {
+                        <p>Connect an Etsy shop to import its listings.</p>
+                        <a class="lp-button" href="shops">Connect a shop</a>
+                    }
+                    else if (IsFiltered)
+                    {
+                        <p>No listings match these filters.</p>
+                        <button type="button" class="lp-button lp-button-secondary" @onclick="ClearFiltersAsync">Clear filters</button>
+                    }
+                    else
+                    {
+                        <p>No listings yet. Import a shop from the panel on the right.</p>
+                    }
+                </div>
+            }
+            else if (_view == GridView)
+            {
+                <div class="lp-grid @(_loading ? "is-loading" : "")">
+                    @foreach (var row in _rows)
+                    {
+                        <a class="lp-card" href="@($"listings/{row.Id}")" style="@ShopStyle(row.ShopId)">
+                            <div class="lp-photo">
+                                @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
+                                {
+                                    <img src="@thumb" alt="" loading="lazy" />
+                                }
+                                <ShopMark Shop="ShopFor(row.ShopId)" Name="@row.ShopName" />
+                                @if (StateBadge(row) is { } badge)
+                                {
+                                    <span class="lp-badge lp-badge-@badge.Kind">@badge.Label</span>
+                                }
+                            </div>
+                            <div class="lp-card-body">
+                                <span class="lp-title">@row.Title</span>
+                                <span class="lp-card-meta">
+                                    <span class="lp-stock">@StockLabel(row.Quantity)</span>
+                                    <span class="lp-price">@ListingFormat.PriceWithSymbol(row.PriceAmount, row.PriceDivisor, row.CurrencyCode)</span>
+                                </span>
+                            </div>
+                        </a>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="lp-list-wrap">
+                    <table class="lp-list @(_loading ? "is-loading" : "")">
+                        <thead>
+                            <tr>
+                                <th scope="col"><span class="visually-hidden">Photo</span></th>
+                                <th scope="col">Listing</th>
+                                <th scope="col">Status</th>
+                                <th scope="col" class="num">Stock</th>
+                                <th scope="col" class="num">Price</th>
+                                <th scope="col">SKU</th>
+                                <th scope="col">Updated on Etsy</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _rows)
+                            {
+                                <tr style="@ShopStyle(row.ShopId)">
+                                    <td class="lp-list-photo">
+                                        @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
+                                        {
+                                            <img src="@thumb" alt="" loading="lazy" />
+                                        }
+                                    </td>
+                                    <td>
+                                        <a class="lp-list-title" href="@($"listings/{row.Id}")">@row.Title</a>
+                                        <span class="lp-list-sub">
+                                            <ShopMark Shop="ShopFor(row.ShopId)" Name="@row.ShopName" Small="true" Decorative="true" />
+                                            @row.ShopName, #@row.EtsyListingId@(row.VariationCount > 1 ? $", {row.VariationCount} variations" : "")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (StateBadge(row) is { } badge)
+                                        {
+                                            <span class="lp-badge lp-badge-@badge.Kind">@badge.Label</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="lp-badge lp-badge-active">Active</span>
+                                        }
+                                    </td>
+                                    <td class="num">@row.Quantity</td>
+                                    <td class="num">@ListingFormat.PriceWithSymbol(row.PriceAmount, row.PriceDivisor, row.CurrencyCode)</td>
+                                    <td class="lp-sku">@string.Join(", ", row.Skus.Take(2))@(row.Skus.Count > 2 ? $" +{row.Skus.Count - 2}" : "")</td>
+                                    <td class="lp-muted">@ListingFormat.Ago(row.EtsyUpdatedAtUtc, Now)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (_rows is { Count: > 0 })
+            {
+                <div class="lp-pager">
+                    <span class="lp-muted">@(_page * PageSize + 1)–@(_page * PageSize + _rows.Count) of @_total.ToString("N0")</span>
+                    @if (PageCount > 1)
+                    {
+                        <MudPagination Count="PageCount" Selected="_page + 1" SelectedChanged="OnPageChanged" Size="Size.Small" />
+                    }
+                </div>
+            }
+        </section>
+
+        <aside class="lp-rail" aria-label="Filters">
+            <fieldset class="lp-facets">
+                <legend>Shop</legend>
+                <button type="button" class="lp-facet" aria-pressed="@(_shopId is null ? "true" : "false")" @onclick="() => OnShopChanged(null)">
+                    <span class="lp-facet-label">All shops</span>
+                    <span class="lp-count">@(_facets?.ByShop.Values.Sum().ToString("N0"))</span>
+                </button>
+                @foreach (var s in _shops ?? [])
                 {
-                    <MudChip T="string" Size="Size.Small" Color="Color.Error">gone from Etsy</MudChip>
+                    <div class="lp-shop" style="@ShopStyle(s.ShopId)">
+                        <button type="button" class="lp-facet" aria-pressed="@(_shopId == s.ShopId ? "true" : "false")"
+                                @onclick="() => OnShopChanged(s.ShopId)">
+                            <ShopMark Shop="s" Name="@s.ShopName" Small="true" Decorative="true" />
+                            <span class="lp-facet-label">@s.ShopName</span>
+                            <span class="lp-count">@(_facets?.ByShop.GetValueOrDefault(s.ShopId).ToString("N0"))</span>
+                        </button>
+                        <div class="lp-shop-status">
+                            <ImportStatusLine Shop="s" Now="Now" />
+                            <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")" Context="auth">
+                                <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true"
+                                         AriaLabel="@($"Import options for {s.ShopName}")" Disabled="!s.IsHealthy">
+                                    <MudMenuItem OnClick="() => ImportAsync(s, force: false)">Import now</MudMenuItem>
+                                    <MudMenuItem OnClick="() => ImportAsync(s, force: true)">Full re-import (re-reads attributes)</MudMenuItem>
+                                </MudMenu>
+                            </AuthorizeView>
+                        </div>
+                    </div>
                 }
-            </MudTd>
-            <MudTd Class="text-right">@ListingFormat.Price(context.PriceAmount, context.PriceDivisor, context.CurrencyCode)</MudTd>
-            <MudTd Class="text-right">@context.Quantity</MudTd>
-            <MudTd><span class="small">@string.Join(", ", context.Skus.Take(3))@(context.Skus.Count > 3 ? " …" : "")</span></MudTd>
-            <MudTd>@context.ShopName</MudTd>
-            <MudTd>@ListingFormat.Local(context.EtsyUpdatedAtUtc)</MudTd>
-        </RowTemplate>
-        <NoRecordsContent>
-            <MudText>No listings match. If no import has run yet, use <b>Import now</b> above.</MudText>
-        </NoRecordsContent>
-        <PagerContent>
-            <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 200 }" />
-        </PagerContent>
-    </MudTable>
-</MudPaper>
+            </fieldset>
+
+            <fieldset class="lp-facets">
+                <legend>Listing status</legend>
+                @foreach (var (key, label) in Statuses)
+                {
+                    var count = StatusCount(key);
+                    if (key == MissingStatus && count == 0 && _status != MissingStatus) continue;
+                    <button type="button" class="lp-facet" aria-pressed="@(_status == key ? "true" : "false")" @onclick="() => OnStatusChanged(key)">
+                        <span class="lp-facet-label">@label</span>
+                        <span class="lp-count">@count?.ToString("N0")</span>
+                    </button>
+                }
+            </fieldset>
+        </aside>
+    </div>
+</div>
 
 @code {
-    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+    private const string GridView = "grid";
+    private const string ListView = "list";
+    private const string AllStatus = "all";
+    private const string MissingStatus = "missing";
+    private const int PageSize = 48;
 
-    private MudTable<ListingRow>? _table;
-    private List<ShopImportStatus>? _status;
-    private string? _text;
-    private int? _shopId;
-    private IReadOnlyCollection<string> _states = [];
-    private ListingSort _sort = ListingSort.UpdatedDesc;
-    private bool _showMissing;
-    private IDisposable? _live;
+    private static readonly (string Key, string Label)[] Statuses =
+    [
+        (AllStatus, "All"),
+        ("active", "Active"),
+        ("draft", "Draft"),
+        ("expired", "Expired"),
+        ("sold_out", "Sold out"),
+        ("inactive", "Inactive"),
+        (MissingStatus, "Gone from Etsy"),
+    ];
+
+    // Used when a shop has no profile image, or its colour can't be read.
+    private static readonly string[] FallbackAccents = ["#3b7ea1", "#9c5aa0", "#4f8a3c", "#b8752a"];
 
     private static readonly HashSet<string> ListingJobTypes =
     [
@@ -207,41 +238,150 @@
         EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type, EtsyShopManager.Web.Modules.Shops.TokenKeepAliveJob.Type,
     ];
 
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<ShopImportStatus>? _shops;
+    private readonly Dictionary<int, string> _accents = [];
+    private bool _accentsRequested;
+    private List<ListingRow>? _rows;
+    private ListingFacets? _facets;
+    private int _total;
+    private int _page;
+    private bool _loading;
+    private string _view = GridView;
+    private string? _text;
+    private int? _shopId;
+    private string _status = "active";
+    private ListingSort _sort = ListingSort.UpdatedDesc;
+    private IDisposable? _live;
+    private CancellationTokenSource? _loadCts;
+
+    private DateTime Now => Time.GetUtcNow().UtcDateTime;
+    private int PageCount => Math.Max(1, (_total + PageSize - 1) / PageSize);
+    private bool IsFiltered => !string.IsNullOrWhiteSpace(_text) || _shopId is not null || _status != AllStatus;
+
     protected override async Task OnInitializedAsync()
     {
-        _status = await Queries.GetImportStatusAsync();
+        _shops = await Queries.GetImportStatusAsync();
+        await LoadAsync();
         // Import status follows the job queue; the list itself changes when an import or photo download finishes.
         _live = JobEvents.Subscribe(c => ListingJobTypes.Contains(c.JobType), changes => InvokeAsync(async () =>
         {
-            _status = await Queries.GetImportStatusAsync();
+            _shops = await Queries.GetImportStatusAsync();
             if (changes.Any(c => c.IsFinal && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type))
-                await ReloadAsync();
+                await LoadAsync();
             StateHasChanged();
         }));
     }
 
-    private async Task<TableData<ListingRow>> LoadAsync(TableState state, CancellationToken ct)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var (rows, total) = await Queries.SearchAsync(new ListingFilter
+        if (firstRender)
         {
-            ShopId = _shopId,
-            Text = _text,
-            States = _states.ToList(),
-            Missing = _showMissing,
-            Sort = _sort,
-            Skip = state.Page * state.PageSize,
-            Take = state.PageSize,
-        }, ct);
-        return new TableData<ListingRow> { Items = rows, TotalItems = total };
+            var view = await Js.InvokeAsync<string?>("esm.getPref", "listingsView");
+            if (view is GridView or ListView && view != _view)
+            {
+                _view = view;
+                StateHasChanged();
+            }
+        }
+
+        if (_shops is not null && !_accentsRequested)
+        {
+            _accentsRequested = true;
+            foreach (var s in _shops.Where(s => s.HasIcon))
+            {
+                if (await Js.InvokeAsync<string?>("esm.dominantColor", ShopIconCache.UrlFor(s.ShopId)) is { } color)
+                    _accents[s.ShopId] = color;
+            }
+            if (_accents.Count > 0) StateHasChanged();
+        }
     }
 
-    private Task ReloadAsync() => _table?.ReloadServerData() ?? Task.CompletedTask;
+    private ListingFilter CurrentFilter() => new()
+    {
+        ShopId = _shopId,
+        Text = _text,
+        States = _status is AllStatus or MissingStatus ? [] : [_status],
+        Missing = _status == MissingStatus,
+        Sort = _sort,
+        Skip = _page * PageSize,
+        Take = PageSize,
+    };
 
-    private Task OnTextChanged(string? value) { _text = value; return ReloadAsync(); }
-    private Task OnShopChanged(int? value) { _shopId = value; return ReloadAsync(); }
-    private Task OnStatesChanged(IReadOnlyCollection<string>? value) { _states = value ?? []; return ReloadAsync(); }
-    private Task OnSortChanged(ListingSort value) { _sort = value; return ReloadAsync(); }
-    private Task OnShowMissingChanged(bool value) { _showMissing = value; return ReloadAsync(); }
+    private async Task LoadAsync()
+    {
+        _loadCts?.Cancel();
+        var cts = _loadCts = new CancellationTokenSource();
+        _loading = true;
+        try
+        {
+            var filter = CurrentFilter();
+            var (rows, total) = await Queries.SearchAsync(filter, cts.Token);
+            var facets = await Queries.GetFacetsAsync(filter, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            (_rows, _total, _facets) = (rows, total, facets);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            // A newer filter replaced this load.
+        }
+        finally
+        {
+            if (_loadCts == cts) _loading = false;
+        }
+    }
+
+    private Task ReloadFromFirstPageAsync() { _page = 0; return LoadAsync(); }
+
+    private Task OnTextChanged(string? value) { _text = value; return ReloadFromFirstPageAsync(); }
+    private Task OnShopChanged(int? value) { _shopId = value; return ReloadFromFirstPageAsync(); }
+    private Task OnStatusChanged(string value) { _status = value; return ReloadFromFirstPageAsync(); }
+    private Task OnSortChanged(ListingSort value) { _sort = value; return ReloadFromFirstPageAsync(); }
+    private Task OnPageChanged(int page) { _page = page - 1; return LoadAsync(); }
+
+    private Task ClearFiltersAsync()
+    {
+        (_text, _shopId, _status) = (null, null, AllStatus);
+        return ReloadFromFirstPageAsync();
+    }
+
+    private async Task SetViewAsync(string view)
+    {
+        _view = view;
+        await Js.InvokeVoidAsync("esm.setPref", "listingsView", view);
+    }
+
+    private int? StatusCount(string key) => _facets is null ? null : key switch
+    {
+        AllStatus => _facets.OnEtsy,
+        MissingStatus => _facets.Missing,
+        _ => _facets.ByState.GetValueOrDefault(key),
+    };
+
+    private ShopImportStatus? ShopFor(int shopId) => _shops?.FirstOrDefault(s => s.ShopId == shopId);
+
+    private string Accent(int shopId)
+    {
+        if (_accents.TryGetValue(shopId, out var color)) return color;
+        var index = _shops?.FindIndex(s => s.ShopId == shopId) ?? -1;
+        return FallbackAccents[Math.Max(0, index) % FallbackAccents.Length];
+    }
+
+    private string ShopStyle(int shopId) => $"--shop: {Accent(shopId)}";
+
+    private static string StockLabel(int quantity) => quantity == 0 ? "Out of stock" : $"{quantity:N0} in stock";
+
+    private static (string Kind, string Label)? StateBadge(ListingRow row) => row switch
+    {
+        { IsMissingOnEtsy: true } => ("missing", "Gone from Etsy"),
+        { State: "active" } => null,
+        { State: "draft" } => ("draft", "Draft"),
+        { State: "sold_out" } => ("soldout", "Sold out"),
+        { State: "expired" } => ("expired", "Expired"),
+        { State: "inactive" } => ("inactive", "Inactive"),
+        _ => ("inactive", ListingFormat.Humanize(row.State)),
+    };
 
     private async Task ImportAsync(ShopImportStatus s, bool force)
     {
@@ -251,5 +391,9 @@
             Severity.Info);
     }
 
-    public void Dispose() => _live?.Dispose();
+    public void Dispose()
+    {
+        _live?.Dispose();
+        _loadCts?.Cancel();
+    }
 }

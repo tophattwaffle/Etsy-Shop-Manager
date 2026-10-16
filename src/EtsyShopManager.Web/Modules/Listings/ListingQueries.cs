@@ -55,7 +55,8 @@ public sealed record ShopImportStatus(
     int ImagesPending,
     JobStatus? ImportJob,
     DateTime? ImportJobRunAfterUtc,
-    JobStatus? ImagesJob)
+    JobStatus? ImagesJob,
+    bool HasIcon = false)
 {
     /// <summary>What the status column shows: driven by the job queue, not by the saved resume point.</summary>
     public ImportActivity Activity => ImportJob switch
@@ -66,6 +67,14 @@ public sealed record ShopImportStatus(
         _ when ImagesJob is JobStatus.Running or JobStatus.Pending => ImportActivity.DownloadingPhotos,
         _ => ImportActivity.Idle,
     };
+}
+
+/// <param name="ByShop">Listing count per local shop id.</param>
+/// <param name="ByState">Count per Etsy state, for listings still on Etsy.</param>
+/// <param name="Missing">Listings a full import no longer found on Etsy.</param>
+public sealed record ListingFacets(Dictionary<int, int> ByShop, Dictionary<string, int> ByState, int Missing)
+{
+    public int OnEtsy => ByState.Values.Sum();
 }
 
 public enum ImportActivity { Idle, Queued, Importing, Paused, DownloadingPhotos }
@@ -100,6 +109,26 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
                 l.EtsyUpdatedAtUtc, l.LastImportedAtUtc, l.IsMissingOnEtsy))
             .ToListAsync(ct);
         return (rows, total);
+    }
+
+    /// <summary>
+    /// Counts for the filter panel. Each group ignores its own filter (the shop counts ignore the selected shop, the
+    /// status counts ignore the selected status) but applies the others, so every option shows what picking it gives.
+    /// </summary>
+    public async Task<ListingFacets> GetFacetsAsync(ListingFilter filter, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var listings = db.Listings.AsNoTracking();
+
+        var byShop = await Filter(listings, filter with { ShopId = null })
+            .GroupBy(l => l.ShopId).Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Key, g => g.Count, ct);
+        var byState = await Filter(listings, filter with { States = [], Missing = false })
+            .GroupBy(l => l.State).Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Key, g => g.Count, ct);
+        var missing = await Filter(listings, filter with { States = [], Missing = true }).CountAsync(ct);
+
+        return new ListingFacets(byShop, byState, missing);
     }
 
     internal static IQueryable<Listing> Filter(IQueryable<Listing> q, ListingFilter f)
@@ -190,6 +219,7 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
                 s.Id,
                 s.Name,
                 Healthy = s.IsActive && s.Token != null && !s.Token.NeedsReauth,
+                HasIcon = s.IconUrl != null && s.IconUrl != "",
                 Count = db.Listings.Count(l => l.ShopId == s.Id && !l.IsMissingOnEtsy),
                 Pending = db.ListingImages.Count(i => i.Listing.ShopId == s.Id && i.FileName == null && i.DownloadError == null),
             })
@@ -210,7 +240,7 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
                 .OrderByDescending(j => j.Status).FirstOrDefault();
             return new ShopImportStatus(s.Id, s.Name, s.Healthy, s.Count, st?.LastCompletedAtUtc, st?.LookupsImportedAtUtc,
                 st?.IsRunOpen ?? false, st?.RunStartedAtUtc, st?.LastError, s.Pending,
-                import?.Status, import?.RunAfterUtc, images?.Status);
+                import?.Status, import?.RunAfterUtc, images?.Status, s.HasIcon);
         }).ToList();
     }
 }

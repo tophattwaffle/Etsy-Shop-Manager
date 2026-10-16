@@ -87,3 +87,159 @@
 /* ---- Jobs page stacks ---- */
 .job-table tr.job-stack { cursor: pointer; background: var(--mud-palette-background-gray, rgba(0,0,0,.03)); }
 .job-table tr.job-child td:nth-child(2) { padding-left: 20px; }
+
+/* ---- Listings page, styled after Etsy's Shop Manager ----
+   Pill buttons, black (white in dark mode) primary actions, 12px cards with hairline borders and no shadows.
+   Each shop's accent colour arrives as --shop on the card, row or filter that belongs to it. */
+.listings-page {
+    --lp-ink: var(--mud-palette-text-primary);
+    --lp-muted: var(--mud-palette-text-secondary);
+    --lp-paper: var(--mud-palette-surface);
+    --lp-line: var(--mud-palette-lines-default);
+    --lp-sunk: var(--mud-palette-background-gray);
+    --lp-hover: var(--mud-palette-action-default-hover);
+    --lp-radius: 12px;
+    --lp-font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --mud-typography-default-family: var(--lp-font);
+    --mud-typography-body1-family: var(--lp-font);
+    --mud-typography-body2-family: var(--lp-font);
+    --mud-typography-subtitle1-family: var(--lp-font);
+    --mud-typography-button-family: var(--lp-font);
+    --mud-typography-caption-family: var(--lp-font);
+    font-family: var(--lp-font);
+    color: var(--lp-ink);
+}
+.listings-page :focus-visible { outline: 2px solid var(--lp-ink); outline-offset: 2px; }
+.listings-page .lp-muted { color: var(--lp-muted); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.lp-header { margin: 4px 0 20px; }
+.lp-header h1 { font-size: 2rem; line-height: 1.15; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.lp-summary { margin: 6px 0 0; color: var(--lp-muted); }
+
+.lp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 272px; gap: 32px; align-items: start; }
+
+/* Toolbar: pill search, sort, view toggle */
+.lp-toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+.lp-toolbar .lp-search { flex: 1 1 280px; margin: 0; }
+.lp-toolbar .lp-sort { flex: 0 0 190px; margin: 0; }
+.lp-toolbar .mud-input-outlined-border { border-radius: 999px; }
+.lp-toolbar .mud-input.mud-input-outlined { border-radius: 999px; }
+.lp-viewtoggle { display: inline-flex; border: 1px solid var(--lp-line); border-radius: 999px; padding: 3px; gap: 2px; }
+.lp-viewtoggle button {
+    display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 32px; border: 0;
+    border-radius: 999px; background: transparent; color: var(--lp-muted); cursor: pointer;
+}
+.lp-viewtoggle button:hover { background: var(--lp-hover); color: var(--lp-ink); }
+.lp-viewtoggle button[aria-pressed="true"] { background: var(--lp-ink); color: var(--lp-paper); }
+
+/* Gallery */
+.lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 20px 16px; }
+.lp-grid.is-loading, .lp-list.is-loading { opacity: 0.55; transition: opacity 0.15s; }
+.lp-card {
+    display: flex; flex-direction: column; color: inherit; text-decoration: none; border-radius: var(--lp-radius);
+    background: var(--lp-paper); border: 1px solid var(--lp-line); overflow: hidden;
+    box-shadow: inset 0 -3px 0 var(--shop, transparent);
+}
+.lp-card:hover { border-color: var(--lp-muted); }
+.lp-card:hover .lp-title { text-decoration: underline; }
+.lp-photo { position: relative; aspect-ratio: 1 / 1; background: var(--lp-sunk); }
+.lp-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lp-photo .lp-shopmark { position: absolute; top: 8px; left: 8px; }
+.lp-photo .lp-badge { position: absolute; left: 8px; bottom: 8px; }
+.lp-card-body { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 14px; }
+.lp-title {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    font-size: 0.9rem; line-height: 1.3; min-height: 2.6em;
+}
+.lp-card-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.85rem; }
+.lp-stock { color: var(--lp-muted); }
+.lp-price { font-weight: 600; white-space: nowrap; }
+
+/* Shop mark: profile image ringed in the shop's colour */
+.lp-shopmark {
+    display: inline-flex; align-items: center; justify-content: center; flex: none; overflow: hidden;
+    width: 30px; height: 30px; border-radius: 50%; background: var(--shop, var(--lp-sunk));
+    box-shadow: 0 0 0 2px var(--shop, var(--lp-line)), 0 0 0 4px var(--lp-paper);
+    color: #fff; font-size: 0.8rem; font-weight: 700;
+}
+.lp-shopmark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lp-shopmark-small { width: 20px; height: 20px; font-size: 0.65rem; box-shadow: 0 0 0 2px var(--shop, var(--lp-line)); }
+
+/* Status badges: a dot in the state's colour on a surface pill, readable over any photo */
+.lp-badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px;
+    background: var(--lp-paper); color: var(--lp-ink); font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+    border: 1px solid var(--lp-line);
+}
+.lp-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--lp-muted); }
+.lp-badge-active::before { background: var(--mud-palette-success); }
+.lp-badge-draft::before { background: var(--mud-palette-info); }
+.lp-badge-soldout::before { background: var(--mud-palette-warning); }
+.lp-badge-missing::before { background: var(--mud-palette-error); }
+
+/* List view */
+.lp-list-wrap { overflow-x: auto; border: 1px solid var(--lp-line); border-radius: var(--lp-radius); background: var(--lp-paper); }
+.lp-list { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.lp-list th { text-align: left; font-weight: 600; color: var(--lp-muted); padding: 10px 12px; border-bottom: 1px solid var(--lp-line); white-space: nowrap; }
+.lp-list td { padding: 8px 12px; border-bottom: 1px solid var(--lp-line); vertical-align: middle; }
+.lp-list tbody tr:last-child td { border-bottom: 0; }
+.lp-list tbody tr { box-shadow: inset 3px 0 0 var(--shop, transparent); }
+.lp-list tbody tr:hover { background: var(--lp-hover); }
+.lp-list .num { text-align: right; white-space: nowrap; }
+.lp-list-photo { width: 64px; }
+.lp-list-photo img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; display: block; background: var(--lp-sunk); }
+.lp-list-title { color: inherit; font-weight: 600; text-decoration: none; }
+.lp-list-title:hover { text-decoration: underline; }
+.lp-list-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--lp-muted); font-size: 0.8rem; }
+.lp-sku { color: var(--lp-muted); font-size: 0.8rem; white-space: nowrap; }
+
+.lp-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 24px; font-size: 0.875rem; }
+
+.lp-empty { padding: 48px 24px; text-align: center; border: 1px dashed var(--lp-line); border-radius: var(--lp-radius); }
+.lp-empty p { margin: 0 0 16px; color: var(--lp-muted); }
+
+/* Etsy-style pill buttons */
+.lp-button {
+    display: inline-block; border: 2px solid var(--lp-ink); background: var(--lp-ink); color: var(--lp-paper);
+    border-radius: 999px; padding: 8px 18px; font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.lp-button-secondary { background: transparent; color: var(--lp-ink); }
+.lp-button:hover { opacity: 0.85; }
+
+/* Filter panel */
+.lp-rail { position: sticky; top: 64px; display: flex; flex-direction: column; gap: 28px; }
+.lp-facets { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lp-facets legend { font-weight: 600; font-size: 1rem; padding: 0; margin-bottom: 8px; }
+.lp-facet {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; border: 0; border-radius: 999px;
+    background: transparent; color: var(--lp-ink); font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer;
+}
+.lp-facet:hover { background: var(--lp-hover); }
+.lp-facet[aria-pressed="true"] { background: var(--lp-sunk); font-weight: 600; }
+.lp-shop .lp-facet[aria-pressed="true"] { background: color-mix(in srgb, var(--shop) 18%, transparent); }
+.lp-facet-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-count { color: var(--lp-muted); font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+.lp-shop-status { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 0 0 4px 42px; min-height: 30px; }
+.lp-status { font-size: 0.8rem; color: var(--lp-muted); text-decoration: none; }
+.lp-status-busy { color: var(--mud-palette-info); }
+.lp-status-warn { color: var(--mud-palette-warning); }
+.lp-status-error { color: var(--mud-palette-error); }
+a.lp-status-error:hover { text-decoration: underline; }
+
+@media (max-width: 959.98px) {
+    .lp-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+    /* Filters become two scrolling rows of chips above the listings; import status stays on desktop and the dashboard. */
+    .lp-rail { position: static; order: -1; gap: 10px; }
+    .lp-facets { flex-direction: row; overflow-x: auto; gap: 8px; padding: 2px 2px 4px; scrollbar-width: none; }
+    .lp-facets legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .lp-facet { width: auto; flex: none; border: 1px solid var(--lp-line); padding: 6px 14px; }
+    .lp-facet .lp-facet-label { overflow: visible; }
+    .lp-shop { display: contents; }
+    .lp-shop-status { display: none; }
+    .lp-toolbar .lp-sort { flex: 1 1 160px; }
+    .lp-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .lp-grid.is-loading, .lp-list.is-loading { transition: none; }
+}
