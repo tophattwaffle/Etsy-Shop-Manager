@@ -11,13 +11,14 @@
 
 <PageTitle>Users · Etsy Shop Manager</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Users</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
+<PageHeader Title="Users">
+    <Summary>
     <b>Admin</b>: everything, including users, settings and shop connections.
     <b>Editor</b>: edit and push listings (from Phase 3). <b>Viewer</b>: read only.
-</MudText>
+    </Summary>
+</PageHeader>
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Add user</MudText>
     <MudGrid>
         <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newUserName" Label="User name" Variant="Variant.Outlined" /></MudItem>
@@ -37,7 +38,7 @@
     </MudGrid>
 </MudPaper>
 
-<MudPaper Class="pa-4" Elevation="1">
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
     <MudSimpleTable Dense="true" Hover="true">
         <thead>
             <tr><th>User</th><th>Role</th><th>Created</th><th>Last sign-in</th><th>Status</th><th></th></tr>
@@ -47,7 +48,7 @@
             {
                 <tr>
                     <td><b>@u.UserName</b> <span class="muted">@u.DisplayName</span></td>
-                    <td style="min-width: 140px">
+                    <td class="esm-minw-sm">
                         <MudSelect T="string" Value="u.Role" ValueChanged="@((string v) => ChangeRoleAsync(u, v))" Dense="true"
                                    Disabled="@(u.Id == _currentUserId)">
                             @foreach (var r in Roles.All)
@@ -87,7 +88,7 @@
 
 @if (_passwordUser is not null)
 {
-    <MudPaper Class="pa-4 mt-4" Elevation="2">
+    <MudPaper Class="pa-4 mt-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" GutterBottom="true">Set password for @_passwordUser.UserName</MudText>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudTextField T="string" @bind-Value="_resetPassword" Label="New password (10+ chars)" InputType="InputType.Password" Variant="Variant.Outlined" />

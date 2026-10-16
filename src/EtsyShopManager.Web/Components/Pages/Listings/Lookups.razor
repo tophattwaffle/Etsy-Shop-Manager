@@ -10,16 +10,17 @@
 
 <PageTitle>Lookups · Etsy Shop Manager</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Lookups</MudText>
-<MudText Typo="Typo.body2" Class="mb-4 muted">
+<PageHeader Title="Lookups">
+    <Summary>
     Per-shop profiles, sections and partners cached from Etsy (refreshed with every listing import), plus Etsy's
     category taxonomy. The listing editor will pick from these.
-</MudText>
+    </Summary>
+</PageHeader>
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
         <MudSelect T="int?" Value="_shopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined"
-                   Margin="Margin.Dense" Style="min-width: 220px">
+                   Margin="Margin.Dense" Class="esm-minw-md">
             @foreach (var s in _shops)
             {
                 <MudSelectItem T="int?" Value="s.Id">@s.Name</MudSelectItem>
@@ -39,7 +40,7 @@
     </MudStack>
 </MudPaper>
 
-<MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4">
+<MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4">
     <MudTabPanel Text="@($"Shipping ({_shipping.Count})")">
         <MudSimpleTable Dense="true" Hover="true">
             <thead><tr><th>Title</th><th>Etsy id</th><th>Origin</th><th>Type</th><th>Destinations</th><th>Upgrades</th><th>Listings</th></tr></thead>

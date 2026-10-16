@@ -1,0 +1,26 @@
+@* The title block every page starts with (see docs/DESIGN.md): the page's h1, an optional one-line summary, and
+   optional actions on the right. Pages never set their own heading styles. *@
+
+<header class="esm-page-header">
+    <div class="esm-page-heading">
+        <h1>@Title</h1>
+        @if (Summary is not null)
+        {
+            <p class="esm-page-summary">@Summary</p>
+        }
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="esm-page-actions">@Actions</div>
+    }
+</header>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    /// <summary>One line under the title: what the page holds, or a count.</summary>
+    [Parameter] public RenderFragment? Summary { get; set; }
+
+    /// <summary>The page's main actions (e.g. a primary pill button), shown at the right.</summary>
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

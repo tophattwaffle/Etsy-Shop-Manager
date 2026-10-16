@@ -9,15 +9,16 @@
 
 <PageTitle>API keys · Etsy Shop Manager</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">API keys</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
+<PageHeader Title="API keys">
+    <Summary>
     Keys let other systems read from this app. Home Assistant uses one to read open orders
     (<code>@(Nav.BaseUri)api/ha/v1/open-orders</code>). A key is shown once, when you create it.
-</MudText>
+    </Summary>
+</PageHeader>
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudStack Row="true" AlignItems="AlignItems.End" Spacing="2">
-        <MudTextField T="string" @bind-Value="_name" Label="Name (e.g. Home Assistant)" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width: 360px" />
+        <MudTextField T="string" @bind-Value="_name" Label="Name (e.g. Home Assistant)" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-md" />
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateAsync">Create key</MudButton>
     </MudStack>
     @if (_newKey is not null)
@@ -32,7 +33,7 @@
     }
 </MudPaper>
 
-<MudPaper Class="pa-4" Elevation="1">
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
     <MudSimpleTable Dense="true" Hover="true">
         <thead><tr><th>Name</th><th>Key</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
         <tbody>

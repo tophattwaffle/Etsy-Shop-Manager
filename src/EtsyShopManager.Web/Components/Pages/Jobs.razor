@@ -14,9 +14,9 @@
 
 <PageTitle>Jobs · Etsy Shop Manager</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Background jobs</MudText>
+<PageHeader Title="Background jobs" />
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Recurring</MudText>
     <MudSimpleTable Dense="true">
         <thead>
@@ -40,11 +40,11 @@
     </MudSimpleTable>
 </MudPaper>
 
-<MudPaper Class="pa-4" Elevation="1">
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
         <MudText Typo="Typo.h6">Queue</MudText>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudSelect T="string" Value="_filter" ValueChanged="OnFilterChanged" Label="Status" Dense="true" Variant="Variant.Outlined" Style="min-width: 160px">
+            <MudSelect T="string" Value="_filter" ValueChanged="OnFilterChanged" Label="Status" Dense="true" Variant="Variant.Outlined" Class="esm-minw-sm">
                 <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
                 <MudSelectItem T="string" Value="@("active")">Pending + running</MudSelectItem>
                 <MudSelectItem T="string" Value="@("failed")">Failed</MudSelectItem>
@@ -58,7 +58,7 @@
     <MudSimpleTable Dense="true" Hover="true" Class="job-table">
         <thead>
             <tr>
-                <th style="width: 32px"></th><th>#</th><th>Job</th><th>Status</th><th>Shop</th><th>Attempts</th>
+                <th class="esm-col-icon"></th><th>#</th><th>Job</th><th>Status</th><th>Shop</th><th>Attempts</th>
                 <th>Created</th><th>Finished</th><th>Result / error</th><th></th>
             </tr>
         </thead>

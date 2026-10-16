@@ -13,13 +13,14 @@
 <PageTitle>Listings · Etsy Shop Manager</PageTitle>
 
 <div class="listings-page">
-    <header class="lp-header">
-        <h1>Listings</h1>
-        @if (_facets is not null && _shops is { Count: > 0 })
-        {
-            <p class="lp-summary">@_facets.OnEtsy.ToString("N0") on Etsy across @_shops.Count shop@(_shops.Count == 1 ? "" : "s")</p>
-        }
-    </header>
+    <PageHeader Title="Listings">
+        <Summary>
+            @if (_facets is not null && _shops is { Count: > 0 })
+            {
+                @($"{_facets.OnEtsy:N0} on Etsy across {_shops.Count} shop{(_shops.Count == 1 ? "" : "s")}")
+            }
+        </Summary>
+    </PageHeader>
 
     <div class="lp-layout">
         <section class="lp-main" aria-label="Listings">
@@ -59,12 +60,12 @@
                     @if (_shops is { Count: 0 })
                     {
                         <p>Connect an Etsy shop to import its listings.</p>
-                        <a class="lp-button" href="shops">Connect a shop</a>
+                        <a class="esm-button" href="shops">Connect a shop</a>
                     }
                     else if (IsFiltered)
                     {
                         <p>No listings match these filters.</p>
-                        <button type="button" class="lp-button lp-button-secondary" @onclick="ClearFiltersAsync">Clear filters</button>
+                        <button type="button" class="esm-button esm-button-secondary" @onclick="ClearFiltersAsync">Clear filters</button>
                     }
                     else
                     {
@@ -229,8 +230,8 @@
         (MissingStatus, "Gone from Etsy"),
     ];
 
-    // Used when a shop has no profile image, or its colour can't be read.
-    private static readonly string[] FallbackAccents = ["#3b7ea1", "#9c5aa0", "#4f8a3c", "#b8752a"];
+    // Used when a shop has no profile image, or its colour can't be read (--esm-shop-fallback-N in app.css).
+    private const int FallbackAccentCount = 4;
 
     private static readonly HashSet<string> ListingJobTypes =
     [
@@ -365,7 +366,7 @@
     {
         if (_accents.TryGetValue(shopId, out var color)) return color;
         var index = _shops?.FindIndex(s => s.ShopId == shopId) ?? -1;
-        return FallbackAccents[Math.Max(0, index) % FallbackAccents.Length];
+        return $"var(--esm-shop-fallback-{Math.Max(0, index) % FallbackAccentCount})";
     }
 
     private string ShopStyle(int shopId) => $"--shop: {Accent(shopId)}";

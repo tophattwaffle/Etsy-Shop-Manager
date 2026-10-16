@@ -13,12 +13,12 @@
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Orders</MudText>
+<PageHeader Title="Orders" />
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
         <MudSelect T="int?" Value="_shopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined"
-                   Margin="Margin.Dense" Style="min-width: 200px">
+                   Margin="Margin.Dense" Class="esm-minw-md">
             <MudSelectItem T="int?" Value="null">All shops</MudSelectItem>
             @foreach (var s in _status)
             {
@@ -42,7 +42,7 @@
     </MudStack>
 </MudPaper>
 
-<MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
+<MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
     <MudTabPanel Text="@($"Open ({_open.Count})")">
         @if (_open.Count == 0)
         {
@@ -129,8 +129,8 @@
 
     <MudTabPanel Text="History">
         <MudTextField T="string" Value="_historyText" ValueChanged="OnHistoryTextChanged" Label="Search buyer, item, SKU or receipt #"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true" Class="mb-2"
-                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Style="max-width: 420px" />
+                      Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true" Class="mb-2 esm-w-lg"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
         <MudTable @ref="_history" T="Order" ServerData="LoadHistoryAsync" Dense="true" Hover="true" RowsPerPage="50">
             <HeaderContent>
                 <MudTh>Date</MudTh><MudTh>Receipt</MudTh><MudTh>Buyer</MudTh><MudTh>Items</MudTh>

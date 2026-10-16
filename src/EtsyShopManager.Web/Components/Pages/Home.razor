@@ -15,11 +15,11 @@
 
 <PageTitle>Dashboard · Etsy Shop Manager</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
+<PageHeader Title="Dashboard" />
 
 <MudGrid>
     <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4" Elevation="1">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
             <MudText Typo="Typo.h6" GutterBottom="true">Shops</MudText>
             @if (_shops is null)
             {
@@ -60,7 +60,7 @@
     </MudItem>
 
     <MudItem xs="12" md="3">
-        <MudPaper Class="pa-4" Elevation="1">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
             <MudText Typo="Typo.h6" GutterBottom="true">Background jobs</MudText>
             <MudText>Pending: <b>@_pending</b></MudText>
             <MudText>Running: <b>@_running</b></MudText>
@@ -72,7 +72,7 @@
     </MudItem>
 
     <MudItem xs="12" md="3">
-        <MudPaper Class="pa-4" Elevation="1">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
             <MudText Typo="Typo.h6" GutterBottom="true">Etsy API</MudText>
             <MudText>Remaining today: <b>@(Quota.RemainingToday?.ToString("N0") ?? "—")</b> / @(Quota.LimitPerDay?.ToString("N0") ?? "—")</MudText>
             <MudText>Requests since start: <b>@Quota.TotalRequests.ToString("N0")</b></MudText>
