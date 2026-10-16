@@ -1,0 +1,61 @@
+@using EtsyShopManager.Web.Modules.Listings
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@* Replaces Blazor's built-in "Rejoining the server" box (Blazor finds it by its id and sets the
+   components-reconnect-* classes; app.js opens and closes it). Rendered with the page, so the shop icons are
+   already loaded when the server is gone. The throbber is the shops' own icons hopping in turn. *@
+
+<dialog id="components-reconnect-modal" class="esm-reconnect" aria-labelledby="esm-reconnect-title" data-nosnippet>
+    <div class="esm-reconnect-throbber" aria-hidden="true">
+        @if (_shopIds.Count == 0)
+        {
+            @for (var i = 0; i < 3; i++) { <span class="esm-reconnect-mark esm-reconnect-dot"></span> }
+        }
+        else
+        {
+            @foreach (var id in _shopIds)
+            {
+                <span class="esm-reconnect-mark"><img src="@ShopIconCache.UrlFor(id)" alt="" /></span>
+            }
+        }
+    </div>
+
+    <h2 id="esm-reconnect-title" class="esm-reconnect-title">
+        <span class="esm-reconnect-when-trying">Reconnecting</span>
+        <span class="esm-reconnect-when-failed">Can't reach the server</span>
+        <span class="esm-reconnect-when-paused">Page paused</span>
+    </h2>
+
+    <p class="esm-reconnect-text esm-reconnect-first">The connection to Etsy Shop Manager dropped. Trying again now.</p>
+    <p class="esm-reconnect-text esm-reconnect-repeated">
+        Still trying. Next attempt in <span id="components-seconds-to-next-attempt"></span> s
+        (attempt <span id="components-reconnect-current-attempt"></span> of <span id="components-reconnect-max-retries"></span>).
+    </p>
+    <p class="esm-reconnect-text esm-reconnect-when-failed">
+        The server may be restarting after an update. Try again in a moment, or reload the page.
+    </p>
+    <p class="esm-reconnect-text esm-reconnect-when-paused">The server paused this page to save resources.</p>
+    <p class="esm-reconnect-text esm-reconnect-when-resume-failed">This page can't be resumed. Reload it to carry on.</p>
+
+    <div class="esm-reconnect-actions">
+        <button type="button" id="components-reconnect-button" class="esm-button esm-reconnect-when-failed">Try again</button>
+        <button type="button" id="components-resume-button" class="esm-button esm-reconnect-when-paused">Resume</button>
+        <button type="button" class="esm-button esm-button-secondary esm-reconnect-reload">Reload page</button>
+    </div>
+</dialog>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private List<int> _shopIds = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        // The icons are only served to signed-in users.
+        if (HttpContext?.User.Identity?.IsAuthenticated != true) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _shopIds = await db.Shops.AsNoTracking()
+            .Where(s => s.IsActive && s.IconUrl != null && s.IconUrl != "")
+            .OrderBy(s => s.Name).Select(s => s.Id).Take(4).ToListAsync();
+    }
+}
