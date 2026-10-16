@@ -8,18 +8,22 @@
 <AuthorizeView><Authorized><JobNotifier /></Authorized></AuthorizeView>
 
 <MudLayout>
-    <MudAppBar Elevation="1" Dense="true">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="() => _drawerOpen = !_drawerOpen" />
-        <MudText Typo="Typo.h6" Class="ml-2">Etsy Shop Manager</MudText>
+    <MudAppBar Elevation="0" Dense="true" Class="esm-appbar">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" aria-label="Toggle navigation"
+                       OnClick="() => _drawerOpen = !_drawerOpen" />
+        <a class="esm-brand" href="">
+            <MudIcon Icon="@Icons.Material.Filled.Storefront" Color="Color.Secondary" Size="Size.Small" />
+            <span>Etsy Shop Manager</span>
+        </a>
         <MudTooltip Text="@VersionTooltip">
-            <MudText Typo="Typo.caption" Class="ml-3 app-version">v@(AppVersion.Display)</MudText>
+            <span class="esm-version">v@(AppVersion.Display)</span>
         </MudTooltip>
         <MudSpacer />
         <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                       Color="Color.Inherit" OnClick="() => _dark = !_dark" title="Toggle dark mode" />
+                       Color="Color.Inherit" OnClick="() => _dark = !_dark" title="@(_dark ? "Switch to light mode" : "Switch to dark mode")" />
         <AuthorizeView>
             <Authorized>
-                <MudText Typo="Typo.body2" Class="mx-2">@context.User.Identity?.Name</MudText>
+                <span class="esm-user">@context.User.Identity?.Name</span>
                 <form action="account/logout" method="post" class="d-inline">
                     <AntiforgeryToken />
                     <input type="hidden" name="returnUrl" value="/" />
@@ -29,12 +33,12 @@
         </AuthorizeView>
     </MudAppBar>
 
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="1">
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="0" Class="esm-drawer">
         <NavMenu />
     </MudDrawer>
 
     <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="esm-content">
             <AuthorizeView Roles="@Roles.Admin">
                 @if (_setupIncomplete)
                 {
@@ -59,27 +63,7 @@
     private bool _dark = true; // dark by default; the app-bar button switches for the session
     private bool _setupIncomplete;
 
-    private readonly MudTheme _theme = new()
-    {
-        PaletteLight = new PaletteLight
-        {
-            Primary = "#D5641C",      // Etsy-ish orange
-            AppbarBackground = "#2F3A40",
-        },
-        // Neutral charcoal greys rather than MudBlazor's blue-grey defaults, closer to Etsy's palette.
-        PaletteDark = new PaletteDark
-        {
-            Primary = "#F1823A",
-            Background = "#222222",
-            BackgroundGray = "#333333",
-            Surface = "#2a2a2a",
-            DrawerBackground = "#1c1c1c",
-            AppbarBackground = "#1c1c1c",
-            LinesDefault = "rgba(255,255,255,0.14)",
-            TextPrimary = "rgba(255,255,255,0.92)",
-            TextSecondary = "rgba(255,255,255,0.64)",
-        },
-    };
+    private readonly MudTheme _theme = AppTheme.Create();
 
     private static string VersionTooltip =>
         $"Version {AppVersion.Version}" +

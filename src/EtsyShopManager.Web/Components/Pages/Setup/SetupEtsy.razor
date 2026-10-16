@@ -7,18 +7,19 @@
 
 <PageTitle>Setup · Etsy Shop Manager</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Finish setup</MudText>
-<MudText Typo="Typo.body1" Class="mb-4">
+<PageHeader Title="Finish setup">
+    <Summary>
     The Admin account is ready. Set the base URL, enter your Etsy app keys, then connect each shop.
-</MudText>
+    </Summary>
+</PageHeader>
 
-<MudText Typo="Typo.overline">Step 2 of 4</MudText>
+<h2 class="esm-step">Step 2 of 4</h2>
 <BaseUrlForm OnSaved="RefreshAsync" />
 
-<MudText Typo="Typo.overline">Step 3 of 4</MudText>
+<h2 class="esm-step">Step 3 of 4</h2>
 <EtsyKeysForm OnSaved="RefreshAsync" />
 
-<MudText Typo="Typo.overline">Step 4 of 4</MudText>
+<h2 class="esm-step">Step 4 of 4</h2>
 <ShopsPanel ReturnUrl="/setup/etsy" @ref="_shops" />
 
 <MudPaper Class="pa-4 mt-4" Elevation="0" Outlined="true">
