@@ -16,7 +16,7 @@ public sealed class EtsyOptions
     public int RequestsPerSecond { get; set; } = 5;
 
     /// <summary>Token bucket size (short bursts).</summary>
-    public int BurstSize { get; set; } = 5;
+    public int BurstSize { get; set; } = 2;
 
     /// <summary>Retries for 429/5xx/network errors before giving up.</summary>
     public int MaxRetries { get; set; } = 4;

@@ -119,7 +119,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 
         b.Entity<ListingImage>(e =>
         {
-            e.HasIndex(x => x.EtsyImageId).IsUnique();
+            // Unique per listing only: listings copied on Etsy share the same listing_image_id.
+            e.HasIndex(x => new { x.ListingId, x.EtsyImageId }).IsUnique();
+            e.HasIndex(x => x.EtsyImageId);
             e.HasIndex(x => new { x.ListingId, x.Rank });
             e.HasIndex(x => x.FileName);
             e.HasIndex(x => x.ThumbFileName);

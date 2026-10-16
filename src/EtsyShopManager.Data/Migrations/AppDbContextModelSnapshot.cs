@@ -359,12 +359,14 @@ namespace EtsyShopManager.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("EtsyImageId")
-                        .IsUnique();
+                    b.HasIndex("EtsyImageId");
 
                     b.HasIndex("FileName");
 
                     b.HasIndex("ThumbFileName");
+
+                    b.HasIndex("ListingId", "EtsyImageId")
+                        .IsUnique();
 
                     b.HasIndex("ListingId", "Rank");
 
