@@ -1,4 +1,4 @@
-// etsy-orders-card v2.4.0 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.5.0 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
@@ -133,7 +133,8 @@ class EtsyOrderColors {
     const metal = this.metalStyle(groups);
     const style = this.colorStyle(groups) + (metal ? ` ${metal}` : "");
     if (!style) return { cls: "", style: "", inner: "" };
-    return { cls: ` colored${metal ? ` metal${this.c.animate_metallic ? "" : " still"}` : ""}`, style, inner: "" };
+    const multi = groups.some((g) => g.length > 1) ? " multi" : "";
+    return { cls: ` colored${multi}${metal ? ` metal${this.c.animate_metallic ? "" : " still"}` : ""}`, style, inner: "" };
   }
 
   // Colors named in free text, in the order written: the `colors` map first
@@ -161,19 +162,49 @@ class EtsyOrderColors {
   }
 
   // A tinted fill fading through the colors, with a full-strength outline in the same colors.
-  // Each named color gets an equal share of the width, and a multi-color filament splits its
-  // share between its colors (black + a dual filament = ½ black, ¼, ¼); stops sit at the
-  // middle of each share so neighbours fade into each other.
-  // The fill is mixed with the background so it stays opaque over the outline layer.
+  // Each named color gets an equal share of the width, with its stop at the middle of its share so
+  // neighbours fade into each other. A multi-color filament stacks its colors top to bottom over its
+  // share instead (see multiStyle): "Black base, Neon Rider pattern" is half black, then light blue over
+  // magenta. The fill is mixed with the background so it stays opaque over the outline layer.
   colorStyle(groups) {
     const t = Number(this.c.color_tint);
     if (!groups.length || !(t > 0)) return "";
-    const stops = [];
-    groups.forEach((g, gi) => g.forEach((col, ci) => stops.push([col, ((gi + (ci + 0.5) / g.length) / groups.length) * 100])));
+    // In the left-to-right blend a filament counts as the mix of its top and bottom colors.
+    const stops = groups.map((g, gi) => [g.length > 1 ? `color-mix(in srgb, ${g[0]}, ${g[g.length - 1]})` : g[0], ((gi + 0.5) / groups.length) * 100]);
     if (stops.length === 1) stops.splice(0, 1, [stops[0][0], 0], [stops[0][0], 100]);
     const grad = (fn) => `linear-gradient(90deg, ${stops.map(([col, p]) => `${fn(col)} ${p.toFixed(1)}%`).join(", ")})`;
     const tint = (col) => `color-mix(in srgb, ${col} ${Math.min(100, t)}%, ${this.base})`;
-    return `background: ${grad(tint)} padding-box, ${grad((col) => col)} border-box; border-color: transparent;`;
+    return `background: ${grad(tint)} padding-box, ${grad((col) => col)} border-box; border-color: transparent;${this.multiStyle(groups, tint)}`;
+  }
+
+  // The stacked layer (.multi::before) for multi-color filaments: each one's colors run top to bottom over
+  // its share of the box, tinted inside and full strength on the outline, fading in from its neighbours at
+  // the sides. "" when no group has more than one color.
+  multiStyle(groups, tint) {
+    if (!groups.some((g) => g.length > 1)) return "";
+    const share = 100 / groups.length;
+    // Background-position percentages are of (box - layer), so this puts the layer's left edge at gi * share.
+    const at = (gi) => `${(share >= 100 ? 0 : ((gi * share) / (100 - share)) * 100).toFixed(1)}% 0 / ${share.toFixed(1)}% 100% no-repeat`;
+    const multis = groups.map((g, gi) => [g, gi]).filter(([g]) => g.length > 1);
+    const layer = (fn, box) => multis.map(([g, gi]) => `linear-gradient(180deg, ${g.map(fn).join(", ")}) ${at(gi)} ${box}`);
+    return ` --multi: ${[...layer(tint, "padding-box"), ...layer((col) => col, "border-box")].join(", ")}; --multi-mask: ${this.shareMask(groups, (g) => g.length > 1)};`;
+  }
+
+  // A left-to-right mask that is opaque over the shares of the groups `pick` selects and transparent
+  // elsewhere, fading where a picked share meets another color (not at the box's own edges); "none"
+  // when every group is picked.
+  shareMask(groups, pick) {
+    if (groups.every(pick)) return "none";
+    const share = 100 / groups.length;
+    const fade = share / 4;
+    const stops = groups.flatMap((g, gi) => {
+      if (!pick(g)) return [];
+      const [a, b] = [gi * share, (gi + 1) * share];
+      const from = a > 0 ? [`transparent ${a.toFixed(1)}%`, `#000 ${(a + fade).toFixed(1)}%`] : ["#000 0%"];
+      const to = b < 100 ? [`#000 ${(b - fade).toFixed(1)}%`, `transparent ${b.toFixed(1)}%`] : ["#000 100%"];
+      return [...from, ...to];
+    });
+    return `linear-gradient(90deg, ${stops.join(", ")})`;
   }
 
   // The metal layer (.metal::after) over the metallic groups' shares of the box, or "" when none.
@@ -182,21 +213,7 @@ class EtsyOrderColors {
   metalStyle(groups) {
     const shine = Number(this.c.metallic_shine);
     if (!(shine > 0) || !(Number(this.c.color_tint) > 0) || !groups.some((g) => g.metal)) return "";
-    let mask = "none";
-    if (!groups.every((g) => g.metal)) {
-      const share = 100 / groups.length;
-      const fade = share / 4;
-      const stops = groups.flatMap((g, gi) => {
-        if (!g.metal) return [];
-        const [a, b] = [gi * share, (gi + 1) * share];
-        // Full strength right up to the box's own edges; faded only where it meets another color.
-        const from = a > 0 ? [`transparent ${a.toFixed(1)}%`, `#000 ${(a + fade).toFixed(1)}%`] : ["#000 0%"];
-        const to = b < 100 ? [`#000 ${(b - fade).toFixed(1)}%`, `transparent ${b.toFixed(1)}%`] : ["#000 100%"];
-        return [...from, ...to];
-      });
-      mask = `linear-gradient(90deg, ${stops.join(", ")})`;
-    }
-    return `--shine: ${Math.min(100, shine) / 100}; --metal-mask: ${mask};`;
+    return `--shine: ${Math.min(100, shine) / 100}; --metal-mask: ${this.shareMask(groups, (g) => g.metal)};`;
   }
 
   isRandom(text) {
@@ -251,6 +268,13 @@ class EtsyOrderColors {
   static CSS = `
         .var.colored { color: var(--primary-text-color); font-weight: 500; }
         .note.colored { border-width: 1px 1px 1px 4px; border-style: solid; }
+        /* Multi-color filaments: their colors stacked top to bottom (--multi), over the base blend and under the
+           text, covering the outline too; --multi-mask limits them to their share of the box. */
+        .multi { position: relative; isolation: isolate; }
+        .multi::before { content: ""; position: absolute; inset: -1px; z-index: -1; pointer-events: none; border-radius: inherit;
+                         border: 1px solid transparent; background: var(--multi);
+                         -webkit-mask-image: var(--multi-mask); mask-image: var(--multi-mask); }
+        .note.multi::before { inset: -1px -1px -1px -4px; border-width: 1px 1px 1px 4px; }
         .random { position: relative; overflow: hidden; isolation: isolate; animation: random-drift 48s linear infinite var(--phase, 0ms); }
         .confetti::before { content: ""; position: absolute; left: 0; right: 0; top: -100%; height: 200%; z-index: -1; pointer-events: none;
                             background: var(--confetti); background-size: 100% 50%; animation: confetti-fall 4s linear infinite var(--phase, 0ms); }
