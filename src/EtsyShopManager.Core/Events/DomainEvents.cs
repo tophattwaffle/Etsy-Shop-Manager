@@ -70,3 +70,21 @@ public sealed record OrderReceived(int ShopId, int OrderId, long EtsyReceiptId) 
 {
     public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
 }
+
+/// <summary>Local edits were written to Etsy.</summary>
+public sealed record ListingPushed(int ShopId, int ListingId, long EtsyListingId, int PushId, IReadOnlyList<string> Fields) : IDomainEvent
+{
+    public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
+}
+
+/// <summary>An import found a listing changed on etsy.com since the app last agreed with it.</summary>
+public sealed record DriftDetected(int ShopId, int ListingId, long EtsyListingId, IReadOnlyList<string> Fields) : IDomainEvent
+{
+    public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
+}
+
+/// <summary>Auto-refill topped up one or more offerings of a listing.</summary>
+public sealed record StockRefilled(int ShopId, int ListingId, long EtsyListingId, IReadOnlyList<string> Changes) : IDomainEvent
+{
+    public DateTime OccurredAtUtc { get; init; } = DateTime.UtcNow;
+}

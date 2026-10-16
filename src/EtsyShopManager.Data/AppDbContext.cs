@@ -21,6 +21,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ListingProduct> ListingProducts => Set<ListingProduct>();
     public DbSet<ListingOffering> ListingOfferings => Set<ListingOffering>();
     public DbSet<ShopSyncState> ShopSyncStates => Set<ShopSyncState>();
+    public DbSet<ListingPush> ListingPushes => Set<ListingPush>();
+    public DbSet<ListingSnapshot> ListingSnapshots => Set<ListingSnapshot>();
+    public DbSet<ListingRefill> ListingRefills => Set<ListingRefill>();
 
     public DbSet<ShippingProfile> ShippingProfiles => Set<ShippingProfile>();
     public DbSet<ProcessingProfile> ProcessingProfiles => Set<ProcessingProfile>();
@@ -145,6 +148,33 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         });
 
         b.Entity<ListingOffering>(e => e.HasIndex(x => x.ProductId));
+
+        b.Entity<Listing>(e =>
+        {
+            e.HasIndex(x => x.HasDraft);
+            e.HasIndex(x => x.HasDrift);
+        });
+
+        b.Entity<ListingPush>(e =>
+        {
+            e.HasIndex(x => new { x.ListingId, x.RequestedAtUtc });
+            e.Property(x => x.Status).HasConversion<int>();
+            e.HasOne(x => x.Listing).WithMany().HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Snapshot).WithMany().HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<ListingSnapshot>(e =>
+        {
+            e.HasIndex(x => new { x.ListingId, x.TakenAtUtc });
+            e.HasOne(x => x.Listing).WithMany().HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ListingRefill>(e =>
+        {
+            e.HasKey(x => x.ListingId);
+            e.HasIndex(x => x.Enabled);
+            e.HasOne(x => x.Listing).WithOne().HasForeignKey<ListingRefill>(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         b.Entity<ShopSyncState>(e =>
         {

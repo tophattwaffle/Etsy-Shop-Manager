@@ -134,6 +134,15 @@ namespace EtsyShopManager.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("DraftJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DraftUpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DraftUpdatedBy")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("EtsyCreatedAtUtc")
                         .HasColumnType("TEXT");
 
@@ -154,6 +163,12 @@ namespace EtsyShopManager.Data.Migrations
 
                     b.Property<DateTime>("FirstImportedAtUtc")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("HasDraft")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("HasDrift")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("HasVariations")
                         .HasColumnType("INTEGER");
@@ -308,6 +323,10 @@ namespace EtsyShopManager.Data.Migrations
 
                     b.HasIndex("EtsyUpdatedAtUtc");
 
+                    b.HasIndex("HasDraft");
+
+                    b.HasIndex("HasDrift");
+
                     b.HasIndex("Title");
 
                     b.HasIndex("ShopId", "State");
@@ -319,6 +338,9 @@ namespace EtsyShopManager.Data.Migrations
                 {
                     b.Property<int>("ListingId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("BaseJson")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("FetchedAtUtc")
                         .HasColumnType("TEXT");
@@ -483,6 +505,123 @@ namespace EtsyShopManager.Data.Migrations
                     b.HasIndex("Sku");
 
                     b.ToTable("ListingProducts");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingPush", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ChangesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("JobId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SnapshotId");
+
+                    b.HasIndex("ListingId", "RequestedAtUtc");
+
+                    b.ToTable("ListingPushes");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingRefill", b =>
+                {
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastCheckedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastRefilledAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastResult")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Problem")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RefillTo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Threshold")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ListingId");
+
+                    b.HasIndex("Enabled");
+
+                    b.ToTable("ListingRefills");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingSnapshot", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ManagedJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RawInventoryJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RawListingJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TakenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ListingId", "TakenAtUtc");
+
+                    b.ToTable("ListingSnapshots");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
@@ -1395,6 +1534,46 @@ namespace EtsyShopManager.Data.Migrations
                 {
                     b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
                         .WithMany("Products")
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingPush", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithMany()
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EtsyShopManager.Core.Domain.ListingSnapshot", "Snapshot")
+                        .WithMany()
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Listing");
+
+                    b.Navigation("Snapshot");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingRefill", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithOne()
+                        .HasForeignKey("EtsyShopManager.Core.Domain.ListingRefill", "ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingSnapshot", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithMany()
                         .HasForeignKey("ListingId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

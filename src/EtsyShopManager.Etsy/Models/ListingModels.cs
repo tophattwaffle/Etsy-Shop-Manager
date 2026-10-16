@@ -115,6 +115,9 @@ public sealed class EtsyInventory
     [JsonPropertyName("quantity_on_property")] public List<long>? QuantityOnProperty { get; set; }
     [JsonPropertyName("sku_on_property")] public List<long>? SkuOnProperty { get; set; }
     [JsonPropertyName("readiness_state_on_property")] public List<long>? ReadinessStateOnProperty { get; set; }
+
+    /// <summary>Only with includes=Listing on getListingInventory.</summary>
+    [JsonPropertyName("listing")] public EtsyListing? Listing { get; set; }
 }
 
 public sealed class EtsyProduct

@@ -93,6 +93,17 @@ public class Listing
     /// <summary>A complete import did not find the listing on Etsy (deleted or removed). Local data is kept.</summary>
     public bool IsMissingOnEtsy { get; set; }
 
+    /// <summary>Local edits not pushed yet: managed-field JSON of only the changed fields (see ListingEditModel).</summary>
+    public string? DraftJson { get; set; }
+    public DateTime? DraftUpdatedAtUtc { get; set; }
+    public string? DraftUpdatedBy { get; set; }
+
+    /// <summary>Kept in step with DraftJson / drift so lists can filter without parsing JSON.</summary>
+    public bool HasDraft { get; set; }
+
+    /// <summary>A tracked field was changed on Etsy since the app last agreed with it. Pushes are blocked until resolved.</summary>
+    public bool HasDrift { get; set; }
+
     public List<ListingImage> Images { get; set; } = [];
     public List<ListingProduct> Products { get; set; } = [];
     public ListingEtsyState? EtsyState { get; set; }
@@ -133,6 +144,12 @@ public class ListingEtsyState
 
     /// <summary>When <see cref="ManagedHash"/> last changed.</summary>
     public DateTime ManagedChangedAtUtc { get; set; }
+
+    /// <summary>
+    /// The managed state the app last agreed with Etsy (first import, after a push, after resolving drift). Drift is
+    /// Etsy differing from this on a tracked field. Null until the first import after Phase 3.
+    /// </summary>
+    public string? BaseJson { get; set; }
 }
 
 public class ListingImage
@@ -214,4 +231,66 @@ public class ShopSyncState
     public DateTime? LastErrorAtUtc { get; set; }
 
     public bool IsRunOpen => CursorJson is not null;
+}
+
+public enum ListingPushStatus { Pending = 0, Running = 1, Succeeded = 2, Failed = 3, PartlyApplied = 4 }
+
+/// <summary>One push of local edits to Etsy, with what it changed and the snapshot taken just before.</summary>
+public class ListingPush
+{
+    public int Id { get; set; }
+    public int ListingId { get; set; }
+    public Listing Listing { get; set; } = null!;
+
+    public ListingPushStatus Status { get; set; }
+    public string? RequestedBy { get; set; }
+    public DateTime RequestedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+
+    /// <summary>The field changes previewed when the push was requested (JSON list of {key, label, from, to}).</summary>
+    public string ChangesJson { get; set; } = "[]";
+    public string? Error { get; set; }
+
+    public int? SnapshotId { get; set; }
+    public ListingSnapshot? Snapshot { get; set; }
+    public long? JobId { get; set; }
+}
+
+/// <summary>The listing as Etsy held it before a push (or before a refill), so it can be restored.</summary>
+public class ListingSnapshot
+{
+    public int Id { get; set; }
+    public int ListingId { get; set; }
+    public Listing Listing { get; set; } = null!;
+
+    public DateTime TakenAtUtc { get; set; }
+    public string Reason { get; set; } = "";
+    public string ManagedJson { get; set; } = "";
+    public string RawListingJson { get; set; } = "";
+    public string RawInventoryJson { get; set; } = "";
+}
+
+/// <summary>Auto-refill settings for a listing: keep every variation's stock from running out.</summary>
+public class ListingRefill
+{
+    public int ListingId { get; set; }
+    public Listing Listing { get; set; } = null!;
+
+    public bool Enabled { get; set; }
+
+    /// <summary>An offering with fewer than this many in stock is refilled.</summary>
+    public int Threshold { get; set; } = 5;
+
+    /// <summary>The quantity a refilled offering is set to.</summary>
+    public int RefillTo { get; set; } = 999;
+
+    public DateTime UpdatedAtUtc { get; set; }
+    public string? UpdatedBy { get; set; }
+
+    public DateTime? LastCheckedAtUtc { get; set; }
+    public DateTime? LastRefilledAtUtc { get; set; }
+    public string? LastResult { get; set; }
+
+    /// <summary>Why the last check couldn't refill (e.g. the listing is sold out or inactive), or null.</summary>
+    public string? Problem { get; set; }
 }
