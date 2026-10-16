@@ -83,8 +83,15 @@ $nssm = "$env:ProgramFiles\nssm\nssm.exe"
 & $nssm set gitea-runner AppDirectory C:\gitea-runner
 & $nssm set gitea-runner ObjectName "$env:COMPUTERNAME\gitea-runner" (Read-Host 'gitea-runner password')
 & $nssm set gitea-runner Start SERVICE_DELAYED_AUTO_START
+# Services keep the PATH Windows had at boot, so tools installed since (pwsh, dotnet) would be missing.
+& $nssm set gitea-runner AppEnvironmentExtra "PATH=$([Environment]::GetEnvironmentVariable('Path','Machine'))"
 & $nssm start gitea-runner
 ```
+After installing or upgrading tools that change the system PATH, run the `AppEnvironmentExtra` line again and
+`& $nssm restart gitea-runner` (or reboot).
+If a run fails with **Cannot find: pwsh in PATH** (or `dotnet`): the runner has a stale PATH; re-run the
+`AppEnvironmentExtra` line above and restart the service.
+
 If it fails to start:
 - **Access is denied:** check `sc.exe qc gitea-runner`. `BINARY_PATH_NAME` must be `C:\Program Files\nssm\nssm.exe`;
   fix it with `sc.exe config gitea-runner binPath= "\"C:\Program Files\nssm\nssm.exe\""`. Also confirm step 4.1 (Modify on
