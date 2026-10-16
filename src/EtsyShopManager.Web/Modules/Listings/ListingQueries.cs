@@ -1,4 +1,5 @@
 using EtsyShopManager.Core.Domain;
+using EtsyShopManager.Core.Jobs;
 using EtsyShopManager.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -51,7 +52,23 @@ public sealed record ShopImportStatus(
     bool IsRunOpen,
     DateTime? RunStartedAtUtc,
     string? LastError,
-    int ImagesPending);
+    int ImagesPending,
+    JobStatus? ImportJob,
+    DateTime? ImportJobRunAfterUtc,
+    JobStatus? ImagesJob)
+{
+    /// <summary>What the status column shows: driven by the job queue, not by the saved resume point.</summary>
+    public ImportActivity Activity => ImportJob switch
+    {
+        JobStatus.Running => ImportActivity.Importing,
+        JobStatus.Pending => ImportActivity.Queued,
+        _ when IsRunOpen => ImportActivity.Paused,
+        _ when ImagesJob is JobStatus.Running or JobStatus.Pending => ImportActivity.DownloadingPhotos,
+        _ => ImportActivity.Idle,
+    };
+}
+
+public enum ImportActivity { Idle, Queued, Importing, Paused, DownloadingPhotos }
 
 /// <summary>Read-only queries behind the listings and lookups pages.</summary>
 public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
@@ -183,12 +200,22 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
             })
             .ToListAsync(ct);
         var sync = await db.ShopSyncStates.AsNoTracking().ToDictionaryAsync(s => s.ShopId, ct);
+        var activeJobs = await db.Jobs.AsNoTracking()
+            .Where(j => j.ShopId != null && (j.Status == JobStatus.Pending || j.Status == JobStatus.Running)
+                        && (j.JobType == ImportShopListingsJob.Type || j.JobType == DownloadListingImagesJob.Type))
+            .Select(j => new { ShopId = j.ShopId!.Value, j.JobType, j.Status, j.RunAfterUtc })
+            .ToListAsync(ct);
 
         return shops.Select(s =>
         {
             sync.TryGetValue(s.Id, out var st);
+            var import = activeJobs.Where(j => j.ShopId == s.Id && j.JobType == ImportShopListingsJob.Type)
+                .OrderByDescending(j => j.Status).FirstOrDefault();
+            var images = activeJobs.Where(j => j.ShopId == s.Id && j.JobType == DownloadListingImagesJob.Type)
+                .OrderByDescending(j => j.Status).FirstOrDefault();
             return new ShopImportStatus(s.Id, s.Name, s.Healthy, s.Count, st?.LastCompletedAtUtc, st?.LookupsImportedAtUtc,
-                st?.IsRunOpen ?? false, st?.RunStartedAtUtc, st?.LastError, s.Pending);
+                st?.IsRunOpen ?? false, st?.RunStartedAtUtc, st?.LastError, s.Pending,
+                import?.Status, import?.RunAfterUtc, images?.Status);
         }).ToList();
     }
 }
