@@ -4,7 +4,7 @@ Self-hosted manager for two Etsy shops. Runs as a Windows Service, web UI (Blazo
 device on the LAN or over VPN, behind HAProxy. This app is the system of record for listings; see
 [docs/PLAN.md](docs/PLAN.md) for the full design.
 
-**Status: Phase 0 (Foundation) implemented.** Next is Phase 1 (import listings, images, inventory, profiles, taxonomy).
+**Status: Phases 0 (Foundation) and 1 (Import) implemented.** Next is Phase 2 (orders + Home Assistant).
 
 ## Quick start (Windows)
 
@@ -29,6 +29,18 @@ After that, merges to `master` deploy automatically: [docs/DEPLOY.md](docs/DEPLO
 - Persistent job queue (SQLite) with retries, back-off, dedupe keys, restart recovery, recurring jobs, admin UI.
 - Module system (`IModule`) and in-process domain events (`ShopConnected`, `ShopNeedsReauth`, …).
 - Reverse-proxy support: forwarded headers trusted from the HAProxy IP only.
+
+## What's in Phase 1
+
+- Import of every listing (active, inactive, sold out, draft, expired) with images, inventory (products, offerings,
+  variation values) and category attributes; per-shop shipping/processing/return profiles, sections and production
+  partners; Etsy's seller taxonomy and the properties of categories in use.
+- Runs as background jobs: on demand per shop, automatically when a shop is connected, and every 24 h. Idempotent
+  (matched by Etsy id) and resumable page by page; listings no longer on Etsy are flagged, never deleted.
+- Photos downloaded into a content-hashed image store next to the database and served by the app.
+- The last known Etsy state of each listing (raw JSON + canonical managed fields + hash, quantity excluded), for
+  Phase 3 drift detection.
+- Read-only UI: Listings (search, filters, paging), listing detail (fields, photos, inventory grid, Etsy state) and Lookups.
 
 ## Solution layout
 

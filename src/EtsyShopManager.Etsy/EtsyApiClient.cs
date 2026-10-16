@@ -13,10 +13,10 @@ public readonly record struct EtsyAuth(int? ShopId, string? AccessToken)
 }
 
 /// <summary>
-/// Thin Etsy Open API v3 client. Phase 0 needs only users/me and shops; Phase 1 adds the client generated
-/// from Etsy's OpenAPI spec, which sends through the same "Etsy" HttpClient (rate limiter, retry, x-api-key).
+/// Typed Etsy Open API v3 client. Calls go through the "Etsy" HttpClient (rate limiter, retry, x-api-key).
+/// Methods are hand-written from Etsy's OpenAPI spec; Phase 1 reads live in EtsyApiClient.Listings.cs.
 /// </summary>
-public sealed class EtsyApiClient(IHttpClientFactory httpClientFactory, EtsyTokenService tokens)
+public sealed partial class EtsyApiClient(IHttpClientFactory httpClientFactory, EtsyTokenService tokens)
 {
     public Task<EtsyMe> GetMeAsync(EtsyAuth auth, CancellationToken ct = default) =>
         GetAsync<EtsyMe>("/v3/application/users/me", auth, ct);

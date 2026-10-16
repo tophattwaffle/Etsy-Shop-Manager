@@ -9,6 +9,7 @@ using EtsyShopManager.Web.Components;
 using EtsyShopManager.Web.Infrastructure;
 using EtsyShopManager.Web.Infrastructure.Jobs;
 using EtsyShopManager.Web.Modules;
+using EtsyShopManager.Web.Modules.Listings;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -100,6 +101,7 @@ builder.Services.AddEtsy(builder.Configuration);
 // ---- Feature modules ------------------------------------------------------------------------------
 var modules = builder.AddModules(
     new ShopsModule(),
+    new ListingsModule(),
     new JobsModule(),
     new AdminModule());
 

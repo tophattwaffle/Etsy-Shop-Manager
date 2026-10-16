@@ -8,6 +8,9 @@ namespace EtsyShopManager.Etsy;
 
 public static class EtsyServiceCollectionExtensions
 {
+    /// <summary>Named HttpClient for downloading listing images from Etsy's CDN.</summary>
+    public const string EtsyImageClientName = "EtsyCdn";
+
     /// <summary>
     /// Registers the Etsy client stack. The host must also register <see cref="IEtsyCredentialsProvider"/>
     /// and <see cref="IEtsyTokenStore"/> (both singletons).
@@ -34,6 +37,13 @@ public static class EtsyServiceCollectionExtensions
             .AddHttpMessageHandler<EtsyApiKeyHandler>()
             .AddHttpMessageHandler<EtsyRetryHandler>()
             .AddHttpMessageHandler<EtsyRateLimitHandler>();
+
+        // Listing photos come from Etsy's CDN (no API key, not counted against the API rate limit).
+        services.AddHttpClient(EtsyImageClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("EtsyShopManager/0.1");
+        });
 
         services.AddSingleton<EtsyOAuthClient>();
         services.AddSingleton<EtsyTokenService>();
