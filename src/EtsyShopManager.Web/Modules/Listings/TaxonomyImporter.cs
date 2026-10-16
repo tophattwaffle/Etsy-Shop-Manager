@@ -32,9 +32,12 @@ public sealed class TaxonomyImporter(
             {
                 var tree = await etsy.GetSellerTaxonomyNodesAsync(auth, ct);
                 var nodes = Flatten(tree, now);
+                // Replace in one transaction, so a failure can't leave the taxonomy empty.
+                await using var tx = await db.Database.BeginTransactionAsync(ct);
                 await db.TaxonomyNodes.ExecuteDeleteAsync(ct);
                 db.TaxonomyNodes.AddRange(nodes);
                 await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
                 logger.LogInformation("Imported {Count} taxonomy nodes", nodes.Count);
             }
         }
@@ -58,6 +61,7 @@ public sealed class TaxonomyImporter(
         {
             var props = await etsy.GetTaxonomyPropertiesAsync(taxonomyId, auth, ct);
             await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
             await db.TaxonomyProperties.Where(p => p.TaxonomyId == taxonomyId).ExecuteDeleteAsync(ct);
             db.TaxonomyProperties.AddRange(props.GroupBy(p => p.PropertyId).Select(g => g.First()).Select(p => new TaxonomyProperty
             {
@@ -76,6 +80,7 @@ public sealed class TaxonomyImporter(
                 ImportedAtUtc = now,
             }));
             await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
         }
 
         if (due.Count > 0) logger.LogInformation("Imported properties for {Count} taxonomy node(s)", due.Count);
