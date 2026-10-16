@@ -115,18 +115,13 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
         var text = f.Text?.Trim();
         if (!string.IsNullOrEmpty(text))
         {
-            if (long.TryParse(text, out var etsyId))
-            {
-                q = q.Where(l => l.EtsyListingId == etsyId || EF.Functions.Like(l.Title, Like(text), "\\"));
-            }
-            else
-            {
-                // SQLite LIKE is case-insensitive for ASCII.
-                var pattern = Like(text);
-                q = q.Where(l => EF.Functions.Like(l.Title, pattern, "\\")
-                                 || l.Skus.Any(s => EF.Functions.Like(s, pattern, "\\"))
-                                 || l.Tags.Any(t => EF.Functions.Like(t, pattern, "\\")));
-            }
+            // SQLite LIKE is case-insensitive for ASCII. A number can be a listing id or part of a title/SKU/tag.
+            var pattern = Like(text);
+            var etsyId = long.TryParse(text, out var id) ? id : -1;
+            q = q.Where(l => l.EtsyListingId == etsyId
+                             || EF.Functions.Like(l.Title, pattern, "\\")
+                             || l.Skus.Any(s => EF.Functions.Like(s, pattern, "\\"))
+                             || l.Tags.Any(t => EF.Functions.Like(t, pattern, "\\")));
         }
         return q;
     }
@@ -196,7 +191,7 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
                 s.Name,
                 Healthy = s.IsActive && s.Token != null && !s.Token.NeedsReauth,
                 Count = db.Listings.Count(l => l.ShopId == s.Id && !l.IsMissingOnEtsy),
-                Pending = db.ListingImages.Count(i => i.Listing.ShopId == s.Id && i.FileName == null),
+                Pending = db.ListingImages.Count(i => i.Listing.ShopId == s.Id && i.FileName == null && i.DownloadError == null),
             })
             .ToListAsync(ct);
         var sync = await db.ShopSyncStates.AsNoTracking().ToDictionaryAsync(s => s.ShopId, ct);
