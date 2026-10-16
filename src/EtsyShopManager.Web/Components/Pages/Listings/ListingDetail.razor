@@ -1,0 +1,313 @@
+@page "/listings/{Id:int}"
+@attribute [Authorize]
+@using System.Text.Json
+@using EtsyShopManager.Web.Modules.Listings
+@inject ListingQueries Queries
+
+<PageTitle>@(_listing?.Title ?? "Listing") · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="listings" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> Listings
+</MudLink>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_listing is null)
+{
+    <MudAlert Severity="Severity.Warning">Listing not found.</MudAlert>
+}
+else
+{
+    var l = _listing;
+    var names = _names!;
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Start">
+            @if (ImageStore.UrlFor(l.Images.FirstOrDefault()?.ThumbFileName ?? l.Images.FirstOrDefault()?.FileName) is { } hero)
+            {
+                <img src="@hero" alt="@l.Images[0].AltText" class="listing-hero" />
+            }
+            <div style="flex: 1; min-width: 0">
+                <MudText Typo="Typo.h5">@l.Title</MudText>
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Class="mt-1" Wrap="Wrap.Wrap">
+                    <MudChip T="string" Size="Size.Small" Color="@ListingFormat.StateColor(l.State)">@ListingFormat.StateLabel(l.State)</MudChip>
+                    @if (l.IsMissingOnEtsy)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Error">gone from Etsy</MudChip>
+                    }
+                    <MudText Typo="Typo.body2" Class="muted">@l.Shop.Name · listing #@l.EtsyListingId</MudText>
+                    @if (!string.IsNullOrEmpty(l.Url))
+                    {
+                        <MudLink Href="@l.Url" Target="_blank" Typo="Typo.body2">View on Etsy</MudLink>
+                    }
+                </MudStack>
+                <MudText Typo="Typo.h6" Class="mt-2">
+                    @ListingFormat.Price(l.PriceAmount, l.PriceDivisor, l.CurrencyCode)
+                    <span class="muted small">· quantity @l.Quantity</span>
+                </MudText>
+                <MudText Typo="Typo.body2" Class="muted mt-1">
+                    Updated on Etsy @ListingFormat.Local(l.EtsyUpdatedAtUtc) · imported @ListingFormat.Local(l.LastImportedAtUtc)
+                </MudText>
+            </div>
+        </MudStack>
+    </MudPaper>
+
+    <MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
+        <MudTabPanel Text="Details">
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudSimpleTable Dense="true" Class="detail-table">
+                        <tbody>
+                            <tr><th>Category</th><td>@(names.TaxonomyPath ?? (l.TaxonomyId?.ToString() ?? "—"))</td></tr>
+                            <tr><th>Section</th><td>@Named(names.Section, l.ShopSectionId)</td></tr>
+                            <tr><th>Shipping profile</th><td>@Named(names.ShippingProfile, l.ShippingProfileId)</td></tr>
+                            <tr><th>Processing profile</th><td>@Named(names.ProcessingProfile, l.ReadinessStateId)</td></tr>
+                            <tr><th>Return policy</th><td>@Named(names.ReturnPolicy, l.ReturnPolicyId)</td></tr>
+                            <tr><th>Who made</th><td>@ListingFormat.Humanize(l.WhoMade)</td></tr>
+                            <tr><th>When made</th><td>@ListingFormat.Humanize(l.WhenMade)</td></tr>
+                            <tr><th>Supply</th><td>@YesNo(l.IsSupply)</td></tr>
+                            <tr><th>Type</th><td>@ListingFormat.Humanize(l.ListingType)</td></tr>
+                            <tr><th>Featured rank</th><td>@(l.FeaturedRank?.ToString() ?? "—")</td></tr>
+                            <tr><th>Auto-renew</th><td>@YesNo(l.ShouldAutoRenew)</td></tr>
+                            <tr><th>Taxable</th><td>@YesNo(l.IsTaxable)</td></tr>
+                            <tr><th>Customizable</th><td>@YesNo(l.IsCustomizable)</td></tr>
+                            <tr><th>Production partners</th><td>@(names.ProductionPartners.Count == 0 ? "—" : string.Join(", ", names.ProductionPartners))</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSimpleTable Dense="true" Class="detail-table">
+                        <tbody>
+                            <tr><th>SKUs</th><td>@(l.Skus.Count == 0 ? "—" : string.Join(", ", l.Skus))</td></tr>
+                            <tr><th>Tags (@l.Tags.Count)</th><td>@ChipList(l.Tags)</td></tr>
+                            <tr><th>Materials</th><td>@ChipList(l.Materials)</td></tr>
+                            <tr><th>Styles</th><td>@ChipList(l.Styles)</td></tr>
+                            <tr><th>Weight</th><td>@Measure(l.ItemWeight, l.ItemWeightUnit)</td></tr>
+                            <tr><th>Dimensions</th><td>@Dimensions(l)</td></tr>
+                            <tr><th>Created on Etsy</th><td>@ListingFormat.Local(l.EtsyCreatedAtUtc)</td></tr>
+                            <tr><th>Expires</th><td>@ListingFormat.Local(l.EtsyEndsAtUtc)</td></tr>
+                            <tr><th>Views / favorites</th><td>@(l.Views?.ToString() ?? "—") / @(l.NumFavorers?.ToString() ?? "—")</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle1" Class="mb-1"><b>Attributes</b>
+                        <span class="muted small">(read @ListingFormat.Local(l.AttributesFetchedAtUtc))</span></MudText>
+                    @if (l.Attributes.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="muted">None set.</MudText>
+                    }
+                    else
+                    {
+                        <MudSimpleTable Dense="true" Class="detail-table">
+                            <tbody>
+                                @foreach (var a in l.Attributes)
+                                {
+                                    <tr>
+                                        <th>@(a.PropertyName ?? $"Property {a.PropertyId}")</th>
+                                        <td>@string.Join(", ", a.Values)@(a.ScaleName is null ? "" : $" ({a.ScaleName})")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                </MudItem>
+                @if (l.IsPersonalizable || l.PersonalizationJson is not null)
+                {
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.subtitle1" Class="mb-1"><b>Personalization</b></MudText>
+                        @if (_questions.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" Class="muted">Personalizable, no questions returned.</MudText>
+                        }
+                        @foreach (var q in _questions)
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-1">
+                                <b>@q.Text</b> @(q.Required ? "(required)" : "(optional)")
+                                @if (!string.IsNullOrEmpty(q.Instructions)) { <span class="muted"> — @q.Instructions</span> }
+                                @if (q.MaxChars is { } max) { <span class="muted"> · max @max characters</span> }
+                            </MudText>
+                        }
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@($"Photos ({l.Images.Count})")">
+            @if (l.Images.Count == 0)
+            {
+                <MudText Class="muted">No photos.</MudText>
+            }
+            <div class="photo-grid">
+                @foreach (var img in l.Images)
+                {
+                    <div class="photo-card">
+                        @if (ImageStore.UrlFor(img.FileName) is { } full)
+                        {
+                            <a href="@full" target="_blank"><img src="@(ImageStore.UrlFor(img.ThumbFileName) ?? full)" alt="@img.AltText" loading="lazy" /></a>
+                        }
+                        else
+                        {
+                            <div class="photo-pending">@(img.DownloadError is null ? "Not downloaded yet" : "Download failed")</div>
+                        }
+                        <div class="small"><b>#@img.Rank</b>@(img.FullWidth is null ? "" : $" · {img.FullWidth}×{img.FullHeight}")
+                            @if (img.ByteSize is { } size) { <span> · @(size / 1024) KB</span> }</div>
+                        <div class="small muted" title="Alt text">@(string.IsNullOrEmpty(img.AltText) ? "No alt text" : img.AltText)</div>
+                        @if (img.DownloadError is not null) { <div class="small error-text">@img.DownloadError</div> }
+                    </div>
+                }
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@($"Inventory ({_products.Count})")">
+            <MudText Typo="Typo.body2" Class="mb-2 muted">
+                Price varies by: @OnProperty(l.PriceOnProperty) · Quantity by: @OnProperty(l.QuantityOnProperty) ·
+                SKU by: @OnProperty(l.SkuOnProperty) · Processing by: @OnProperty(l.ReadinessStateOnProperty)
+            </MudText>
+            <MudSimpleTable Dense="true" Hover="true">
+                <thead>
+                    <tr>
+                        @foreach (var p in _propertyColumns) { <th>@p.Name</th> }
+                        <th>SKU</th><th class="text-right">Price</th><th class="text-right">Qty</th><th>Enabled</th><th>Processing</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var product in _products)
+                    {
+                        foreach (var o in product.Offerings.Where(o => !o.IsDeleted))
+                        {
+                            <tr class="@(o.IsEnabled ? "" : "muted")">
+                                @foreach (var col in _propertyColumns)
+                                {
+                                    <td>@string.Join(", ", product.PropertyValues.FirstOrDefault(v => v.PropertyId == col.Id)?.Values ?? [])</td>
+                                }
+                                <td>@(product.Sku ?? "—")</td>
+                                <td class="text-right">@ListingFormat.Price(o.PriceAmount, o.PriceDivisor, o.CurrencyCode)</td>
+                                <td class="text-right">@o.Quantity</td>
+                                <td>@(o.IsEnabled ? "Yes" : "No")</td>
+                                <td>@(o.ReadinessStateId is { } rs ? names.ProcessingLabels.GetValueOrDefault(rs, $"#{rs}") : "—")</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Description">
+            <div class="listing-description">@l.Description</div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Etsy state">
+            @if (l.EtsyState is { } st)
+            {
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    The last state read from Etsy. Phase 3 compares fresh pulls against the managed-field hash to detect
+                    changes made on etsy.com (quantity is excluded).
+                </MudText>
+                <MudSimpleTable Dense="true" Class="detail-table mb-3">
+                    <tbody>
+                        <tr><th>Managed-field hash</th><td><code>@st.ManagedHash</code> (v@(st.ManagedVersion))</td></tr>
+                        <tr><th>Fetched</th><td>@ListingFormat.Local(st.FetchedAtUtc)</td></tr>
+                        <tr><th>Managed fields last changed</th><td>@ListingFormat.Local(st.ManagedChangedAtUtc)</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+                <MudExpansionPanels>
+                    <MudExpansionPanel Text="Managed fields (canonical JSON)">
+                        <pre class="json-block">@Pretty(st.ManagedJson)</pre>
+                    </MudExpansionPanel>
+                    <MudExpansionPanel Text="Raw Etsy response">
+                        <pre class="json-block">@Pretty(st.RawJson)</pre>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
+            else
+            {
+                <MudText Class="muted">No Etsy state recorded.</MudText>
+            }
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool _loading = true;
+    private Listing? _listing;
+    private ListingLookupNames? _names;
+    private List<ListingProduct> _products = [];
+    private List<(long Id, string Name)> _propertyColumns = [];
+    private List<Question> _questions = [];
+
+    private sealed record Question(string Text, string? Instructions, bool Required, int? MaxChars);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _listing = await Queries.GetDetailAsync(Id);
+        if (_listing is not null)
+        {
+            _names = await Queries.GetLookupNamesAsync(_listing);
+            _products = _listing.Products.Where(p => !p.IsDeleted)
+                .OrderBy(p => string.Join("|", p.PropertyValues.SelectMany(v => v.Values))).ToList();
+            _propertyColumns = _products.SelectMany(p => p.PropertyValues)
+                .GroupBy(v => v.PropertyId)
+                .Select(g => (g.Key, g.First().PropertyName ?? $"Property {g.Key}"))
+                .ToList();
+            _questions = ParseQuestions(_listing.PersonalizationJson);
+        }
+        _loading = false;
+    }
+
+    private string OnProperty(List<long> ids) =>
+        ids.Count == 0 ? "—" : string.Join(", ", ids.Select(id => _propertyColumns.FirstOrDefault(c => c.Id == id).Name ?? id.ToString()));
+
+    private static string Named(string? name, long? id) => id is null ? "—" : name ?? $"#{id} (not in lookups)";
+
+    private static string YesNo(bool? value) => value switch { true => "Yes", false => "No", null => "—" };
+
+    private static string Measure(decimal? value, string? unit) => value is null ? "—" : $"{value:0.##} {unit}";
+
+    private static string Dimensions(Listing l) =>
+        l.ItemLength is null && l.ItemWidth is null && l.ItemHeight is null
+            ? "—"
+            : $"{l.ItemLength:0.##} × {l.ItemWidth:0.##} × {l.ItemHeight:0.##} {l.ItemDimensionsUnit}";
+
+    private static RenderFragment ChipList(List<string> values) => builder =>
+    {
+        if (values.Count == 0) { builder.AddContent(0, "—"); return; }
+        var seq = 0;
+        foreach (var v in values)
+        {
+            builder.OpenElement(seq++, "span");
+            builder.AddAttribute(seq++, "class", "tag-chip");
+            builder.AddContent(seq++, v);
+            builder.CloseElement();
+        }
+    };
+
+    private static string Pretty(string json)
+    {
+        try { return JsonSerializer.Serialize(JsonDocument.Parse(json).RootElement, new JsonSerializerOptions { WriteIndented = true }); }
+        catch (JsonException) { return json; }
+    }
+
+    private static List<Question> ParseQuestions(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateArray().Select(q => new Question(
+                q.TryGetProperty("question_text", out var t) ? t.GetString() ?? "" : "",
+                q.TryGetProperty("instructions", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString() : null,
+                q.TryGetProperty("required", out var r) && r.ValueKind == JsonValueKind.True,
+                q.TryGetProperty("max_allowed_characters", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : null))
+                .ToList();
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            return [];
+        }
+    }
+}

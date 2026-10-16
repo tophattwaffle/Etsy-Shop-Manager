@@ -1,0 +1,307 @@
+@page "/lookups"
+@attribute [Authorize]
+@using EtsyShopManager.Web.Modules.Listings
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ListingImportQueue ImportQueue
+@inject ISnackbar Snackbar
+
+<PageTitle>Lookups · Etsy Shop Manager</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Lookups</MudText>
+<MudText Typo="Typo.body2" Class="mb-4 muted">
+    Per-shop profiles, sections and partners cached from Etsy (refreshed with every listing import), plus Etsy's
+    category taxonomy. The listing editor will pick from these.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+        <MudSelect T="int?" Value="_shopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Style="min-width: 220px">
+            @foreach (var s in _shops)
+            {
+                <MudSelectItem T="int?" Value="s.Id">@s.Name</MudSelectItem>
+            }
+        </MudSelect>
+        @if (_shopId is not null)
+        {
+            <MudText Typo="Typo.body2" Class="muted">Last refreshed @ListingFormat.Local(_lookupsAt)</MudText>
+        }
+        <MudSpacer />
+        <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="_shopId is null" OnClick="RefreshLookupsAsync"
+                       StartIcon="@Icons.Material.Filled.Refresh">Refresh shop lookups</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="RefreshTaxonomyAsync"
+                       StartIcon="@Icons.Material.Filled.AccountTree">Refresh taxonomy</MudButton>
+        </AuthorizeView>
+    </MudStack>
+</MudPaper>
+
+<MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4">
+    <MudTabPanel Text="@($"Shipping ({_shipping.Count})")">
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead><tr><th>Title</th><th>Etsy id</th><th>Origin</th><th>Type</th><th>Destinations</th><th>Upgrades</th><th>Listings</th></tr></thead>
+            <tbody>
+                @foreach (var p in _shipping)
+                {
+                    <tr>
+                        <td>@p.Title</td><td>@p.EtsyShippingProfileId</td>
+                        <td>@p.OriginCountryIso @p.OriginPostalCode</td><td>@ListingFormat.Humanize(p.ProfileType)</td>
+                        <td>@p.DestinationCount</td><td>@p.UpgradeCount</td>
+                        <td>@Uses(_usage.Shipping, p.EtsyShippingProfileId)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @Empty(_shipping.Count)
+    </MudTabPanel>
+
+    <MudTabPanel Text="@($"Processing ({_processing.Count})")">
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead><tr><th>Label</th><th>Readiness state id</th><th>Type</th><th>Days</th><th>Listings</th></tr></thead>
+            <tbody>
+                @foreach (var p in _processing)
+                {
+                    <tr>
+                        <td>@(p.DisplayLabel ?? "—")</td><td>@p.ReadinessStateId</td>
+                        <td>@ListingFormat.Humanize(p.ReadinessState)</td><td>@p.MinProcessingDays–@p.MaxProcessingDays</td>
+                        <td>@Uses(_usage.Processing, p.ReadinessStateId)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @Empty(_processing.Count)
+    </MudTabPanel>
+
+    <MudTabPanel Text="@($"Returns ({_returns.Count})")">
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead><tr><th>Policy</th><th>Etsy id</th><th>Listings</th></tr></thead>
+            <tbody>
+                @foreach (var p in _returns)
+                {
+                    <tr>
+                        <td>@ListingQueries.ReturnPolicySummary(p)</td><td>@p.EtsyReturnPolicyId</td>
+                        <td>@Uses(_usage.Returns, p.EtsyReturnPolicyId)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @Empty(_returns.Count)
+    </MudTabPanel>
+
+    <MudTabPanel Text="@($"Sections ({_sections.Count})")">
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead><tr><th>Rank</th><th>Title</th><th>Etsy id</th><th>Active (Etsy)</th><th>Listings here</th></tr></thead>
+            <tbody>
+                @foreach (var s in _sections)
+                {
+                    <tr>
+                        <td>@s.Rank</td><td>@s.Title</td><td>@s.EtsySectionId</td><td>@s.ActiveListingCount</td>
+                        <td>@Uses(_usage.Sections, s.EtsySectionId)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @Empty(_sections.Count)
+    </MudTabPanel>
+
+    <MudTabPanel Text="@($"Production partners ({_partners.Count})")">
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead><tr><th>Name</th><th>Location</th><th>Etsy id</th></tr></thead>
+            <tbody>
+                @foreach (var p in _partners)
+                {
+                    <tr><td>@p.Name</td><td>@p.Location</td><td>@p.EtsyPartnerId</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @Empty(_partners.Count)
+    </MudTabPanel>
+
+    <MudTabPanel Text="@($"Taxonomy ({_taxonomyCount:N0})")">
+        <MudGrid>
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" Value="_taxonomyText" ValueChanged="OnTaxonomySearchAsync" Label="Search categories"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+                <MudSwitch T="bool" Value="_usedOnly" ValueChanged="OnUsedOnlyChangedAsync" Color="Color.Primary"
+                           Label="Only categories my listings use" Class="mt-1" />
+                <MudList T="long" Dense="true" Class="taxonomy-list" SelectedValue="_selectedTaxonomy" SelectedValueChanged="SelectTaxonomyAsync">
+                    @foreach (var n in _nodes)
+                    {
+                        <MudListItem T="long" Value="n.Id">
+                            <div class="small">@n.FullPath</div>
+                            <div class="muted small">#@n.Id @(_usage.Taxonomy.TryGetValue(n.Id, out var c) ? $"· {c} listing(s)" : "")</div>
+                        </MudListItem>
+                    }
+                </MudList>
+                @if (_nodes.Count >= NodeLimit)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">Showing the first @NodeLimit matches; refine the search.</MudText>
+                }
+                @Empty(_taxonomyCount)
+            </MudItem>
+            <MudItem xs="12" md="6">
+                @if (_selectedTaxonomy == 0)
+                {
+                    <MudText Class="muted">Select a category to see its properties. Properties are cached for categories listings use.</MudText>
+                }
+                else if (_properties.Count == 0)
+                {
+                    <MudText Class="muted">No properties cached for this category (they are fetched for categories in use).</MudText>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true">
+                        <thead><tr><th>Property</th><th>Id</th><th>Use</th><th>Values</th></tr></thead>
+                        <tbody>
+                            @foreach (var p in _properties)
+                            {
+                                <tr>
+                                    <td>@(p.DisplayName ?? p.Name) @(p.IsRequired ? "*" : "")</td>
+                                    <td>@p.PropertyId</td>
+                                    <td class="small">@string.Join(", ", new[] { p.SupportsAttributes ? "attribute" : null, p.SupportsVariations ? "variation" : null }.OfType<string>())</td>
+                                    <td>@(p.PossibleValueCount == 0 ? "free text" : p.PossibleValueCount.ToString())</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudItem>
+        </MudGrid>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private const int NodeLimit = 200;
+
+    private sealed record ShopOption(int Id, string Name);
+    private sealed record Usage(
+        Dictionary<long, int> Shipping, Dictionary<long, int> Processing, Dictionary<long, int> Returns,
+        Dictionary<long, int> Sections, Dictionary<long, int> Taxonomy);
+
+    private List<ShopOption> _shops = [];
+    private int? _shopId;
+    private DateTime? _lookupsAt;
+    private List<ShippingProfile> _shipping = [];
+    private List<ProcessingProfile> _processing = [];
+    private List<ReturnPolicy> _returns = [];
+    private List<ShopSection> _sections = [];
+    private List<ProductionPartner> _partners = [];
+    private Usage _usage = new([], [], [], [], []);
+
+    private int _taxonomyCount;
+    private string? _taxonomyText;
+    private bool _usedOnly = true;
+    private List<TaxonomyNode> _nodes = [];
+    private long _selectedTaxonomy;
+    private List<TaxonomyProperty> _properties = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _shops = await db.Shops.AsNoTracking().OrderBy(s => s.Name).Select(s => new ShopOption(s.Id, s.Name)).ToListAsync();
+        _shopId = _shops.FirstOrDefault()?.Id;
+        _taxonomyCount = await db.TaxonomyNodes.CountAsync();
+        await LoadShopAsync();
+        await LoadNodesAsync();
+    }
+
+    private async Task OnShopChanged(int? id)
+    {
+        _shopId = id;
+        await LoadShopAsync();
+    }
+
+    private async Task LoadShopAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var shopId = _shopId ?? -1;
+        _shipping = await db.ShippingProfiles.AsNoTracking().Where(x => x.ShopId == shopId).OrderBy(x => x.Title).ToListAsync();
+        _processing = await db.ProcessingProfiles.AsNoTracking().Where(x => x.ShopId == shopId)
+            .OrderBy(x => x.MinProcessingDays).ThenBy(x => x.MaxProcessingDays).ToListAsync();
+        _returns = await db.ReturnPolicies.AsNoTracking().Where(x => x.ShopId == shopId).ToListAsync();
+        _sections = await db.ShopSections.AsNoTracking().Where(x => x.ShopId == shopId).OrderBy(x => x.Rank).ToListAsync();
+        _partners = await db.ProductionPartners.AsNoTracking().Where(x => x.ShopId == shopId).OrderBy(x => x.Name).ToListAsync();
+        _lookupsAt = await db.ShopSyncStates.Where(s => s.ShopId == shopId).Select(s => s.LookupsImportedAtUtc).FirstOrDefaultAsync();
+
+        var listings = await db.Listings.AsNoTracking().Where(l => l.ShopId == shopId && !l.IsMissingOnEtsy)
+            .Select(l => new { l.ShippingProfileId, l.ReadinessStateId, l.ReturnPolicyId, l.ShopSectionId }).ToListAsync();
+        var taxonomy = await db.Listings.AsNoTracking().Where(l => !l.IsMissingOnEtsy && l.TaxonomyId != null)
+            .GroupBy(l => l.TaxonomyId!.Value).Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count);
+        _usage = new Usage(
+            Count(listings.Select(l => l.ShippingProfileId)),
+            Count(listings.Select(l => l.ReadinessStateId)),
+            Count(listings.Select(l => l.ReturnPolicyId)),
+            Count(listings.Select(l => l.ShopSectionId)),
+            taxonomy);
+    }
+
+    private static Dictionary<long, int> Count(IEnumerable<long?> ids) =>
+        ids.OfType<long>().GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+
+    private static string Uses(Dictionary<long, int> usage, long id) => usage.TryGetValue(id, out var n) ? n.ToString() : "0";
+
+    private async Task OnTaxonomySearchAsync(string? text)
+    {
+        _taxonomyText = text;
+        await LoadNodesAsync();
+    }
+
+    private async Task OnUsedOnlyChangedAsync(bool value)
+    {
+        _usedOnly = value;
+        await LoadNodesAsync();
+    }
+
+    private async Task LoadNodesAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        IQueryable<TaxonomyNode> q = db.TaxonomyNodes.AsNoTracking();
+        if (_usedOnly)
+        {
+            var used = _usage.Taxonomy.Keys.ToList();
+            q = q.Where(n => used.Contains(n.Id));
+        }
+        if (!string.IsNullOrWhiteSpace(_taxonomyText))
+        {
+            var pattern = "%" + _taxonomyText.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+            q = q.Where(n => EF.Functions.Like(n.FullPath, pattern, "\\"));
+        }
+        _nodes = await q.OrderBy(n => n.FullPath).Take(NodeLimit).ToListAsync();
+    }
+
+    private async Task SelectTaxonomyAsync(long id)
+    {
+        _selectedTaxonomy = id;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _properties = await db.TaxonomyProperties.AsNoTracking().Where(p => p.TaxonomyId == id)
+            .OrderByDescending(p => p.IsRequired).ThenBy(p => p.DisplayName ?? p.Name).ToListAsync();
+    }
+
+    private async Task RefreshLookupsAsync()
+    {
+        if (_shopId is not { } shopId) return;
+        var user = (await AuthState).User.Identity?.Name;
+        var id = await ImportQueue.ImportLookupsAsync(shopId, user);
+        Snackbar.Add(id is null ? "A lookup refresh is already queued" : $"Lookup refresh queued (job {id}); reload in a moment", Severity.Info);
+    }
+
+    private async Task RefreshTaxonomyAsync()
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var id = await ImportQueue.RefreshTaxonomyAsync(force: true, user);
+        Snackbar.Add(id is null ? "A taxonomy refresh is already queued" : $"Taxonomy refresh queued (job {id})", Severity.Info);
+    }
+
+    private static RenderFragment Empty(int count) => builder =>
+    {
+        if (count > 0) return;
+        builder.OpenElement(0, "p");
+        builder.AddAttribute(1, "class", "muted mt-2");
+        builder.AddContent(2, "Nothing cached yet. It fills in with the first import.");
+        builder.CloseElement();
+    };
+}

@@ -1,6 +1,6 @@
 # Etsy Shop Manager — Project Plan
 
-_Status: Phase 0 (Foundation) implemented. Last updated 2026-10-15._
+_Status: Phase 0 (Foundation) and Phase 1 (Import) implemented. Last updated 2026-10-16._
 
 ## Goals
 
@@ -160,6 +160,16 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - **Service account:** `NT SERVICE\EtsyShopManager`, with modify rights on `C:\ProgramData\EtsyShopManager` only. Data Protection keys use machine-scope DPAPI; back up the `keys` folder with the database.
 - **Packages:** EF Core / ASP.NET 10.0.13, MudBlazor 9.x. Verified with a real build, the test suite and a live run of the first-run flow.
 - **Recurring jobs:** token keep-alive every 12 h (keeps the ~90-day refresh token rolling), shop details every 24 h, job cleanup every 24 h.
+
+## Phase 1 implementation notes
+- **Etsy client:** typed methods hand-written from Etsy's OpenAPI spec (`https://www.etsy.com/openapi/generated/oas/3.0.0.json`), in `EtsyApiClient.Listings.cs` with models in `Models/ListingModels.cs`. Code generation was skipped: the spec is large and the generated client would bypass the existing pipeline style; the hand-written calls use the same `Etsy` HttpClient (x-api-key, shared rate limiter, retry). Collection reads keep each item's raw JSON next to the typed value.
+- **What is imported per shop:** listings in every state Etsy still serves (active, inactive, sold_out, draft, expired), with images, inventory (products, offerings, property values, `*_on_property`) and personalization through `getListingsByShop` `includes=Images,Inventory,Personalization` (100 per page, oldest first). If an include comes back empty, the importer falls back to `getListingImages` / `getListingInventory`. Category attributes need `getListingProperties` per listing, so they are fetched only for new listings, listings whose `last_modified_timestamp` changed, or on a forced re-import. Lookups: shipping profiles, processing profiles (readiness-state definitions), return policies, sections, production partners. Taxonomy: the whole seller tree (one call, refreshed weekly) plus properties for the taxonomy nodes listings use.
+- **Last known Etsy state:** `ListingEtsyState` keeps the raw listing JSON, the canonical JSON of the managed fields and its SHA-256 (`ManagedListingState` in Core, versioned). Quantity, Etsy's product/offering ids, stats and timestamps are excluded; `sold_out` counts as `active`. Products are compared by their variation values, not ids, because Etsy issues new ids on every inventory write. Phase 3 drift detection compares against this hash and shows a field diff from the managed JSON.
+- **Idempotent and resumable:** listings, images, products and offerings are matched by Etsy id, so an unchanged re-import changes nothing (same rows, same hash). Progress (lookups done, listing state, offset) is saved per shop in `ShopSyncState` after every page; an interrupted job resumes from that page (within 12 h, then it starts over). A completed run flags listings it didn't see as **gone from Etsy** (`IsMissingOnEtsy`); nothing is deleted locally. A listing that changes state in the middle of a run can be missed by paging and is then flagged until the next run.
+- **Images:** a separate low-priority job downloads the full-size photo and Etsy's 570px copy (for lists) from the CDN (not counted against the API limit) into `images/ab/<sha256>.<ext>`. A changed source URL re-downloads; files no image references are deleted after a day. Served at `/media/images/<sha256>.<ext>` to signed-in users with immutable caching. (Phase 2 decides how the HA card gets images: the card is not signed in.)
+- **Jobs:** `etsy.listings.import` (per shop, then queues images + taxonomy), `etsy.lookups.import`, `etsy.images.download`, `etsy.taxonomy.refresh`, and the recurring `etsy.listings.import-all` every 24 h (an interval, not a time of day). Connecting or reconnecting a shop queues its import. Dedupe keys make repeated clicks harmless.
+- **UI:** Listings (search title/SKU/tag/listing id, filter by shop/state/gone, sort, server paging, import status and "Import now"/"Full re-import" for Admin/Editor), listing detail (fields with lookup names, attributes, personalization, photos, inventory grid, Etsy state with hash and raw JSON) and Lookups (per-shop tables with usage counts, taxonomy search with properties).
+- **Not yet:** videos, translations, digital files. A full import of a ~300-listing shop costs roughly 10 calls for listings and lookups plus one attribute call per changed listing.
 
 ## Deployment
 - Source: private Gitea repo `github.com/TopHATTwaffle/etsy-shop-manager`, default branch `master`.

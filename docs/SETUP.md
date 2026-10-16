@@ -34,7 +34,8 @@ don't match. Pending migrations are applied automatically when the app starts.
 dotnet run --project src/EtsyShopManager.Web
 ```
 
-Opens http://localhost:5080 with a separate dev data folder (`%LOCALAPPDATA%\EtsyShopManager-dev`).
+Opens http://localhost:5080 with a separate dev data folder (`%LOCALAPPDATA%\EtsyShopManager-dev`), including
+its own image store.
 You can create the Admin and look around, but **connecting a shop needs the HTTPS base URL** (Etsy only accepts
 https redirect URIs), so do that against the installed service behind HAProxy.
 
@@ -101,7 +102,7 @@ redirect URI and a reminder to update it in the Etsy portal; existing shop conne
 |---|---|
 | Database (SQLite, WAL) | `C:\ProgramData\EtsyShopManager\etsyshopmanager.db` |
 | Data Protection keys (encrypt tokens, secrets, cookies) | `C:\ProgramData\EtsyShopManager\keys` |
-| Images (from Phase 1) | `C:\ProgramData\EtsyShopManager\images` |
+| Images (content-hashed listing photos) | `C:\ProgramData\EtsyShopManager\images` |
 | Logs (14 days) | `C:\ProgramData\EtsyShopManager\logs\esm-yyyyMMdd.log`, warnings also in the Application event log |
 | Health check | `GET /health` |
 
@@ -122,6 +123,13 @@ All Etsy work runs through a persistent job queue (survives restarts; interrupte
 | Etsy token keep-alive | 12 h | Refreshes both shops' tokens so the ~90-day refresh token keeps rolling |
 | Refresh shop details | 24 h | Updates shop name, URL, icon, currency |
 | Clean up old jobs | 24 h | Deletes succeeded jobs after 30 days, failed after 90 |
+| Import listings (all shops) | 24 h | Pulls every shop's listings, lookups, then photos and taxonomy |
+
+**Listing import.** Connecting a shop queues its first import. After that it runs every 24 h, or on demand from
+**Listings → Import now** (Admin/Editor). "Full re-import" also re-reads every listing's category attributes (normally
+only changed listings are re-read). The import saves its position after every page, so a restart continues where it
+stopped. Photos download in a separate, lower-priority job; the Listings page shows how many are still pending.
+Lookups can be refreshed on their own from the **Lookups** page.
 
 A rejected refresh token marks the shop **Reconnect needed** (dashboard and Shops page) and is recorded in the audit log.
 
