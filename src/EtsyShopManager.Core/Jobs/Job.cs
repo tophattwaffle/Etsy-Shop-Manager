@@ -42,6 +42,9 @@ public class Job
 
     public string? LastError { get; set; }
     public string? CreatedBy { get; set; }
+
+    /// <summary>Short outcome set by the handler, e.g. "2 new, 5 updated". Shown on the Jobs page and in notifications.</summary>
+    public string? Result { get; set; }
 }
 
 /// <summary>Tracks when a recurring job was last enqueued.</summary>

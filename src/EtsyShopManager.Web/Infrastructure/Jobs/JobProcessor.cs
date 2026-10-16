@@ -14,6 +14,8 @@ public sealed class JobProcessor(
     IDbContextFactory<AppDbContext> dbFactory,
     IServiceScopeFactory scopeFactory,
     IJobSignal signal,
+    IJobEvents events,
+    JobCatalog catalog,
     TimeProvider time,
     IOptions<JobOptions> options,
     ILogger<JobProcessor> logger) : BackgroundService
@@ -96,6 +98,7 @@ public sealed class JobProcessor(
         candidate.Status = JobStatus.Running;
         candidate.StartedAtUtc = now;
         candidate.Attempts += 1;
+        events.Publish(catalog.Change(candidate, JobStatus.Running));
         return candidate;
     }
 
@@ -105,7 +108,7 @@ public sealed class JobProcessor(
         var handler = scope.ServiceProvider.GetServices<IJobHandler>().FirstOrDefault(h => h.JobType == job.JobType);
         if (handler is null)
         {
-            await FinishAsync(job.Id, JobStatus.Failed, $"No handler registered for job type '{job.JobType}'.");
+            await FinishAsync(job, JobStatus.Failed, $"No handler registered for job type '{job.JobType}'.");
             return;
         }
 
@@ -126,22 +129,22 @@ public sealed class JobProcessor(
         try
         {
             await handler.HandleAsync(context, timeout.Token);
-            await FinishAsync(job.Id, JobStatus.Succeeded, null);
+            await FinishAsync(job, JobStatus.Succeeded, null, context.Result);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Shutting down: hand the job back without spending an attempt.
-            await RescheduleAsync(job.Id, TimeSpan.Zero, "Interrupted by shutdown", refundAttempt: true);
+            await RescheduleAsync(job, TimeSpan.Zero, "Interrupted by shutdown", refundAttempt: true);
         }
         catch (RetryLaterException ex)
         {
             logger.LogInformation("Job {JobId} deferred for {Delay}: {Message}", job.Id, ex.Delay, ex.Message);
-            await RescheduleAsync(job.Id, ex.Delay, ex.Message, refundAttempt: true);
+            await RescheduleAsync(job, ex.Delay, ex.Message, refundAttempt: true);
         }
         catch (Exception ex) when (ex is JobPermanentFailureException or EtsyReauthRequiredException or EtsyNotConfiguredException)
         {
             logger.LogWarning("Job {JobId} {JobType} failed permanently: {Message}", job.Id, job.JobType, ex.Message);
-            await FinishAsync(job.Id, JobStatus.Failed, ex.Message);
+            await FinishAsync(job, JobStatus.Failed, ex.Message);
         }
         catch (Exception ex)
         {
@@ -152,12 +155,12 @@ public sealed class JobProcessor(
             {
                 var delay = Backoff(job.Attempts);
                 logger.LogWarning(ex, "Job {JobId} {JobType} failed (attempt {Attempt}); retrying in {Delay}", job.Id, job.JobType, job.Attempts, delay);
-                await RescheduleAsync(job.Id, delay, message, refundAttempt: false);
+                await RescheduleAsync(job, delay, message, refundAttempt: false);
             }
             else
             {
                 logger.LogError(ex, "Job {JobId} {JobType} failed after {Attempts} attempts", job.Id, job.JobType, job.Attempts);
-                await FinishAsync(job.Id, JobStatus.Failed, message);
+                await FinishAsync(job, JobStatus.Failed, message);
             }
         }
     }
@@ -166,27 +169,33 @@ public sealed class JobProcessor(
         TimeSpan.FromSeconds(Math.Min(3600, 30 * Math.Pow(2, Math.Max(0, attempt - 1))));
 
     // These writes use CancellationToken.None so the outcome is recorded even during shutdown.
-    private async Task FinishAsync(long jobId, JobStatus status, string? error)
+    private async Task FinishAsync(Job job, JobStatus status, string? error, string? result = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
         var now = time.GetUtcNow().UtcDateTime;
-        await db.Jobs.Where(j => j.Id == jobId).ExecuteUpdateAsync(s => s
+        var summary = Truncate(result, 500);
+        await db.Jobs.Where(j => j.Id == job.Id).ExecuteUpdateAsync(s => s
             .SetProperty(j => j.Status, status)
             .SetProperty(j => j.CompletedAtUtc, now)
-            .SetProperty(j => j.LastError, Truncate(error)), CancellationToken.None);
+            .SetProperty(j => j.LastError, Truncate(error))
+            .SetProperty(j => j.Result, summary), CancellationToken.None);
+        events.Publish(catalog.Change(job, status, summary, FirstLine(error)));
     }
 
-    private async Task RescheduleAsync(long jobId, TimeSpan delay, string? error, bool refundAttempt)
+    private async Task RescheduleAsync(Job job, TimeSpan delay, string? error, bool refundAttempt)
     {
         await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
         var runAfter = time.GetUtcNow().UtcDateTime + delay;
         var refund = refundAttempt ? 1 : 0;
-        await db.Jobs.Where(j => j.Id == jobId).ExecuteUpdateAsync(s => s
+        await db.Jobs.Where(j => j.Id == job.Id).ExecuteUpdateAsync(s => s
             .SetProperty(j => j.Status, JobStatus.Pending)
             .SetProperty(j => j.RunAfterUtc, runAfter)
             .SetProperty(j => j.Attempts, j => j.Attempts - refund)
             .SetProperty(j => j.LastError, Truncate(error)), CancellationToken.None);
+        events.Publish(catalog.Change(job, JobStatus.Pending, error: FirstLine(error)));
     }
 
-    private static string? Truncate(string? s) => s is { Length: > 4000 } ? s[..4000] : s;
+    private static string? FirstLine(string? s) => s?.Split('\n', 2)[0].Trim();
+
+    private static string? Truncate(string? s, int max = 4000) => s is { Length: var n } && n > max ? s[..max] : s;
 }

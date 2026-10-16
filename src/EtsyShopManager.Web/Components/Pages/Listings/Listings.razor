@@ -2,11 +2,13 @@
 @attribute [Authorize]
 @using EtsyShopManager.Etsy.Models
 @using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Core.Jobs
 @implements IDisposable
 @inject ListingQueries Queries
 @inject ListingImportQueue ImportQueue
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
+@inject IJobEvents JobEvents
 
 <PageTitle>Listings · Etsy Shop Manager</PageTitle>
 
@@ -197,16 +199,25 @@
     private IReadOnlyCollection<string> _states = [];
     private ListingSort _sort = ListingSort.UpdatedDesc;
     private bool _showMissing;
-    private Timer? _timer;
+    private IDisposable? _live;
+
+    private static readonly HashSet<string> ListingJobTypes =
+    [
+        ImportShopListingsJob.Type, DownloadListingImagesJob.Type, ImportShopLookupsJob.Type,
+        EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type, EtsyShopManager.Web.Modules.Shops.TokenKeepAliveJob.Type,
+    ];
 
     protected override async Task OnInitializedAsync()
     {
         _status = await Queries.GetImportStatusAsync();
-        _timer = new Timer(_ => InvokeAsync(async () =>
+        // Import status follows the job queue; the list itself changes when an import or photo download finishes.
+        _live = JobEvents.Subscribe(c => ListingJobTypes.Contains(c.JobType), changes => InvokeAsync(async () =>
         {
             _status = await Queries.GetImportStatusAsync();
+            if (changes.Any(c => c.IsFinal && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type))
+                await ReloadAsync();
             StateHasChanged();
-        }), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        }));
     }
 
     private async Task<TableData<ListingRow>> LoadAsync(TableState state, CancellationToken ct)
@@ -240,5 +251,5 @@
             Severity.Info);
     }
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose() => _live?.Dispose();
 }

@@ -3,11 +3,13 @@
 @using System.Text.Json.Nodes
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Modules.Orders
+@using EtsyShopManager.Core.Jobs
 @implements IDisposable
 @inject OrderQueries Queries
 @inject OrderPollQueue PollQueue
 @inject TimeProvider Time
 @inject ISnackbar Snackbar
+@inject IJobEvents JobEvents
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
 
@@ -164,13 +166,22 @@
     private MudTable<Order>? _history;
     private string? _historyText;
     private Timer? _timer;
+    private IDisposable? _live;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
-        // Countdowns and new orders: refresh every 30 s.
-        _timer = new Timer(_ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }),
-            null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        // Orders change when a check for orders runs (or a shop is (re)connected): reload then.
+        _live = JobEvents.Subscribe(
+            c => c.JobType == PollShopOrdersJob.Type || c.JobType == EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type,
+            _ => InvokeAsync(async () =>
+            {
+                await LoadAsync();
+                if (_history is not null) await _history.ReloadServerData();
+                StateHasChanged();
+            }));
+        // Ship-by countdowns and "synced … ago" are relative to now: re-render every 30 s.
+        _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     private async Task LoadAsync()
@@ -245,5 +256,9 @@
     private static string StatusTooltip(OrderShopStatus s) =>
         s.LastError ?? (s.BackfillDone ? $"Last checked {ListingFormat.Local(s.LastPolledAtUtc, "yyyy-MM-dd HH:mm:ss")}" : "First sync (order history) not finished yet");
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        _live?.Dispose();
+        _timer?.Dispose();
+    }
 }

@@ -64,6 +64,7 @@ public sealed class ImportShopListingsJob(ListingImporter importer, ListingImpor
 {
     public const string Type = "etsy.listings.import";
     public string JobType => Type;
+    public string DisplayName => "Listing import";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
@@ -71,7 +72,8 @@ public sealed class ImportShopListingsJob(ListingImporter importer, ListingImpor
         var force = context.GetPayload<ImportPayload>()?.Force ?? false;
         try
         {
-            await importer.ImportShopAsync(shopId, force, ct);
+            var result = await importer.ImportShopAsync(shopId, force, ct);
+            context.Result = $"{result.ListingsSeen} listings" + (result.MarkedMissing > 0 ? $", {result.MarkedMissing} gone from Etsy" : "");
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not RetryLaterException)
         {
@@ -90,6 +92,7 @@ public sealed class ImportShopLookupsJob(ListingImporter importer, IDbContextFac
 {
     public const string Type = "etsy.lookups.import";
     public string JobType => Type;
+    public string DisplayName => "Lookup refresh";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
@@ -105,12 +108,16 @@ public sealed class DownloadListingImagesJob(ImageDownloader downloader) : IJobH
 {
     public const string Type = "etsy.images.download";
     public string JobType => Type;
+    public string DisplayName => "Photo download";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
         var shopId = context.ShopId ?? throw new JobPermanentFailureException("ShopId is required.");
         var result = await downloader.DownloadForShopAsync(shopId, ct);
         await downloader.DeleteOrphansAsync(ct);
+        context.Result = result.Pending == 0 ? "all photos stored"
+            : $"{result.Downloaded} downloaded" + (result.Gone > 0 ? $", {result.Gone} gone from Etsy" : "")
+              + (result.Failed > 0 ? $", {result.Failed} failed" : "");
         if (result.Failed > 0)
             throw new InvalidOperationException($"{result.Failed} of {result.Pending} image(s) failed to download; will retry.");
     }
@@ -120,6 +127,7 @@ public sealed class RefreshTaxonomyJob(TaxonomyImporter importer) : IJobHandler
 {
     public const string Type = "etsy.taxonomy.refresh";
     public string JobType => Type;
+    public string DisplayName => "Taxonomy refresh";
 
     public Task HandleAsync(JobExecutionContext context, CancellationToken ct) =>
         importer.RefreshAsync(context.GetPayload<ImportPayload>()?.Force ?? false, ct);
@@ -130,6 +138,7 @@ public sealed class ImportAllShopsJob(IDbContextFactory<AppDbContext> dbFactory,
 {
     public const string Type = "etsy.listings.import-all";
     public string JobType => Type;
+    public string DisplayName => "Import listings (all shops)";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
@@ -138,6 +147,7 @@ public sealed class ImportAllShopsJob(IDbContextFactory<AppDbContext> dbFactory,
             .Select(s => s.Id).ToListAsync(ct);
         foreach (var shopId in shopIds)
             await queue.ImportShopAsync(shopId, force: false, "scheduler", $"job:{context.JobId}", ct);
+        context.Result = $"{shopIds.Count} shop(s) queued";
     }
 }
 

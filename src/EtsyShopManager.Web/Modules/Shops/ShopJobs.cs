@@ -18,6 +18,7 @@ public sealed class TokenKeepAliveJob(
 {
     public const string Type = "etsy.tokens.keepalive";
     public string JobType => Type;
+    public string DisplayName => "Etsy token keep-alive";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
@@ -52,11 +53,13 @@ public sealed class ShopRefreshJob(ShopService shops) : IJobHandler
 {
     public const string Type = "etsy.shop.refresh";
     public string JobType => Type;
+    public string DisplayName => "Refresh shop details";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
         var shopId = context.ShopId ?? throw new JobPermanentFailureException("ShopId is required.");
-        await shops.TestConnectionAsync(shopId, ct);
+        var info = await shops.TestConnectionAsync(shopId, ct);
+        context.Result = $"{info.ListingActiveCount ?? 0} active listings";
     }
 }
 
@@ -65,6 +68,7 @@ public sealed class RefreshAllShopsJob(IDbContextFactory<AppDbContext> dbFactory
 {
     public const string Type = "etsy.shops.refresh-all";
     public string JobType => Type;
+    public string DisplayName => "Refresh all shops";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {

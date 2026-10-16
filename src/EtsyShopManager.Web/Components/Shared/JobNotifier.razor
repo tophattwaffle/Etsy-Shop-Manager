@@ -1,0 +1,51 @@
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Modules.Shops
+@implements IDisposable
+@inject IJobEvents JobEvents
+@inject ShopService Shops
+@inject ISnackbar Snackbar
+
+@* Shows a notification when a job this user started (e.g. "Check for orders now") finishes, on whatever page they're on. *@
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private IDisposable? _live;
+    private string? _userName;
+    private Dictionary<int, string> _shopNames = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _userName = (await AuthState).User.Identity?.Name;
+        if (string.IsNullOrEmpty(_userName)) return;
+
+        _live = JobEvents.Subscribe(
+            c => c.IsFinal && string.Equals(c.CreatedBy, _userName, StringComparison.OrdinalIgnoreCase),
+            changes => InvokeAsync(async () =>
+            {
+                if (changes.Any(c => c.ShopId is { } id && !_shopNames.ContainsKey(id)))
+                    _shopNames = (await Shops.ListAsync()).ToDictionary(s => s.Id, s => s.Name);
+                foreach (var c in changes) Show(c);
+            }),
+            TimeSpan.FromMilliseconds(200));
+    }
+
+    private void Show(JobChanged c)
+    {
+        var what = c.DisplayName + (c.ShopId is { } id && _shopNames.TryGetValue(id, out var shop) ? $" ({shop})" : "");
+        switch (c.Status)
+        {
+            case JobStatus.Succeeded:
+                Snackbar.Add(string.IsNullOrEmpty(c.Result) ? $"{what}: done" : $"{what}: {c.Result}", Severity.Success);
+                break;
+            case JobStatus.Failed:
+                Snackbar.Add($"{what} failed: {c.Error ?? "see Jobs"}", Severity.Error);
+                break;
+            case JobStatus.Cancelled:
+                Snackbar.Add($"{what} was cancelled", Severity.Info);
+                break;
+        }
+    }
+
+    public void Dispose() => _live?.Dispose();
+}

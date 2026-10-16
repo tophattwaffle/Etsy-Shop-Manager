@@ -3,6 +3,8 @@
 @using System.Text.Json
 @using EtsyShopManager.Web.Modules.Listings
 @inject ListingQueries Queries
+@inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
+@implements IDisposable
 
 <PageTitle>@(_listing?.Title ?? "Listing") · Etsy Shop Manager</PageTitle>
 
@@ -241,9 +243,22 @@ else
 
     private sealed record Question(string Text, string? Instructions, bool Required, int? MaxChars);
 
-    protected override async Task OnParametersSetAsync()
+    private IDisposable? _live;
+
+    protected override void OnInitialized() =>
+        // Re-read the listing when an import or photo download for its shop finishes.
+        _live = JobEvents.Subscribe(
+            c => c.IsFinal && c.ShopId == _listing?.ShopId
+                 && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type or ImportShopLookupsJob.Type,
+            _ => InvokeAsync(async () => { await LoadAsync(showSpinner: false); StateHasChanged(); }));
+
+    public void Dispose() => _live?.Dispose();
+
+    protected override Task OnParametersSetAsync() => LoadAsync(showSpinner: true);
+
+    private async Task LoadAsync(bool showSpinner)
     {
-        _loading = true;
+        _loading = showSpinner;
         _listing = await Queries.GetDetailAsync(Id);
         if (_listing is not null)
         {

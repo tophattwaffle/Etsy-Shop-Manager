@@ -4,6 +4,8 @@
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
+@inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
+@implements IDisposable
 
 <MudPaper Class="pa-4 mb-4" Elevation="1">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
@@ -105,7 +107,18 @@
     private List<ShopSummary>? _shops;
     private bool _busy;
 
-    protected override Task OnInitializedAsync() => ReloadAsync();
+    private IDisposable? _live;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        // Token refreshes and shop-detail refreshes change what this table shows.
+        _live = JobEvents.Subscribe(
+            c => c.IsFinal && c.JobType is TokenKeepAliveJob.Type or ShopRefreshJob.Type or RefreshAllShopsJob.Type,
+            _ => InvokeAsync(ReloadAsync));
+    }
+
+    public void Dispose() => _live?.Dispose();
 
     public async Task ReloadAsync()
     {

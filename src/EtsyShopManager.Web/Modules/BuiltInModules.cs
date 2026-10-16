@@ -80,6 +80,7 @@ public sealed class JobsCleanupJob(IDbContextFactory<AppDbContext> dbFactory, IO
 {
     public const string Type = "jobs.cleanup";
     public string JobType => Type;
+    public string DisplayName => "Clean up old jobs";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {

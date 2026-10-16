@@ -72,19 +72,29 @@ public sealed class PollShopOrdersJob(OrderPoller poller) : IJobHandler
 {
     public const string Type = "etsy.orders.poll";
     public string JobType => Type;
+    public string DisplayName => "Check for orders";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
         var shopId = context.ShopId ?? throw new JobPermanentFailureException("ShopId is required.");
         try
         {
-            await poller.PollShopAsync(shopId, ct);
+            var result = await poller.PollShopAsync(shopId, ct);
+            context.Result = Summary(result);
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not RetryLaterException)
         {
             await poller.RecordErrorAsync(shopId, ex.Message, CancellationToken.None);
             throw;
         }
+    }
+    /// <summary>"2 new, 3 updated", "no changes", or the size of the first (history) pull.</summary>
+    internal static string Summary(OrderPollResult r)
+    {
+        if (r.WasBackfill) return $"{r.Received} order(s) in history";
+        var updated = r.Received - r.New;
+        return r.Received == 0 ? "no new or changed orders"
+            : string.Join(", ", new[] { r.New > 0 ? $"{r.New} new" : null, updated > 0 ? $"{updated} updated" : null }.OfType<string>());
     }
 }
 
@@ -93,6 +103,7 @@ public sealed class PollAllOrdersJob(IDbContextFactory<AppDbContext> dbFactory, 
 {
     public const string Type = "etsy.orders.poll-all";
     public string JobType => Type;
+    public string DisplayName => "Poll orders (all shops)";
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
@@ -101,6 +112,7 @@ public sealed class PollAllOrdersJob(IDbContextFactory<AppDbContext> dbFactory, 
             .Select(s => s.Id).ToListAsync(ct);
         foreach (var shopId in shopIds)
             await queue.PollShopAsync(shopId, "scheduler", $"job:{context.JobId}", ct);
+        context.Result = $"{shopIds.Count} shop(s) queued";
     }
 }
 

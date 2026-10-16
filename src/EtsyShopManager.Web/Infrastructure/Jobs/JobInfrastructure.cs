@@ -45,7 +45,12 @@ public sealed class JobSignal : IJobSignal
 }
 
 /// <summary>Persistent job queue in SQLite.</summary>
-public sealed class EfJobQueue(IDbContextFactory<AppDbContext> dbFactory, IJobSignal signal, TimeProvider time) : IJobQueue
+public sealed class EfJobQueue(
+    IDbContextFactory<AppDbContext> dbFactory,
+    IJobSignal signal,
+    TimeProvider time,
+    IJobEvents events,
+    JobCatalog catalog) : IJobQueue
 {
     // Serialises the dedupe check + insert within this process (the only writer).
     private readonly SemaphoreSlim _enqueueGate = new(1, 1);
@@ -82,6 +87,7 @@ public sealed class EfJobQueue(IDbContextFactory<AppDbContext> dbFactory, IJobSi
             db.Jobs.Add(job);
             await db.SaveChangesAsync(ct);
             signal.Notify();
+            events.Publish(catalog.Change(job, JobStatus.Pending));
             return job.Id;
         }
         finally
@@ -100,8 +106,13 @@ public sealed class EfJobQueue(IDbContextFactory<AppDbContext> dbFactory, IJobSi
                 .SetProperty(j => j.Status, JobStatus.Pending)
                 .SetProperty(j => j.Attempts, 0)
                 .SetProperty(j => j.RunAfterUtc, now)
-                .SetProperty(j => j.CompletedAtUtc, (DateTime?)null), ct);
-        if (updated > 0) signal.Notify();
+                .SetProperty(j => j.CompletedAtUtc, (DateTime?)null)
+                .SetProperty(j => j.Result, (string?)null), ct);
+        if (updated > 0)
+        {
+            signal.Notify();
+            await PublishAsync(db, jobId, JobStatus.Pending, ct);
+        }
         return updated > 0;
     }
 
@@ -114,7 +125,14 @@ public sealed class EfJobQueue(IDbContextFactory<AppDbContext> dbFactory, IJobSi
             .ExecuteUpdateAsync(s => s
                 .SetProperty(j => j.Status, JobStatus.Cancelled)
                 .SetProperty(j => j.CompletedAtUtc, now), ct);
+        if (updated > 0) await PublishAsync(db, jobId, JobStatus.Cancelled, ct);
         return updated > 0;
+    }
+
+    private async Task PublishAsync(AppDbContext db, long jobId, JobStatus status, CancellationToken ct)
+    {
+        var job = await db.Jobs.AsNoTracking().FirstOrDefaultAsync(j => j.Id == jobId, ct);
+        if (job is not null) events.Publish(catalog.Change(job, status));
     }
 }
 
@@ -124,6 +142,8 @@ public static class JobServiceCollectionExtensions
     {
         services.Configure<JobOptions>(configuration.GetSection(JobOptions.SectionName));
         services.AddSingleton<IJobSignal, JobSignal>();
+        services.AddSingleton<IJobEvents, JobEvents>();
+        services.AddSingleton<JobCatalog>();
         services.AddSingleton<IJobQueue, EfJobQueue>();
         services.AddHostedService<JobProcessor>();
         services.AddHostedService<RecurringJobScheduler>();

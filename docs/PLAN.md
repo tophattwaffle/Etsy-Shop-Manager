@@ -182,6 +182,11 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - **Orders page:** open orders as cards sorted by ship-by (urgent ones tinted), a "to make" list (same aggregation as HA), and searchable history.
 - **HA integration** (`homeassistant/custom_components/etsy_shop_manager`, HA 2024.11+): config flow (URL, key, SSL verification), re-authentication when the key is revoked, options flow for the interval, one device + Open orders sensor per shop (new shops appear automatically), `etsy_shop_manager_new_order` event + device trigger (orders open at startup are not announced), large attributes excluded from the recorder, last data kept for up to 5 minutes while the service is unreachable (deploy restarts), interval changes applied without a reload. Tests run in a real HA (`pytest-homeassistant-custom-component`) against a mocked service. The existing card is in `homeassistant/www/`, unchanged.
 
+## Live job updates
+- The job queue and processor publish every change (queued, running, finished, rescheduled, retried, cancelled) on an in-process feed (`IJobEvents`). Pages subscribe, coalesce bursts (~0.4 s) and re-render; subscriptions are disposed with the page. Handlers set a short `Result` ("2 new, 3 updated", "46 listings"), stored on the job and shown on the Jobs page.
+- Notifications: when a job the signed-in user started finishes (e.g. "Check for orders now", "Import now", "Run now"), a snackbar shows its outcome or error on whatever page they're on.
+- Pages: Jobs (live; consecutive runs of one job type collapse into an expandable stack, failures always on their own row), Orders (reloads after order checks; countdowns and "synced … ago" tick every 30 s), Listings (import status and list), listing detail, Lookups, Shops, Dashboard (job counts, shop health, open orders; quota re-rendered every 10 s).
+
 ## Deployment
 - Source: private Gitea repo `github.com/TopHATTwaffle/etsy-shop-manager`, default branch `master`.
 - Claude pushes to branches and opens PRs; `master` is protected so only TopHATTwaffle merges.
