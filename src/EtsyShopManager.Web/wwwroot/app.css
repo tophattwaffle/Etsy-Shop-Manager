@@ -184,9 +184,13 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
    engine; its .colored/.random/.metal rules arrive as EtsyOrderColors.CSS. The card's theme variables map to tokens. */
 .esm-orders { --primary-text-color: var(--esm-ink); --divider-color: var(--esm-line); }
 .order-vars { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+td > .order-vars { margin-top: 0; min-width: 140px; }
 .esm-colorbox-note { display: block; margin-top: 6px; }
+td > .esm-colorbox-note { margin-top: 0; min-width: 160px; }
 .esm-orders .var {
-    display: inline-block; font-size: 0.75rem; line-height: 1.5; padding: 1px 8px; border-radius: 999px;
+    display: inline-block; font-size: 0.75rem; line-height: 1.5; padding: 1px 8px; max-width: 100%; overflow-wrap: anywhere;
+    /* Half of a one-line pill's height: a pill on one line, a rounded box (not a circle) when the text wraps. */
+    border-radius: 11px;
     border: 1px solid var(--esm-line); color: var(--esm-muted);
 }
 .esm-orders .note {

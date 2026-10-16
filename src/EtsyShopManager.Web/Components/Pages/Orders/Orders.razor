@@ -135,7 +135,18 @@
                         <tr>
                             <td class="text-right"><b>@((int)row["quantity"]!)</b></td>
                             <td>@ShortTitle((string?)row["title"])</td>
-                            <td>@if ((string?)row["variations_text"] is { Length: > 0 } vars) { <ColorBox Text="@vars" Seed="@($"make|{vars}")" /> }</td>
+                            <td>
+                                @* One pill per variation, as on the order cards (one long pill wrapped into a circle on phones). *@
+                                <div class="order-vars">
+                                    @foreach (var v in row["variations"]?.AsArray().Select(n => n!.AsObject()) ?? [])
+                                    {
+                                        if ((string?)v["value"] is { Length: > 0 } value)
+                                        {
+                                            <ColorBox Text="@value" Title="@((string?)v["property"])" Seed="@($"make|{(string?)row["listing_id"]}|{value}")" />
+                                        }
+                                    }
+                                </div>
+                            </td>
                             <td>@if ((string?)row["personalization"] is { Length: > 0 } note) { <ColorBox Text="@note" Kind="@ColorBox.Note" Seed="@($"make|{note}")" /> }</td>
                             <td>@(row["ship_by_ts"] is { } ts ? ListingFormat.Local(DateTime.UnixEpoch.AddSeconds((long)ts), "ddd MMM d") : "—")</td>
                         </tr>
