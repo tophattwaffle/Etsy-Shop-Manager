@@ -1,4 +1,4 @@
-// etsy-orders-card v2.6.0 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.6.1 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
@@ -551,7 +551,8 @@ class EtsyOrdersCard extends HTMLElement {
         a.order:hover { background: rgba(127, 127, 127, 0.18); }
         .order.urgent { background: rgba(219, 68, 55, 0.16); box-shadow: inset 0 0 0 1px rgba(219, 68, 55, 0.5); }
         a.order.urgent:hover { background: rgba(219, 68, 55, 0.26); }
-        .order.accent, .order.urgent.accent { box-shadow: inset 0 0 0 2px var(--shop); }
+        /* The shop's color as a tab on the left and a thin outline, like personalization notes and the app's listing cards. */
+        .order.accent, .order.urgent.accent { box-shadow: inset 4px 0 0 var(--shop), inset 0 0 0 1px var(--shop); }
         .order-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
         .due { flex: none; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 10px; color: var(--primary-text-color);
                background: rgba(127, 127, 127, 0.18); border: 1px solid transparent; }
