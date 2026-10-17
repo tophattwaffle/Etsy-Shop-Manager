@@ -21,8 +21,9 @@
         </AuthorizeView>
     </MudStack>
     <MudText Typo="Typo.body2" Class="muted mb-3">
-        Keeps each variation from selling out: when its stock drops below the threshold, it's set back to the refill
-        amount. Checked after every new order and once an hour, and only while the listing is active.
+        Keeps this listing from selling out: when its stock drops below the threshold, it's set back to the refill
+        amount (if the listing keeps separate stock per variation, each one is checked on its own). Checked after
+        every new order and once an hour, and only while the listing is active.
     </MudText>
 
     <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">

@@ -460,10 +460,14 @@ public class StockRefillTests
         var (shop, id) = await SetupAsync(smallQty: 3, largeQty: 3, quantityVaries: false);
         using var _ = shop;
 
-        await Refiller(shop).RefillListingAsync(id, CancellationToken.None);
+        var outcome = await Refiller(shop).RefillListingAsync(id, CancellationToken.None);
 
+        // Etsy's inventory format repeats the shared number on every variation; the app treats it as one stock.
         var body = JsonNode.Parse(Assert.Single(shop.Writes).Body)!;
         Assert.All(body["products"]!.AsArray(), p => Assert.Equal(999, (int)p!["offerings"]![0]!["quantity"]!));
+        Assert.Equal(["stock: 3 → 999"], outcome.Changes);
+        await using var db = shop.Db.CreateDbContext();
+        Assert.Equal("stock: 3 → 999", (await db.ListingRefills.SingleAsync()).LastResult);
     }
 
     [Fact]
