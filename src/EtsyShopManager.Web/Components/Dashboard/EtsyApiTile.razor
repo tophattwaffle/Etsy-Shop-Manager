@@ -1,0 +1,19 @@
+@using EtsyShopManager.Etsy.Http
+@implements IDisposable
+@inject EtsyQuotaTracker Quota
+@inject EtsyRateLimiter RateLimiter
+
+<MudText>Remaining today: <b>@(Quota.RemainingToday?.ToString("N0") ?? "—")</b> / @(Quota.LimitPerDay?.ToString("N0") ?? "—")</MudText>
+<MudText>Requests since start: <b>@Quota.TotalRequests.ToString("N0")</b></MudText>
+<MudText>Rate-limited (429): <b>@Quota.Total429s</b></MudText>
+<MudText>Queued for rate limiter: <b>@RateLimiter.QueuedRequests</b></MudText>
+
+@code {
+    private Timer? _timer;
+
+    // The quota figures change with every API call, not per job: re-render them every 10 s.
+    protected override void OnInitialized() =>
+        _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+
+    public void Dispose() => _timer?.Dispose();
+}

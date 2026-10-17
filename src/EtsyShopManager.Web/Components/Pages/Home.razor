@@ -1,118 +1,166 @@
 @page "/"
 @attribute [Authorize]
-@using EtsyShopManager.Core.Jobs
-@using EtsyShopManager.Etsy.Http
-@using EtsyShopManager.Web.Modules.Shops
-@using Microsoft.EntityFrameworkCore
-@implements IDisposable
-@inject ShopService Shops
-@inject IDbContextFactory<AppDbContext> DbFactory
-@inject EtsyQuotaTracker Quota
-@inject EtsyRateLimiter RateLimiter
-@inject TimeProvider Time
-@inject IJobEvents JobEvents
-@inject EtsyShopManager.Web.Modules.Orders.OrderQueries Orders
+@using System.Security.Claims
+@using EtsyShopManager.Web.Modules.Dashboard
+@inject DashboardLayoutService Layouts
+@inject ISnackbar Snackbar
 
 <PageTitle>Dashboard · Etsy Shop Manager</PageTitle>
 
-<PageHeader Title="Dashboard" />
-
-<MudGrid>
-    <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
-            <MudText Typo="Typo.h6" GutterBottom="true">Shops</MudText>
-            @if (_shops is null)
-            {
-                <MudProgressLinear Indeterminate="true" />
-            }
-            else if (_shops.Count == 0)
-            {
-                <MudText>No shops connected. <MudLink Href="shops">Connect a shop</MudLink></MudText>
-            }
-            else
-            {
-                @foreach (var s in _shops)
+@* A grid of modules each user arranges for themselves: in edit mode modules can be dragged (or moved with the arrow
+   buttons), resized down to their minimum size, removed and added. Layouts are saved per user. *@
+<PageHeader Title="Dashboard">
+    <Actions>
+        @if (_editing)
+        {
+            <MudMenu Label="Add module" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" Disabled="@(Available.Count == 0)"
+                     AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                @foreach (var kind in Available)
                 {
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="py-1">
-                        <MudText>
-                            <b>@s.Name</b>
-                            @if (_openOrders.TryGetValue(s.Id, out var open))
-                            {
-                                <MudLink Href="orders" Typo="Typo.body2" Class="ml-2">@open open order@(open == 1 ? "" : "s")</MudLink>
-                            }
-                        </MudText>
-                        @if (s.IsHealthy)
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Success">Connected</MudChip>
-                        }
-                        else if (s.IsActive)
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Error">Reconnect needed</MudChip>
-                        }
-                        else
-                        {
-                            <MudChip T="string" Size="Size.Small">Disconnected</MudChip>
-                        }
-                    </MudStack>
+                    <MudMenuItem OnClick="() => Add(kind)">@kind.Title</MudMenuItem>
                 }
-            }
-        </MudPaper>
-    </MudItem>
+            </MudMenu>
+            <MudButton Variant="Variant.Text" OnClick="ResetAsync">Reset to default</MudButton>
+            <MudButton Variant="Variant.Text" OnClick="CancelAsync">Cancel</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save layout</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.DashboardCustomize" OnClick="Edit">Edit layout</MudButton>
+        }
+    </Actions>
+</PageHeader>
 
-    <MudItem xs="12" md="3">
-        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
-            <MudText Typo="Typo.h6" GutterBottom="true">Background jobs</MudText>
-            <MudText>Pending: <b>@_pending</b></MudText>
-            <MudText>Running: <b>@_running</b></MudText>
-            <MudText Color="@(_failed24h > 0 ? Color.Error : Color.Default)">Failed (24 h): <b>@_failed24h</b></MudText>
-            <AuthorizeView Roles="@Roles.Admin">
-                <MudLink Href="jobs" Class="mt-2 d-block">Open job queue</MudLink>
-            </AuthorizeView>
-        </MudPaper>
-    </MudItem>
-
-    <MudItem xs="12" md="3">
-        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
-            <MudText Typo="Typo.h6" GutterBottom="true">Etsy API</MudText>
-            <MudText>Remaining today: <b>@(Quota.RemainingToday?.ToString("N0") ?? "—")</b> / @(Quota.LimitPerDay?.ToString("N0") ?? "—")</MudText>
-            <MudText>Requests since start: <b>@Quota.TotalRequests.ToString("N0")</b></MudText>
-            <MudText>Rate-limited (429): <b>@Quota.Total429s</b></MudText>
-            <MudText>Queued for rate limiter: <b>@RateLimiter.QueuedRequests</b></MudText>
-        </MudPaper>
-    </MudItem>
-</MudGrid>
+@if (_items is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_items.Count == 0)
+{
+    <div class="lp-empty">
+        <p>Your dashboard is empty.</p>
+        <button type="button" class="esm-button" @onclick="Edit">Add modules</button>
+    </div>
+}
+else
+{
+    <div class="esm-dash @(_editing ? "is-editing" : "")">
+        @for (var index = 0; index < _items.Count; index++)
+        {
+            var i = index;
+            var item = _items[i];
+            var kind = DashboardModules.Find(item.Module)!;
+            <section class="esm-dash-module @(_dragFrom == i ? "is-dragging" : "") @(_dragOver == i && _dragFrom != i ? "is-drop-target" : "")"
+                     style="@($"--w: {item.Width}; --h: {item.Height}")" aria-label="@kind.Title"
+                     draggable="@(_editing ? "true" : "false")"
+                     @ondragstart="() => _dragFrom = i" @ondragend="() => { _dragFrom = null; _dragOver = null; }"
+                     @ondragenter="() => _dragOver = i" @ondragover:preventDefault="_editing" @ondrop="() => Drop(i)">
+                <header class="esm-dash-head">
+                    @if (_editing)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.DragIndicator" Class="esm-dash-grip" aria-hidden="true" />
+                    }
+                    <h2 class="esm-dash-title">@kind.Title</h2>
+                    @if (_editing)
+                    {
+                        <div class="esm-dash-tools">
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" aria-label="@($"Move {kind.Title} earlier")"
+                                           title="Move earlier" Disabled="@(i == 0)" OnClick="() => Move(i, -1)" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" aria-label="@($"Move {kind.Title} later")"
+                                           title="Move later" Disabled="@(i == _items.Count - 1)" OnClick="() => Move(i, 1)" />
+                            <span class="esm-dash-size" title="Width">
+                                <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small" aria-label="@($"Make {kind.Title} narrower")"
+                                               Disabled="@(item.Width <= kind.MinWidth)" OnClick="() => Resize(i, -1, 0)" />
+                                <span class="small">W @item.Width</span>
+                                <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" aria-label="@($"Make {kind.Title} wider")"
+                                               Disabled="@(item.Width >= DashboardModules.Columns)" OnClick="() => Resize(i, 1, 0)" />
+                            </span>
+                            <span class="esm-dash-size" title="Height">
+                                <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small" aria-label="@($"Make {kind.Title} shorter")"
+                                               Disabled="@(item.Height <= kind.MinHeight)" OnClick="() => Resize(i, 0, -1)" />
+                                <span class="small">H @item.Height</span>
+                                <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" aria-label="@($"Make {kind.Title} taller")"
+                                               Disabled="@(item.Height >= DashboardModules.MaxHeight)" OnClick="() => Resize(i, 0, 1)" />
+                            </span>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" aria-label="@($"Remove {kind.Title}")"
+                                           title="Remove" OnClick="() => Remove(i)" />
+                        </div>
+                    }
+                </header>
+                <div class="esm-dash-body">
+                    <DynamicComponent Type="kind.Component" />
+                </div>
+            </section>
+        }
+    </div>
+}
 
 @code {
-    private List<ShopSummary>? _shops;
-    private int _pending, _running, _failed24h;
-    private Dictionary<int, int> _openOrders = [];
-    private Timer? _timer;
-    private IDisposable? _live;
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private string _userId = "";
+    private List<DashboardItem>? _items;
+    private bool _editing;
+    private int? _dragFrom;
+    private int? _dragOver;
+
+    private List<DashboardModuleKind> Available =>
+        DashboardModules.All.Where(k => _items?.Any(i => i.Module == k.Id) != true).ToList();
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadAsync();
-        // Job counts, shop health and open orders change when jobs run.
-        _live = JobEvents.Subscribe(_ => true, _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }),
-            TimeSpan.FromSeconds(1));
-        // The Etsy quota figures change with every API call, not per job: re-render them every 10 s.
-        _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        var user = (await AuthState).User;
+        _userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.Identity?.Name ?? "";
+        _items = await Layouts.GetAsync(_userId);
     }
 
-    private async Task LoadAsync()
+    private void Edit() => _editing = true;
+
+    private void Move(int index, int by)
     {
-        _shops = await Shops.ListAsync();
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var since = Time.GetUtcNow().UtcDateTime.AddHours(-24);
-        _pending = await db.Jobs.CountAsync(j => j.Status == JobStatus.Pending);
-        _running = await db.Jobs.CountAsync(j => j.Status == JobStatus.Running);
-        _failed24h = await db.Jobs.CountAsync(j => j.Status == JobStatus.Failed && j.CompletedAtUtc >= since);
-        _openOrders = (await Orders.GetShopStatusAsync()).ToDictionary(o => o.ShopId, o => o.OpenOrders);
+        var to = Math.Clamp(index + by, 0, _items!.Count - 1);
+        var item = _items[index];
+        _items.RemoveAt(index);
+        _items.Insert(to, item);
     }
 
-    public void Dispose()
+    // Dropping a module on another puts it in that module's place.
+    private void Drop(int target)
     {
-        _live?.Dispose();
-        _timer?.Dispose();
+        if (_dragFrom is { } from && from != target) Move(from, target - from);
+        _dragFrom = null;
+        _dragOver = null;
+    }
+
+    private void Resize(int index, int width, int height)
+    {
+        var item = _items![index];
+        _items[index] = DashboardModules.Normalize([item with { Width = item.Width + width, Height = item.Height + height }])[0];
+    }
+
+    private void Remove(int index) => _items!.RemoveAt(index);
+
+    private void Add(DashboardModuleKind kind) => _items!.Add(new DashboardItem(kind.Id, kind.Width, kind.Height));
+
+    private async Task SaveAsync()
+    {
+        await Layouts.SaveAsync(_userId, _items!);
+        _items = await Layouts.GetAsync(_userId);
+        _editing = false;
+        Snackbar.Add("Saved your dashboard layout", Severity.Success);
+    }
+
+    private async Task CancelAsync()
+    {
+        _items = await Layouts.GetAsync(_userId);
+        _editing = false;
+    }
+
+    private async Task ResetAsync()
+    {
+        await Layouts.ResetAsync(_userId);
+        _items = await Layouts.GetAsync(_userId);
+        _editing = false;
+        Snackbar.Add("Dashboard set back to the default layout", Severity.Info);
     }
 }
