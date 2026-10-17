@@ -11,6 +11,7 @@ namespace EtsyShopManager.Tests;
 public class TextBlockTests
 {
     private const string Care = "Care: PLA softens above 50 °C.\nKeep it out of hot cars.";
+    private const string Pasted = "A lovely vase.\n\n" + Care + "\n\nThanks for looking!";
 
     /// <summary>Listings 1–3 with the care text pasted into their descriptions (Etsy's \r\n newlines), listing 4 without it.</summary>
     private static async Task<(FakeEtsyShop Shop, Dictionary<long, int> Ids)> SetupAsync()
@@ -19,7 +20,7 @@ public class TextBlockTests
         foreach (var id in new long[] { 1, 2, 3 })
         {
             var listing = FakeEtsyShop.Listing(id, $"Vase {id}");
-            listing["description"] = $"A lovely vase.\r\n\r\n{Care.Replace("\n", "\r\n")}\r\n\r\nThanks for looking!";
+            listing["description"] = Pasted.Replace("\n", "\r\n");
             shop.Listings.Add(listing);
         }
         shop.Listings.Add(FakeEtsyShop.Listing(4, "Plain vase"));
@@ -34,93 +35,151 @@ public class TextBlockTests
     private static async Task<string> DescriptionAsync(FakeEtsyShop s, int id) =>
         (string)(await Editor(s).LoadAsync(id))!.Model.Local("description")!;
 
-    private static async Task RunPushAsync(FakeEtsyShop s, int pushId) =>
+    private static async Task<int> CareBlockAsync(FakeEtsyShop s)
+    {
+        var (id, error) = await Blocks(s).SaveAsync(null, "PLA care", null, Care, "tophattwaffle");
+        Assert.Null(error);
+        return id!.Value;
+    }
+
+    private static async Task PushAsync(FakeEtsyShop s, int listingId)
+    {
+        s.Provider.GetRequiredService<RecordingJobQueue>().Requests.Clear();
+        var (pushId, blockers) = await Editor(s).RequestPushAsync(listingId, "tophattwaffle");
+        Assert.True(pushId is not null, string.Join("; ", blockers));
         await s.Provider.GetRequiredService<PushListingJob>().HandleAsync(new JobExecutionContext
         {
-            JobId = pushId, JobType = PushListingJob.Type, Attempt = 1,
-            PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PushPayload(pushId), JobJson.Options),
+            JobId = pushId.Value, JobType = PushListingJob.Type, Attempt = 1,
+            PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PushPayload(pushId.Value), JobJson.Options),
         }, CancellationToken.None);
-
-    [Fact]
-    public async Task A_new_block_finds_the_listings_that_already_contain_it()
-    {
-        var (shop, ids) = await SetupAsync();
-        using var _ = shop;
-        var (blockId, error) = await Blocks(shop).SaveAsync(null, " PLA care ", Care.Replace("\n", "\r\n") + "  \r\n\r\n", "tophattwaffle");
-        Assert.Null(error);
-        Assert.Equal(Care, (await Blocks(shop).GetAsync(blockId!.Value))!.Text); // normalized: \n, trailing spaces and blank lines dropped
-
-        var candidates = await Blocks(shop).CandidatesAsync(blockId.Value);
-        Assert.Equal([ids[1], ids[2], ids[3]], candidates.Select(c => c.ListingId).Order());
-        Assert.Equal(3, await Blocks(shop).LinkAsync(blockId.Value, [ids[1], ids[2], ids[3], ids[4]], "tophattwaffle")); // 4 lacks the text
-        Assert.Empty(await Blocks(shop).CandidatesAsync(blockId.Value));
-        Assert.All(await Blocks(shop).UsesAsync(blockId.Value), u => Assert.Equal(TextBlockUseStatus.UpToDate, u.Status));
-
-        Assert.Equal("There's already a block called \"pla CARE\".", (await Blocks(shop).SaveAsync(null, "pla CARE", "x", "tophattwaffle")).Error);
-        Assert.Equal("The block needs some text.", (await Blocks(shop).SaveAsync(null, "Other", " \r\n ", "tophattwaffle")).Error);
-        Assert.Empty(shop.Writes);
     }
 
     [Fact]
-    public async Task Editing_a_block_updates_linked_drafts_skips_hand_edits_and_pushes_through_the_reviewed_push()
+    public void Placeholders_render_tokenize_and_make_slugs()
+    {
+        Assert.Equal("pla-care-short", TextBlockMarkup.MakeSlug(" PLA care (short)! "));
+        Assert.Equal("{{text.pla-care}}", TextBlockMarkup.Token("pla-care"));
+        var block = new TextBlock { Slug = "pla-care", Text = Care };
+        var (text, unknown) = TextBlockMarkup.Render("Hi\n{{ text.PLA-care }}\n{{text.gone}}", s => s == "pla-care" ? Care : null);
+        Assert.Equal("Hi\n" + Care + "\n{{text.gone}}", text);
+        Assert.Equal(["gone"], unknown);
+        Assert.Equal("A lovely vase.\n\n{{text.pla-care}}\n\nThanks for looking!", TextBlockMarkup.Tokenize(Pasted, [block]));
+        Assert.Equal(["pla-care"], TextBlockMarkup.Slugs("{{text.pla-care}} and {{text.pla-care}}"));
+    }
+
+    [Fact]
+    public async Task A_placeholder_in_a_description_is_filled_in_on_Etsy_and_kept_in_the_app()
     {
         var (shop, ids) = await SetupAsync();
         using var _ = shop;
-        var (blockId, _) = await Blocks(shop).SaveAsync(null, "PLA care", Care, "tophattwaffle");
-        await Blocks(shop).LinkAsync(blockId!.Value, [ids[1], ids[2], ids[3]], "tophattwaffle");
+        await CareBlockAsync(shop);
+        Assert.Equal("{{text.pla-care}}", TextBlockMarkup.Token((await Blocks(shop).AllAsync()).Single().Slug)); // slug made from the name
 
-        // Listing 2's copy is edited by hand; listing 3's description is changed on etsy.com.
-        await Editor(shop).SaveAsync(ids[2], new Dictionary<string, JsonNode?> { ["description"] = "Care: keep it cool." }, "tophattwaffle");
-        shop.ListingJson(3)["description"] = "Rewritten on Etsy";
-        shop.ListingJson(3)["last_modified_timestamp"] = 1_760_000_500;
+        const string source = "Plain vase, made to order.\n\n{{text.pla-care}}";
+        Assert.Empty(await Blocks(shop).SaveDescriptionAsync(ids[4], source, "tophattwaffle"));
+        Assert.Equal("Plain vase, made to order.\n\n" + Care, await DescriptionAsync(shop, ids[4])); // the draft has the text
+        Assert.Equal(source, await Blocks(shop).SourceAsync(ids[4]));
+        Assert.Empty(shop.Writes);
+
+        await PushAsync(shop, ids[4]);
+        var patch = Assert.Single(shop.Writes);
+        Assert.DoesNotContain("%7B%7B", patch.Body); // Etsy never sees a placeholder
+        Assert.Contains("Keep+it+out+of+hot+cars.", patch.Body);
+        Assert.Equal(source, await Blocks(shop).SourceAsync(ids[4])); // still a placeholder after Etsy's copy is read back
+        Assert.Equal(TextBlockUseStatus.UpToDate, Assert.Single(await Blocks(shop).UsesAsync(1)).Status);
+    }
+
+    [Fact]
+    public async Task Editing_a_block_updates_every_description_using_it_through_the_reviewed_push()
+    {
+        var (shop, ids) = await SetupAsync();
+        using var _ = shop;
+        var blockId = await CareBlockAsync(shop);
+        Assert.Equal([ids[1], ids[2], ids[3]], (await Blocks(shop).CandidatesAsync(blockId)).Select(c => c.ListingId).Order());
+        Assert.Equal(2, await Blocks(shop).LinkAsync(blockId, [ids[1], ids[2], ids[4]], "tophattwaffle")); // 4 doesn't have the text
+        Assert.Equal("A lovely vase.\n\n{{text.pla-care}}\n\nThanks for looking!", await Blocks(shop).SourceAsync(ids[1]));
+        Assert.False((await shop.Db.CreateDbContext().Listings.SingleAsync(l => l.Id == ids[1])).HasDraft); // the text on Etsy is unchanged
+
+        // Listing 2's description is changed on etsy.com.
+        shop.ListingJson(2)["description"] = "Rewritten on Etsy";
+        shop.ListingJson(2)["last_modified_timestamp"] = 1_760_000_500;
         await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
 
         const string newCare = "Care: PLA softens above 50 °C.\nKeep it out of hot cars and direct sun.";
-        await Blocks(shop).SaveAsync(blockId, "PLA care", newCare, "tophattwaffle");
-        var uses = (await Blocks(shop).UsesAsync(blockId.Value)).ToDictionary(u => u.ListingId);
+        await Blocks(shop).SaveAsync(blockId, "PLA care", "pla-care", newCare, "tophattwaffle");
+        var uses = (await Blocks(shop).UsesAsync(blockId)).ToDictionary(u => u.ListingId);
         Assert.Equal(TextBlockUseStatus.WillChange, uses[ids[1]].Status);
-        Assert.Equal(TextBlockUseStatus.EditedByHand, uses[ids[2]].Status);
-        Assert.Equal(TextBlockUseStatus.ChangedOnEtsy, uses[ids[3]].Status);
+        Assert.Equal(TextBlockUseStatus.ChangedOnEtsy, uses[ids[2]].Status);
         Assert.Equal("A lovely vase.\n\n" + newCare + "\n\nThanks for looking!", uses[ids[1]].After);
         Assert.Contains(LineDiff.Compare(uses[ids[1]].Before, uses[ids[1]].After), l => l.Kind == LineDiff.Kind.Added && l.Text.EndsWith("direct sun."));
 
-        Assert.Equal(1, await Blocks(shop).ApplyAsync(blockId.Value, "tophattwaffle"));
+        Assert.Equal(1, await Blocks(shop).ApplyAsync(blockId, "tophattwaffle"));
         Assert.Empty(shop.Writes); // applying only writes drafts
-        Assert.Equal("Care: keep it cool.", await DescriptionAsync(shop, ids[2])); // the hand edit is left alone
-        Assert.Equal(TextBlockUseStatus.UpToDate, (await Blocks(shop).UsesAsync(blockId.Value)).Single(u => u.ListingId == ids[1]).Status);
-
-        // The review is the editor's own: listing 2 (hand edit, pending) can go, listing 3 is blocked by the change on Etsy.
-        var review = (await Blocks(shop).ReviewAsync(blockId.Value)).ToDictionary(r => r.ListingId);
+        var review = (await Blocks(shop).ReviewAsync(blockId)).ToDictionary(r => r.ListingId);
         Assert.True(review[ids[1]].Preview.CanPush);
-        Assert.Equal(["description"], review[ids[1]].Preview.Changes.Select(c => c.Key));
-        Assert.False(review.ContainsKey(ids[3]) && review[ids[3]].Preview.CanPush);
+        Assert.False(review[ids[2]].Preview.CanPush); // changed on Etsy: blocked until resolved
+        await PushAsync(shop, ids[1]);
+        Assert.Contains("direct+sun.", Assert.Single(shop.Writes).Body);
+        Assert.Equal(TextBlockUseStatus.UpToDate, (await Blocks(shop).UsesAsync(blockId)).Single(u => u.ListingId == ids[1]).Status);
 
-        var results = await Blocks(shop).PushAsync(blockId.Value, "tophattwaffle");
-        var pushId = results.Single(r => r.ListingId == ids[1]).PushId!.Value;
-        await RunPushAsync(shop, pushId);
-        var patch = shop.Writes.Single(w => w.Path == "/v3/application/shops/42/listings/1");
-        Assert.Contains(Uri.EscapeDataString("direct sun."), patch.Body.Replace("+", "%20"));
-
-        var after = (await Blocks(shop).UsesAsync(blockId.Value)).Single(u => u.ListingId == ids[1]);
-        Assert.Equal((TextBlockUseStatus.UpToDate, false), (after.Status, after.DescriptionPending)); // Etsy's copy reads back as the block
+        // Taking Etsy's version for listing 2: the block's text is gone there, so it simply stops using the block.
+        await Editor(shop).ResolveDriftAsync(ids[2], "description", DriftResolution.TakeEtsy, "tophattwaffle");
+        Assert.Equal("Rewritten on Etsy", await Blocks(shop).SourceAsync(ids[2]));
+        Assert.DoesNotContain(await Blocks(shop).UsesAsync(blockId), u => u.ListingId == ids[2]);
     }
 
     [Fact]
-    public async Task Inserting_a_block_appends_it_once_and_links_it_and_deleting_keeps_the_text()
+    public async Task Slug_renames_unknown_placeholders_stop_using_and_delete()
     {
         var (shop, ids) = await SetupAsync();
         using var _ = shop;
-        var (blockId, _) = await Blocks(shop).SaveAsync(null, "PLA care", Care, "tophattwaffle");
+        var blockId = await CareBlockAsync(shop);
+        await Blocks(shop).LinkAsync(blockId, [ids[1], ids[2]], "tophattwaffle");
 
-        await Blocks(shop).InsertAsync(ids[4], blockId!.Value, "tophattwaffle");
-        await Blocks(shop).InsertAsync(ids[4], blockId.Value, "tophattwaffle"); // already there: not added twice
-        Assert.Equal("Description of Plain vase\nSecond line\n\n" + Care, await DescriptionAsync(shop, ids[4]));
-        Assert.Equal(TextBlockUseStatus.UpToDate, Assert.Single(await Blocks(shop).ForListingAsync(ids[4])).Status);
+        Assert.Null((await Blocks(shop).SaveAsync(blockId, "PLA care", "care", Care, "tophattwaffle")).Error);
+        Assert.Equal("A lovely vase.\n\n{{text.care}}\n\nThanks for looking!", await Blocks(shop).SourceAsync(ids[1]));
+        Assert.Equal("The placeholder name can only have lowercase letters, numbers and single hyphens (up to 60), like \"pla-care\".",
+            (await Blocks(shop).SaveAsync(blockId, "PLA care", "Care Info", Care, "tophattwaffle")).Error);
 
-        await Blocks(shop).DeleteAsync(blockId.Value, "tophattwaffle");
-        Assert.Empty(await Blocks(shop).ForListingAsync(ids[4]));
-        Assert.EndsWith(Care, await DescriptionAsync(shop, ids[4]));
+        // A placeholder with no block stays as written and blocks the push.
+        Assert.Equal(["missing"], await Blocks(shop).SaveDescriptionAsync(ids[4], "Hello {{text.missing}}", "tophattwaffle"));
+        Assert.Contains((await Editor(shop).PreviewAsync(ids[4])).Blockers, b => b.StartsWith("The description has {{text.missing}}, which isn't a text block."));
+
+        await Blocks(shop).DetachAsync(blockId, ids[2], "tophattwaffle");
+        Assert.Equal(Pasted, await Blocks(shop).SourceAsync(ids[2])); // the text, now the listing's own
+        await Blocks(shop).DeleteAsync(blockId, "tophattwaffle");
+        Assert.Equal(Pasted, await Blocks(shop).SourceAsync(ids[1])); // listings keep the block's text
+        Assert.Equal(Pasted, await DescriptionAsync(shop, ids[1]));
         Assert.Empty(shop.Writes);
+    }
+
+    [Fact]
+    public async Task Links_from_the_first_version_become_placeholders()
+    {
+        var (shop, ids) = await SetupAsync();
+        using var _ = shop;
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            // As the migration leaves them: a block with the "~id" slug and links that recorded the text they put in.
+            var block = new TextBlock { Name = "PLA care", Slug = "~1", Text = Care };
+            db.TextBlocks.Add(block);
+            await db.SaveChangesAsync();
+            db.ListingTextBlocks.AddRange(
+                new ListingTextBlock { ListingId = ids[1], TextBlockId = block.Id, AppliedText = Care },
+                new ListingTextBlock { ListingId = ids[2], TextBlockId = block.Id, AppliedText = "Old care text, edited by hand since" });
+            await db.SaveChangesAsync();
+        }
+
+        await Blocks(shop).ConvertLinksAsync();
+
+        Assert.Equal("pla-care", (await Blocks(shop).AllAsync()).Single().Slug);
+        Assert.Equal("A lovely vase.\n\n{{text.pla-care}}\n\nThanks for looking!", await Blocks(shop).SourceAsync(ids[1]));
+        // Listing 2's link recorded other text, but its description has the block's current text: it uses the block too.
+        Assert.Equal([ids[1], ids[2]], (await Blocks(shop).UsesAsync(1)).Select(u => u.ListingId).Order());
+        Assert.All(await Blocks(shop).UsesAsync(1), u => Assert.Equal(TextBlockUseStatus.UpToDate, u.Status));
+        await using var check = shop.Db.CreateDbContext();
+        Assert.Empty(check.ListingTextBlocks);
+        Assert.False(await check.Listings.AnyAsync(l => l.HasDraft));
     }
 
     [Fact]

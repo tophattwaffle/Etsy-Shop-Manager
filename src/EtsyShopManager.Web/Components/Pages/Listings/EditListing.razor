@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject ListingImportQueue ImportQueue
 @inject EtsyShopManager.Web.Modules.Templates.TextBlockService TextBlocks
+@inject IJSRuntime Js
 
 <PageTitle>Edit @(_snapshot?.Listing.Title ?? "listing") · Etsy Shop Manager</PageTitle>
 
@@ -134,8 +135,11 @@ else
                 <MudTextField T="string" Value="@Str("title")" ValueChanged="@(v => SetStr("title", v))" Label="Title"
                               Counter="ListingEditor.MaxTitleLength" MaxLength="ListingEditor.MaxTitleLength" Immediate="true"
                               Variant="Variant.Outlined" Class="mb-3" HelperText="@Pending("title")" />
-                <MudTextField T="string" Value="@Str("description")" ValueChanged="@(v => SetStr("description", v))" Label="Description"
-                              Lines="12" Variant="Variant.Outlined" Immediate="true" HelperText="@Pending("description")" />
+                <div id="esm-description">
+                    <MudTextField T="string" Value="@_description" ValueChanged="SetDescription" Label="Description"
+                                  Lines="12" Variant="Variant.Outlined" Immediate="true" HelperText="@DescriptionHelp"
+                                  Error="@(DescriptionUnknown.Count > 0)" />
+                </div>
                 @if (_allBlocks.Count > 0)
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-3" Wrap="Wrap.Wrap">
@@ -158,6 +162,14 @@ else
                             }
                         }
                     </MudText>
+                }
+                @if (EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Slugs(_description).Count > 0)
+                {
+                    <MudExpansionPanels Elevation="0" Outlined="true" Class="mt-3">
+                        <MudExpansionPanel Text="Shown on Etsy as">
+                            <pre class="json-block">@Str("description")</pre>
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
                 }
             </MudPaper>
 
@@ -393,6 +405,8 @@ else
     private IReadOnlyList<TextBlock> _allBlocks = [];
     private IReadOnlyList<(TextBlock Block, EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus Status)> _listingBlocks = [];
     private int? _blockToInsert;
+    /// <summary>The description as written here, with text block placeholders; the form's "description" is its rendered text.</summary>
+    private string _description = "", _savedDescription = "";
     private IReadOnlyList<AttributeProperty>? _attributeProperties;
     private bool _unsaved, _pushing, _notFound;
     private IDisposable? _live;
@@ -435,6 +449,7 @@ else
         _listingBlocks = await TextBlocks.ForListingAsync(Id);
         if (keepForm && _form is not null) return;
         _form = model.LocalState();
+        _description = _savedDescription = await TextBlocks.SourceAsync(Id);
         _category = Long("taxonomy_id") is { } t ? new CategoryOption(t, _lookups.Categories.GetValueOrDefault(t, $"#{t}")) : null;
         _attributeProperties = await AttributeEditor.LoadAsync(db, Long("taxonomy_id"));
         _unsaved = false;
@@ -442,20 +457,42 @@ else
 
     private static string BlockStatus(EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus s) => s switch
     {
-        EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.WillChange => "has the block's old text",
-        EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.EditedByHand => "edited by hand, no longer updated",
+        EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.WillChange => "the block changed; apply it from the block's page",
         _ => "changed on Etsy",
     };
 
-    /// <summary>Adds the block to the end of the description (saving the page's edits first) and links it.</summary>
+    private (string Text, IReadOnlyList<string> Unknown) RenderDescription(string source) =>
+        EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Render(source, s => _allBlocks.FirstOrDefault(b => b.Slug == s)?.Text);
+
+    private IReadOnlyList<string> DescriptionUnknown => RenderDescription(_description).Unknown;
+
+    private string? DescriptionHelp => DescriptionUnknown.Count > 0
+        ? $"No text block called {string.Join(", ", DescriptionUnknown.Select(EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Token))}. Fix the placeholder or create the block."
+        : EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Slugs(_description).Count > 0
+            ? $"Text blocks show as placeholders here and are filled in on Etsy; their text is changed on the block's page. {Pending("description")}"
+            : Pending("description");
+
+    /// <summary>The description as written (placeholders kept); the form gets the text Etsy will show.</summary>
+    private void SetDescription(string? source)
+    {
+        _description = (source ?? "").Replace("\r\n", "\n");
+        SetStr("description", RenderDescription(_description).Text);
+    }
+
+    /// <summary>Puts the block's placeholder where the cursor is (or replaces the selection) in the description.</summary>
     private async Task InsertBlockAsync()
     {
-        if (_blockToInsert is not { } blockId) return;
-        if (_unsaved) await SaveAsync();
-        await TextBlocks.InsertAsync(Id, blockId, await User());
+        if (_blockToInsert is not { } blockId || _allBlocks.FirstOrDefault(b => b.Id == blockId) is not { } block) return;
+        var token = EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Token(block.Slug);
+        var value = await Js.InvokeAsync<string?>("esm.insertAtSelection", "esm-description", token);
+        SetDescription(value ?? (_description.Length == 0 ? token : $"{_description.TrimEnd()}\n\n{token}"));
         _blockToInsert = null;
-        await LoadAsync();
-        Snackbar.Add("Text block added to the end of the description (not pushed yet). Move it within the text if you like; the link follows the text.", Severity.Success);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Every render: the description field appears once the listing has loaded.
+        if (_form is not null) await Js.InvokeVoidAsync("esm.trackSelection", "esm-description");
     }
 
     private string AttributeName(long id) =>
@@ -556,9 +593,12 @@ else
     private async Task SaveAsync()
     {
         var model = _snapshot!.Model;
-        var changes = ListingFields.All.Where(f => f.Editable && !JsonNode.DeepEquals(_form![f.Key], model.Local(f.Key)))
+        // The description goes through the text blocks (it keeps its placeholders); everything else straight to the draft.
+        var changes = ListingFields.All.Where(f => f.Editable && f.Key != "description" && !JsonNode.DeepEquals(_form![f.Key], model.Local(f.Key)))
             .ToDictionary(f => f.Key, f => _form![f.Key]?.DeepClone());
         if (changes.Count > 0) await Editor.SaveAsync(Id, changes, await User());
+        if (_description != _savedDescription || !JsonNode.DeepEquals(_form!["description"], model.Local("description")))
+            await TextBlocks.SaveDescriptionAsync(Id, _description, await User());
         await LoadAsync();
         Snackbar.Add("Draft saved. Nothing has been sent to Etsy.", Severity.Success);
     }

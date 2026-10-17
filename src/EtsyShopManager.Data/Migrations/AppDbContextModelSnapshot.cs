@@ -429,6 +429,27 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ListingClones");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingDescription", b =>
+                {
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Rendered")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ListingId");
+
+                    b.ToTable("ListingDescriptions");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingEtsyState", b =>
                 {
                     b.Property<int>("ListingId")
@@ -1490,6 +1511,10 @@ namespace EtsyShopManager.Data.Migrations
                         .HasColumnType("TEXT")
                         .UseCollation("NOCASE");
 
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -1503,6 +1528,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("Slug")
                         .IsUnique();
 
                     b.ToTable("TextBlocks");
@@ -1860,6 +1888,17 @@ namespace EtsyShopManager.Data.Migrations
                     b.Navigation("SourceListing");
 
                     b.Navigation("TargetShop");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingDescription", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithOne()
+                        .HasForeignKey("EtsyShopManager.Core.Domain.ListingDescription", "ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingEtsyState", b =>

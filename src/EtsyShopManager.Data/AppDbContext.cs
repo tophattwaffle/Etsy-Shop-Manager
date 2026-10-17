@@ -29,6 +29,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ListingClone> ListingClones => Set<ListingClone>();
     public DbSet<TextBlock> TextBlocks => Set<TextBlock>();
     public DbSet<ListingTextBlock> ListingTextBlocks => Set<ListingTextBlock>();
+    public DbSet<ListingDescription> ListingDescriptions => Set<ListingDescription>();
     public DbSet<VariationList> VariationLists => Set<VariationList>();
     public DbSet<ListingVariationList> ListingVariationLists => Set<ListingVariationList>();
     public DbSet<PhotoTemplate> PhotoTemplates => Set<PhotoTemplate>();
@@ -196,6 +197,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         {
             e.HasIndex(x => x.Name).IsUnique();
             e.Property(x => x.Name).UseCollation("NOCASE");
+            e.HasIndex(x => x.Slug).IsUnique();
+        });
+
+        b.Entity<ListingDescription>(e =>
+        {
+            e.HasKey(x => x.ListingId);
+            e.HasOne(x => x.Listing).WithOne().HasForeignKey<ListingDescription>(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<PhotoTemplate>(e =>
