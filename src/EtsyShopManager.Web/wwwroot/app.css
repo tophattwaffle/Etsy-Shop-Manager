@@ -186,6 +186,12 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 }
 .listing-description { white-space: pre-wrap; line-height: 1.5; max-width: 80ch; }
 .json-block { white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; max-height: 600px; overflow: auto; margin: 0; }
+/* Lookups → Taxonomy: the selected category's listings */
+.esm-tax-listings { display: flex; flex-direction: column; max-height: 420px; overflow: auto; border: 1px solid var(--esm-line); border-radius: var(--esm-radius); }
+.esm-tax-listing { display: flex; align-items: center; gap: 12px; padding: 8px 12px; color: inherit; text-decoration: none; border-top: 1px solid var(--esm-line); }
+.esm-tax-listing:first-child { border-top: 0; }
+.esm-tax-listing:hover { background: var(--esm-hover); }
+.esm-tax-listing .esm-grow { display: flex; flex-direction: column; }
 .taxonomy-list { max-height: 520px; overflow: auto; }
 
 /* ---- Orders ---- */

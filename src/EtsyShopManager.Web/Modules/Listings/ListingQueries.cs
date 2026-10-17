@@ -17,6 +17,9 @@ public sealed record ListingFilter
     public int? ShopId { get; init; }
     public string? Text { get; init; }
 
+    /// <summary>Only listings in this Etsy category (taxonomy id).</summary>
+    public long? TaxonomyId { get; init; }
+
     /// <summary>Etsy states to include; empty means all.</summary>
     public IReadOnlyCollection<string> States { get; init; } = [];
 
@@ -164,6 +167,7 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
     internal static IQueryable<Listing> Filter(IQueryable<Listing> q, ListingFilter f)
     {
         if (f.ShopId is { } shopId) q = q.Where(l => l.ShopId == shopId);
+        if (f.TaxonomyId is { } taxonomyId) q = q.Where(l => l.TaxonomyId == taxonomyId);
         if (f.States.Count > 0)
         {
             var states = f.States.ToList();
