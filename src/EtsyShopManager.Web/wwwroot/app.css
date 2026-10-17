@@ -183,8 +183,14 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 
 /* ---- Orders ---- */
 .order-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 16px; }
-.order-card { border: 1px solid var(--esm-line); border-radius: var(--esm-radius); padding: 14px 16px; background: var(--esm-paper); }
-.order-card.urgent { border-color: var(--esm-error); box-shadow: inset 4px 0 0 var(--esm-error); }
+.order-card {
+    border: 1px solid var(--shop, var(--esm-line)); border-radius: var(--esm-radius); padding: 14px 16px;
+    background: var(--esm-paper); box-shadow: inset 4px 0 0 var(--shop, transparent);
+}
+.order-card.urgent {
+    border-color: var(--esm-error); background: color-mix(in srgb, var(--esm-error) 12%, var(--esm-paper));
+    box-shadow: inset 4px 0 0 var(--shop, var(--esm-error));
+}
 .order-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .order-buyer { font-weight: 600; }
 .order-item { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--esm-line); }

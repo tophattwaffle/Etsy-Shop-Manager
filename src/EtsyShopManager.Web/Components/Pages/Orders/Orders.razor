@@ -11,6 +11,7 @@
 @inject ISnackbar Snackbar
 @inject IJobEvents JobEvents
 @inject OrderColorService Colors
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
 @inject IJSRuntime Js
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
@@ -62,7 +63,7 @@
             @foreach (var o in _open)
             {
                 var due = Due(o.ShipByUtc);
-                <div class="order-card @(due.Urgent ? "urgent" : "")">
+                <div class="order-card @(due.Urgent ? "urgent" : "")" style="@ShopStyle(o.ShopId)">
                     <div class="order-head">
                         <div>
                             <div class="order-buyer">@(o.BuyerName ?? $"#{o.EtsyReceiptId}")</div>
@@ -202,7 +203,12 @@
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
+    // Used when a shop has no profile image, or its colour can't be read (--esm-shop-fallback-N in app.css).
+    private const int FallbackAccentCount = 4;
+
     private List<OrderShopStatus> _status = [];
+    private Dictionary<int, string> _accents = [];
+    private bool _accentsRequested;
     private int? _shopId;
     private List<Order> _open = [];
     private List<JsonObject> _toMake = [];
@@ -242,15 +248,43 @@
     private async Task LoadAsync()
     {
         _status = await Queries.GetShopStatusAsync();
+        _accents = await ShopAccents.GetEffectiveAsync(_status.Select(s => s.ShopId));
         _open = await Queries.GetOpenOrdersAsync(_shopId);
         var payload = HaPayloadBuilder.OpenOrders(_open, TimeZoneInfo.Local);
         _toMake = payload["items_needed"]!.AsArray().Select(n => n!.AsObject()).ToList();
         _toMakeTotal = (int)payload["total_items_needed"]!;
     }
 
-    // Color the variation pills and personalization notes rendered by <ColorBox> (new or changed ones only).
-    protected override async Task OnAfterRenderAsync(bool firstRender) =>
+    // Color the variation pills and personalization notes rendered by <ColorBox> (new or changed ones only),
+    // and read any shop accent not yet cached from the shop's profile image.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
         await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
+        if (_status.Count > 0 && !_accentsRequested)
+        {
+            _accentsRequested = true;
+            var changed = false;
+            foreach (var s in _status.Where(s => !_accents.ContainsKey(s.ShopId)))
+            {
+                if (await Js.InvokeAsync<string?>("esm.dominantColor", ShopIconCache.UrlFor(s.ShopId)) is { } color)
+                {
+                    _accents[s.ShopId] = color;
+                    await ShopAccents.SaveAutomaticAsync(s.ShopId, color);
+                    changed = true;
+                }
+            }
+            if (changed) StateHasChanged();
+        }
+    }
+
+    private string Accent(int shopId)
+    {
+        if (_accents.TryGetValue(shopId, out var color)) return color;
+        var index = _status.FindIndex(s => s.ShopId == shopId);
+        return $"var(--esm-shop-fallback-{Math.Max(0, index) % FallbackAccentCount})";
+    }
+
+    private string ShopStyle(int shopId) => $"--shop: {Accent(shopId)}";
 
     private async Task OnShopChanged(int? id)
     {

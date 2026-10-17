@@ -82,6 +82,16 @@ public partial class DesignRulesTests
         Assert.Contains("esm.initReconnect();", File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.js")));
     }
 
+    [Fact]
+    public void Order_cards_carry_their_shops_accent_color()
+    {
+        var orders = File.ReadAllText(Path.Combine(Components, "Pages", "Orders", "Orders.razor"));
+        Assert.Contains("<div class=\"order-card @(due.Urgent ? \"urgent\" : \"\")\" style=\"@ShopStyle(o.ShopId)\">", orders);
+        var css = File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.css"));
+        Assert.Contains("border: 1px solid var(--shop, var(--esm-line));", css);
+        Assert.Contains("box-shadow: inset 4px 0 0 var(--shop, transparent);", css);
+    }
+
     /// <summary>
     /// Data tables sort by clicking a column header: every labelled header cell is a <c>&lt;SortHeader&gt;</c> (or a
     /// <c>MudTableSortLabel</c> in a MudTable). Header cells without a label (checkboxes, photos, actions) are fine, and an
