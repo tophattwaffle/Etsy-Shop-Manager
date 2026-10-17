@@ -10,8 +10,8 @@ code is C# wherever possible and the UI is web-based. Full design and phase plan
 
 **This app is the system of record for listings.** Edits happen here; changes made on Etsy.com are detected and flagged
 (drift), never silently overwritten. Phases 0–2 (foundation, import, orders + Home Assistant) are done; Phase 3's
-editor for listing fields, prices, processing and photos (preview → push with snapshots, drift, auto-refill) is in;
-variation structure editing comes next.
+first slice (editor for listing fields, prices and processing; preview → push with snapshots; drift; auto-refill) is in;
+photo and variation editing come next.
 
 **Never write to the real Etsy shops while developing or testing.** Verify write paths with `FakeEtsyShop` (it records
 every PATCH/PUT body) and previews only. A sanitized copy of production data (tokens, keys and users removed) may be

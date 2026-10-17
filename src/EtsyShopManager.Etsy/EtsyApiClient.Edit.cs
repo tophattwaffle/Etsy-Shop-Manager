@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using EtsyShopManager.Etsy.Models;
@@ -53,59 +51,4 @@ public sealed partial class EtsyApiClient
         return await response.Content.ReadFromJsonAsync<EtsyInventory>(EtsyJson.Options, ct)
                ?? throw new JsonException($"Empty inventory response for listing {listingId}");
     }
-
-    /// <summary>uploadListingImage (POST, multipart/form-data) for a newly uploaded image file.</summary>
-    public Task<EtsyListingImage> UploadListingImageAsync(long etsyShopId, long listingId, byte[] imageBytes, string fileName,
-        int rank, string altText, EtsyAuth auth, CancellationToken ct = default) =>
-        SendListingImageAsync(etsyShopId, listingId, imageBytes, fileName, null, rank, altText, auth, ct);
-
-    /// <summary>uploadListingImage (POST, multipart/form-data) to update rank/alt_text or re-attach an existing image.</summary>
-    public Task<EtsyListingImage> UploadListingImageAsync(long etsyShopId, long listingId, long listingImageId,
-        int rank, string altText, EtsyAuth auth, CancellationToken ct = default) =>
-        SendListingImageAsync(etsyShopId, listingId, null, null, listingImageId, rank, altText, auth, ct);
-
-    private async Task<EtsyListingImage> SendListingImageAsync(long etsyShopId, long listingId, byte[]? imageBytes,
-        string? fileName, long? listingImageId, int rank, string altText, EtsyAuth auth, CancellationToken ct)
-    {
-        using var response = await SendAsync(() =>
-        {
-            var form = new MultipartFormDataContent();
-            if (imageBytes is not null)
-            {
-                var file = new ByteArrayContent(imageBytes);
-                file.Headers.ContentType = new MediaTypeHeaderValue(ContentTypeFor(fileName!));
-                form.Add(file, "image", fileName!);
-            }
-            else if (listingImageId is { } id)
-            {
-                form.Add(new StringContent(id.ToString(CultureInfo.InvariantCulture)), "listing_image_id");
-            }
-            form.Add(new StringContent(rank.ToString(CultureInfo.InvariantCulture)), "rank");
-            form.Add(new StringContent("true"), "overwrite");
-            form.Add(new StringContent(altText), "alt_text");
-            return new HttpRequestMessage(HttpMethod.Post, $"/v3/application/shops/{etsyShopId}/listings/{listingId}/images")
-            {
-                Content = form,
-            };
-        }, auth, ct);
-        return await response.Content.ReadFromJsonAsync<EtsyListingImage>(EtsyJson.Options, ct)
-               ?? throw new JsonException($"Empty image response for listing {listingId}");
-    }
-
-    /// <summary>deleteListingImage (DELETE).</summary>
-    public async Task DeleteListingImageAsync(long etsyShopId, long listingId, long listingImageId, EtsyAuth auth,
-        CancellationToken ct = default)
-    {
-        using var _ = await SendAsync(() => new HttpRequestMessage(HttpMethod.Delete,
-            $"/v3/application/shops/{etsyShopId}/listings/{listingId}/images/{listingImageId}"), auth, ct);
-    }
-
-    private static string ContentTypeFor(string fileName) => Path.GetExtension(fileName).ToLowerInvariant() switch
-    {
-        ".png" => "image/png",
-        ".gif" => "image/gif",
-        ".webp" => "image/webp",
-        _ => "image/jpeg",
-    };
 }
-

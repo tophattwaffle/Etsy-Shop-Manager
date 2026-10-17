@@ -91,20 +91,13 @@ public sealed class ImageDownloader(
         return (await store.SaveAsync(bytes, ext, ct), bytes.LongLength);
     }
 
-    /// <summary>Deletes stored files no image row or listing draft refers to any more (replaced or removed photos).</summary>
+    /// <summary>Deletes stored files no image row refers to any more (replaced or removed photos).</summary>
     public async Task<int> DeleteOrphansAsync(CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var names = await db.ListingImages.Select(i => new { i.FileName, i.ThumbFileName }).ToListAsync(ct);
         var referenced = names.SelectMany(n => new[] { n.FileName, n.ThumbFileName })
             .OfType<string>().ToHashSet(StringComparer.Ordinal);
-        var drafts = await db.Listings.Where(l => l.DraftJson != null).Select(l => l.DraftJson!).ToListAsync(ct);
-        foreach (var draft in drafts)
-        {
-            if (System.Text.Json.Nodes.JsonNode.Parse(draft)?["images"] is not System.Text.Json.Nodes.JsonArray images) continue;
-            foreach (var name in images.Select(i => (string?)i?["file_name"]).OfType<string>())
-                referenced.Add(name);
-        }
         var deleted = store.DeleteUnreferenced(referenced, OrphanMinAge, time.GetUtcNow().UtcDateTime);
         if (deleted > 0) logger.LogInformation("Deleted {Count} unreferenced image file(s)", deleted);
         return deleted;

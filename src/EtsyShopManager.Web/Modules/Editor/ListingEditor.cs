@@ -29,7 +29,6 @@ public sealed record EditorSnapshot(Listing Listing, ListingEditModel Model, IRe
 /// </summary>
 public sealed class ListingEditor(
     IDbContextFactory<AppDbContext> dbFactory,
-    ImageStore images,
     IJobQueue jobs,
     IAuditLog audit,
     TimeProvider time)
@@ -38,8 +37,6 @@ public sealed class ListingEditor(
     public const int MaxTags = 13;
     public const int MaxTagLength = 20;
     public const int MaxMaterials = 13;
-    public const int MaxImages = 20;
-    public const int MaxAltTextLength = 500;
 
     public async Task<EditorSnapshot?> LoadAsync(int listingId, CancellationToken ct = default)
     {
@@ -111,11 +108,11 @@ public sealed class ListingEditor(
         var busy = await db.ListingPushes.AnyAsync(p => p.ListingId == listingId
             && (p.Status == ListingPushStatus.Pending || p.Status == ListingPushStatus.Running)
             && db.Jobs.Any(j => j.Id == p.JobId && (j.Status == JobStatus.Pending || j.Status == JobStatus.Running)), ct);
-        return Preview(listing, Model(listing), busy, images);
+        return Preview(listing, Model(listing), busy);
     }
 
     /// <summary>The preview for a model (pure, for tests and the UI).</summary>
-    public static PushPreview Preview(Listing listing, ListingEditModel model, bool pushInProgress, ImageStore? store = null)
+    public static PushPreview Preview(Listing listing, ListingEditModel model, bool pushInProgress)
     {
         var changes = model.PendingFields
             .Select(k => new FieldChange(k, Label(k), model.Etsy[k]?.DeepClone(), model.Local(k)?.DeepClone()))
@@ -147,8 +144,6 @@ public sealed class ListingEditor(
         }
         if (changes.Any(c => c.Key == "materials") && local["materials"] is JsonArray materials && materials.Count > MaxMaterials)
             blockers.Add($"{materials.Count} materials; Etsy allows {MaxMaterials}.");
-        if (changes.Any(c => c.Key == ListingFields.Images))
-            blockers.AddRange(ImageProblems(local[ListingFields.Images], store));
         if (changes.Any(c => c.Key == ListingFields.Inventory))
             blockers.AddRange(InventoryProblems(local[ListingFields.Inventory]));
 
@@ -168,28 +163,6 @@ public sealed class ListingEditor(
     /// <summary>The stored Etsy state predates the current managed-field definition (e.g. before text was HTML-decoded).</summary>
     public static bool NeedsRefresh(Listing listing) =>
         listing.EtsyState is { } s && s.ManagedVersion != ManagedListingState.CurrentVersion;
-
-    private static IEnumerable<string> ImageProblems(JsonNode? images, ImageStore? store)
-    {
-        if (images is not JsonArray list || list.Count == 0)
-        {
-            yield return "A listing needs at least one photo.";
-            yield break;
-        }
-        if (list.Count > MaxImages) yield return $"{list.Count} photos; Etsy allows {MaxImages}.";
-        for (var i = 0; i < list.Count; i++)
-        {
-            var img = list[i];
-            var rank = (int?)img?["rank"] ?? (i + 1);
-            var alt = (string?)img?["alt_text"] ?? "";
-            if (alt.Length > MaxAltTextLength)
-                yield return $"Photo #{rank}'s alt text is {alt.Length} characters; Etsy allows {MaxAltTextLength}.";
-            var id = (long?)img?["etsy_image_id"] ?? 0;
-            var file = (string?)img?["file_name"];
-            if (id <= 0 && (!ImageStore.IsValidFileName(file) || (store is not null && !store.Exists(file))))
-                yield return $"Photo #{rank}'s uploaded file is missing; upload it again.";
-        }
-    }
 
     /// <summary>Etsy requires one price (and one processing profile) for all variations unless it varies by a property.</summary>
     private static IEnumerable<string> InventoryProblems(JsonNode? inventory)

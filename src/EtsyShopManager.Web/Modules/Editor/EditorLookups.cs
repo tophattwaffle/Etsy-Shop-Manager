@@ -49,7 +49,6 @@ public sealed record EditorLookups(
             "production_partner_ids" => string.Join(", ", value.AsArray().Select(v => ProductionPartners.GetValueOrDefault((long)v!, $"#{v}"))) is { Length: > 0 } s ? s : "—",
             "tags" or "materials" => value.AsArray().Count == 0 ? "—" : string.Join(", ", value.AsArray().Select(v => (string?)v)),
             "who_made" or "when_made" or ListingFields.State => ListingFormat.Humanize((string?)value),
-            ListingFields.Images => DescribeImages(value),
             ListingFields.Inventory => DescribeInventory(value),
             "description" => (string?)value is { Length: > 160 } d ? d[..160] + "…" : (string?)value ?? "—",
             _ => value.GetValueKind() switch
@@ -60,22 +59,6 @@ public sealed record EditorLookups(
                 _ => (string?)value ?? "—",
             },
         };
-    }
-
-    private static string DescribeImages(JsonNode images)
-    {
-        var list = images.AsArray();
-        if (list.Count == 0) return "No photos";
-        var items = list.Select((img, idx) =>
-        {
-            var rank = (int?)img?["rank"] ?? (idx + 1);
-            var id = (long?)img?["etsy_image_id"] ?? 0;
-            var who = id > 0 ? $"#{id}" : "new";
-            var alt = ((string?)img?["alt_text"] ?? "").Trim();
-            if (alt.Length > 30) alt = alt[..30] + "…";
-            return alt.Length > 0 ? $"#{rank} ({who}, \"{alt}\")" : $"#{rank} ({who})";
-        });
-        return $"{list.Count} photo{(list.Count == 1 ? "" : "s")}: {string.Join(", ", items)}";
     }
 
     private string DescribeInventory(JsonNode inventory) =>
