@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using EtsyShopManager.Core.Domain;
 using EtsyShopManager.Core.Events;
 using EtsyShopManager.Core.Jobs;
@@ -56,6 +57,98 @@ public sealed class StockRefiller(
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("stock.refill-settings", nameof(Listing), listing.EtsyListingId.ToString(),
             enabled ? $"on: below {threshold}, refill to {refillTo}" : "off", user, ct);
+    }
+
+    /// <summary>
+    /// What applying <paramref name="change"/> to these listings would do. Listings without settings yet start from
+    /// the defaults (off, below 5, refill to 999). "Would refill" uses the stock from the last import.
+    /// </summary>
+    public async Task<BulkRefillPreview> PreviewBulkAsync(IReadOnlyCollection<int> listingIds, BulkRefillChange change,
+        CancellationToken ct = default)
+    {
+        var plan = await PlanBulkAsync(listingIds, change, ct);
+        var problems = plan.Select(p => Validate(p.Threshold, p.RefillTo)).OfType<string>().Distinct().ToList();
+        var enabled = plan.Where(p => p.Enabled).ToList();
+        return new BulkRefillPreview(
+            Selected: plan.Count,
+            Changing: plan.Count(p => p.Changes),
+            WouldRefill: enabled.Count(p => p.Active && p.LowestStock is { } low && low < p.Threshold),
+            NotActive: enabled.Count(p => !p.Active),
+            Problems: problems);
+    }
+
+    /// <summary>
+    /// Saves auto-refill settings for many listings at once; fields left null in <paramref name="change"/> keep each
+    /// listing's own value. Only saves settings: nothing is sent to Etsy here, the next check (after an order, or the
+    /// hourly sweep) does the refilling. Returns how many listings changed.
+    /// </summary>
+    public async Task<int> ApplyBulkAsync(IReadOnlyCollection<int> listingIds, BulkRefillChange change, ClaimsPrincipal user,
+        CancellationToken ct = default)
+    {
+        if (!user.IsInRole(Roles.Admin) && !user.IsInRole(Roles.Editor))
+            throw new UnauthorizedAccessException("Only admins and editors can change auto-refill.");
+        if (change.IsEmpty) throw new ArgumentException("Choose at least one setting to change.");
+
+        var plan = await PlanBulkAsync(listingIds, change, ct);
+        if (plan.Select(p => Validate(p.Threshold, p.RefillTo)).OfType<string>().FirstOrDefault() is { } problem)
+            throw new ArgumentException(problem);
+
+        var changing = plan.Where(p => p.Changes).ToList();
+        if (changing.Count == 0) return 0;
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var ids = changing.Select(p => p.ListingId).ToList();
+        var rows = await db.ListingRefills.Where(r => ids.Contains(r.ListingId)).ToDictionaryAsync(r => r.ListingId, ct);
+        var now = time.GetUtcNow().UtcDateTime;
+        var name = user.Identity?.Name;
+        foreach (var p in changing)
+        {
+            if (!rows.TryGetValue(p.ListingId, out var row)) db.ListingRefills.Add(row = new ListingRefill { ListingId = p.ListingId });
+            row.Enabled = p.Enabled;
+            row.Threshold = p.Threshold;
+            row.RefillTo = p.RefillTo;
+            row.UpdatedAtUtc = now;
+            row.UpdatedBy = name;
+            if (!p.Enabled) row.Problem = null;
+        }
+        await db.SaveChangesAsync(ct);
+        await audit.WriteAsync("stock.refill-settings", nameof(Listing), null,
+            $"{changing.Count} listing(s): {change.Describe()}", name, ct);
+        return changing.Count;
+    }
+
+    private static string? Validate(int threshold, int refillTo) =>
+        threshold < 1 ? "The threshold must be at least 1."
+        : refillTo <= threshold ? $"Refill-to must be more than the threshold (below {threshold}, refill to {refillTo})."
+        : refillTo > MaxQuantity ? $"Etsy allows at most {MaxQuantity} per variation."
+        : null;
+
+    private sealed record BulkPlanRow(int ListingId, bool Enabled, int Threshold, int RefillTo, bool Changes, bool Active, int? LowestStock);
+
+    private async Task<List<BulkPlanRow>> PlanBulkAsync(IReadOnlyCollection<int> listingIds, BulkRefillChange change, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var ids = listingIds.Distinct().ToList();
+        var listings = await db.Listings.AsNoTracking()
+            .Where(l => ids.Contains(l.Id))
+            .Select(l => new
+            {
+                l.Id,
+                Active = l.State == "active" && !l.IsMissingOnEtsy,
+                Lowest = l.Products.Where(p => !p.IsDeleted)
+                    .SelectMany(p => p.Offerings.Where(o => !o.IsDeleted && o.IsEnabled))
+                    .Min(o => (int?)o.Quantity),
+            })
+            .ToListAsync(ct);
+        var current = await db.ListingRefills.AsNoTracking().Where(r => ids.Contains(r.ListingId))
+            .ToDictionaryAsync(r => r.ListingId, ct);
+
+        return listings.Select(l =>
+        {
+            var old = current.GetValueOrDefault(l.Id) ?? new ListingRefill();
+            var (enabled, threshold, refillTo) = (change.Enabled ?? old.Enabled, change.Threshold ?? old.Threshold, change.RefillTo ?? old.RefillTo);
+            var changes = enabled != old.Enabled || threshold != old.Threshold || refillTo != old.RefillTo;
+            return new BulkPlanRow(l.Id, enabled, threshold, refillTo, changes, l.Active, l.Lowest);
+        }).ToList();
     }
 
     public async Task<RefillOutcome> RefillListingAsync(int listingId, CancellationToken ct)
@@ -173,6 +266,26 @@ public sealed class StockRefiller(
         return due;
     }
 }
+
+/// <summary>A bulk auto-refill change; a null field leaves each listing's own value unchanged.</summary>
+public sealed record BulkRefillChange(bool? Enabled, int? Threshold, int? RefillTo)
+{
+    public bool IsEmpty => Enabled is null && Threshold is null && RefillTo is null;
+
+    public string Describe() => string.Join(", ", new[]
+    {
+        Enabled switch { true => "on", false => "off", null => null },
+        Threshold is { } t ? $"below {t}" : null,
+        RefillTo is { } r ? $"refill to {r}" : null,
+    }.OfType<string>());
+}
+
+/// <param name="Changing">Selected listings whose settings would change.</param>
+/// <param name="WouldRefill">Listings that would be on, are active and already have a variation below the threshold:
+/// the next check refills them.</param>
+/// <param name="NotActive">Listings that would be on but aren't active, so they won't be refilled.</param>
+/// <param name="Problems">Why the change can't be applied (e.g. refill-to not above a listing's threshold).</param>
+public sealed record BulkRefillPreview(int Selected, int Changing, int WouldRefill, int NotActive, IReadOnlyList<string> Problems);
 
 public sealed record RefillPayload(int ListingId);
 

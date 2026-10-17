@@ -533,3 +533,120 @@ public class StockRefillTests
         await Assert.ThrowsAsync<ArgumentException>(() => Refiller(shop).SaveSettingsAsync(id, true, 0, 10, "tophattwaffle"));
     }
 }
+
+public class BulkRefillTests
+{
+    /// <summary>Three listings: active and low (3), active and well stocked (50, already on: below 10, refill to 500), inactive and low.</summary>
+    private static async Task<(FakeEtsyShop Shop, int Low, int Stocked, int Inactive)> SetupAsync()
+    {
+        var shop = new FakeEtsyShop();
+        shop.Listings.Add(FakeEtsyShop.Listing(1, "Low vase", quantity: 3));
+        shop.Listings.Add(FakeEtsyShop.Listing(2, "Stocked vase", quantity: 50));
+        shop.Listings.Add(FakeEtsyShop.Listing(3, "Inactive vase", state: "inactive", quantity: 3));
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        await using var db = shop.Db.CreateDbContext();
+        var ids = await db.Listings.ToDictionaryAsync(l => l.EtsyListingId, l => l.Id);
+        await Refiller(shop).SaveSettingsAsync(ids[2], true, 10, 500, "tophattwaffle");
+        return (shop, ids[1], ids[2], ids[3]);
+    }
+
+    private static StockRefiller Refiller(FakeEtsyShop s) => s.Provider.GetRequiredService<StockRefiller>();
+
+    private static System.Security.Claims.ClaimsPrincipal User(string role) => new(new System.Security.Claims.ClaimsIdentity(
+    [
+        new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "tophattwaffle"),
+        new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, role),
+    ], "test"));
+
+    private static async Task<Dictionary<int, (bool, int, int)>> SettingsAsync(FakeEtsyShop s)
+    {
+        await using var db = s.Db.CreateDbContext();
+        return await db.ListingRefills.ToDictionaryAsync(r => r.ListingId, r => (r.Enabled, r.Threshold, r.RefillTo));
+    }
+
+    [Fact]
+    public async Task Bulk_apply_changes_only_the_given_fields_and_sends_nothing_to_Etsy()
+    {
+        var (shop, low, stocked, inactive) = await SetupAsync();
+        using var _ = shop;
+
+        var changed = await Refiller(shop).ApplyBulkAsync([low, stocked, inactive], new BulkRefillChange(true, null, null),
+            User(EtsyShopManager.Core.Modules.Roles.Editor));
+
+        Assert.Equal(2, changed); // the stocked listing was already on
+        var settings = await SettingsAsync(shop);
+        Assert.Equal((true, 5, 999), settings[low]); // new rows start from the defaults
+        Assert.Equal((true, 10, 500), settings[stocked]); // its own threshold and refill-to are kept
+        Assert.Equal((true, 5, 999), settings[inactive]);
+        Assert.Empty(shop.Writes);
+        Assert.Empty(shop.Provider.GetRequiredService<RecordingJobQueue>().Requests); // refills wait for the next check
+
+        await Refiller(shop).ApplyBulkAsync([low, stocked], new BulkRefillChange(null, null, 200), User(EtsyShopManager.Core.Modules.Roles.Admin));
+        settings = await SettingsAsync(shop);
+        Assert.Equal((true, 5, 200), settings[low]);
+        Assert.Equal((true, 10, 200), settings[stocked]);
+    }
+
+    [Fact]
+    public async Task Preview_counts_what_the_next_check_would_refill()
+    {
+        var (shop, low, stocked, inactive) = await SetupAsync();
+        using var _ = shop;
+
+        var preview = await Refiller(shop).PreviewBulkAsync([low, stocked, inactive], new BulkRefillChange(true, 5, null));
+
+        Assert.Equal(3, preview.Selected);
+        Assert.Equal(3, preview.Changing); // the stocked listing's threshold goes from 10 to 5
+        Assert.Equal(1, preview.WouldRefill); // only the active listing below 5
+        Assert.Equal(1, preview.NotActive); // the inactive one is on but won't be refilled
+        Assert.Empty(preview.Problems);
+        Assert.Empty(shop.Writes);
+    }
+
+    [Fact]
+    public async Task Bulk_values_are_validated_against_each_listings_settings()
+    {
+        var (shop, low, stocked, _) = await SetupAsync();
+        using var _s = shop;
+        var change = new BulkRefillChange(null, 20, null); // below both refill-to values (999 and 500)…
+        Assert.Empty((await Refiller(shop).PreviewBulkAsync([low, stocked], change)).Problems);
+
+        change = new BulkRefillChange(null, 600, null); // …but 600 is not below the stocked listing's refill-to of 500
+        var preview = await Refiller(shop).PreviewBulkAsync([low, stocked], change);
+        Assert.Contains(preview.Problems, p => p.Contains("Refill-to must be more than the threshold"));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Refiller(shop).ApplyBulkAsync([low, stocked], change, User(EtsyShopManager.Core.Modules.Roles.Editor)));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Refiller(shop).ApplyBulkAsync([low], new BulkRefillChange(null, null, 1000), User(EtsyShopManager.Core.Modules.Roles.Editor)));
+
+        var settings = await SettingsAsync(shop);
+        Assert.Equal((true, 10, 500), settings[stocked]); // nothing saved
+        Assert.False(settings.ContainsKey(low));
+    }
+
+    [Fact]
+    public async Task Viewers_cannot_bulk_edit()
+    {
+        var (shop, low, _, _) = await SetupAsync();
+        using var _s = shop;
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Refiller(shop).ApplyBulkAsync([low], new BulkRefillChange(true, null, null), User(EtsyShopManager.Core.Modules.Roles.Viewer)));
+
+        Assert.False((await SettingsAsync(shop)).ContainsKey(low));
+    }
+
+    [Fact]
+    public async Task Select_all_takes_every_listing_matching_the_filter_across_pages()
+    {
+        var (shop, low, stocked, inactive) = await SetupAsync();
+        using var _ = shop;
+        var queries = shop.Provider.GetRequiredService<EtsyShopManager.Web.Modules.Listings.ListingQueries>();
+
+        var active = await queries.SearchIdsAsync(new EtsyShopManager.Web.Modules.Listings.ListingFilter { States = ["active"], Take = 1 });
+        var search = await queries.SearchIdsAsync(new EtsyShopManager.Web.Modules.Listings.ListingFilter { Text = "inactive" });
+
+        Assert.Equal([low, stocked], active.Order());
+        Assert.Equal([inactive], search);
+    }
+}

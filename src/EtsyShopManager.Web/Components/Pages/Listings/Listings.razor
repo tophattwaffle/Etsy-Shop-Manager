@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Modules.Stock
 @implements IDisposable
 @inject ListingQueries Queries
 @inject ListingImportQueue ImportQueue
@@ -9,6 +10,8 @@
 @inject IJobEvents JobEvents
 @inject IJSRuntime Js
 @inject TimeProvider Time
+@inject StockRefiller Refiller
+@inject IDialogService Dialogs
 
 <PageTitle>Listings · Etsy Shop Manager</PageTitle>
 
@@ -48,7 +51,56 @@
                         <MudIcon Icon="@Icons.Material.Filled.ViewList" Size="Size.Small" />
                     </button>
                 </div>
+                <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")" Context="auth">
+                    <MudButton Variant="@(_selecting ? Variant.Filled : Variant.Outlined)" Color="@(_selecting ? Color.Primary : Color.Default)"
+                               Size="Size.Small" OnClick="ToggleSelecting" aria-pressed="@(_selecting ? "true" : "false")">
+                        @(_selecting ? "Done" : "Bulk edit auto-refill")
+                    </MudButton>
+                </AuthorizeView>
             </div>
+
+            @if (_selecting)
+            {
+                <MudPaper Class="lp-bulk pa-4 mb-4" Elevation="0" Outlined="true">
+                    <div class="lp-bulk-head">
+                        <MudText Typo="Typo.h6">Auto-refill for selected listings</MudText>
+                        <span class="lp-muted">
+                            @_selected.Count.ToString("N0") selected
+                            @if (_total > 0 && _selected.Count < _total)
+                            {
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllMatchingAsync">Select all @_total.ToString("N0") matching</MudButton>
+                            }
+                            @if (_selected.Count > 0)
+                            {
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _selected.Clear()">Clear selection</MudButton>
+                            }
+                        </span>
+                    </div>
+                    <MudText Typo="Typo.body2" Class="muted mb-3">
+                        Leave a setting on "No change" or empty to keep each listing's own value. Only the settings are saved;
+                        refills happen at the next stock check (after an order, or within the hour).
+                    </MudText>
+                    <div class="lp-bulk-fields">
+                        <MudSelect T="bool?" @bind-Value="_bulkEnabled" Label="Auto-refill" Variant="Variant.Outlined" Margin="Margin.Dense">
+                            <MudSelectItem T="bool?" Value="@((bool?)null)">No change</MudSelectItem>
+                            <MudSelectItem T="bool?" Value="@((bool?)true)">On</MudSelectItem>
+                            <MudSelectItem T="bool?" Value="@((bool?)false)">Off</MudSelectItem>
+                        </MudSelect>
+                        <MudNumericField T="int?" @bind-Value="_bulkThreshold" Label="Refill when below" Placeholder="No change"
+                                         Min="1" Max="998" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudNumericField T="int?" @bind-Value="_bulkRefillTo" Label="Refill to" Placeholder="No change"
+                                         Min="2" Max="@StockRefiller.MaxQuantity" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_selected.Count == 0 || _applying)"
+                                   OnClick="ApplyBulkAsync">
+                            Apply to @_selected.Count.ToString("N0") listing@(_selected.Count == 1 ? "" : "s")
+                        </MudButton>
+                    </div>
+                    @if (_bulkError is not null)
+                    {
+                        <MudText Typo="Typo.body2" Class="error-text mt-2">@_bulkError</MudText>
+                    }
+                </MudPaper>
+            }
 
             @if (_rows is null)
             {
@@ -73,7 +125,7 @@
                     }
                 </div>
             }
-            else if (_view == GridView)
+            else if (_view == GridView && !_selecting)
             {
                 <div class="lp-grid @(_loading ? "is-loading" : "")">
                     @foreach (var row in _rows)
@@ -107,19 +159,34 @@
                     <table class="lp-list @(_loading ? "is-loading" : "")">
                         <thead>
                             <tr>
+                                @if (_selecting)
+                                {
+                                    <th scope="col" class="lp-list-check">
+                                        <MudCheckBox T="bool" Value="@PageSelected" ValueChanged="SelectPage" Size="Size.Small" Dense="true"
+                                                     aria-label="Select all listings on this page" />
+                                    </th>
+                                }
                                 <th scope="col"><span class="visually-hidden">Photo</span></th>
                                 <th scope="col">Listing</th>
                                 <th scope="col">Status</th>
                                 <th scope="col" class="num">Stock</th>
                                 <th scope="col" class="num">Price</th>
                                 <th scope="col">SKU</th>
+                                <th scope="col">Auto-refill</th>
                                 <th scope="col">Updated on Etsy</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var row in _rows)
                             {
-                                <tr style="@ShopStyle(row.ShopId)">
+                                <tr style="@ShopStyle(row.ShopId)" class="@(_selected.Contains(row.Id) ? "is-selected" : "")">
+                                    @if (_selecting)
+                                    {
+                                        <td class="lp-list-check">
+                                            <MudCheckBox T="bool" Value="@_selected.Contains(row.Id)" ValueChanged="@(v => Select(row.Id, v))"
+                                                         Size="Size.Small" Dense="true" aria-label="@($"Select {row.Title}")" />
+                                        </td>
+                                    }
                                     <td class="lp-list-photo">
                                         @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
                                         {
@@ -146,6 +213,7 @@
                                     <td class="num">@row.Quantity</td>
                                     <td class="num">@ListingFormat.PriceWithSymbol(row.PriceAmount, row.PriceDivisor, row.CurrencyCode)</td>
                                     <td class="lp-sku">@string.Join(", ", row.Skus.Take(2))@(row.Skus.Count > 2 ? $" +{row.Skus.Count - 2}" : "")</td>
+                                    <td class="lp-muted">@RefillLabel(row.Refill)</td>
                                     <td class="lp-muted">@ListingFormat.Ago(row.EtsyUpdatedAtUtc, Now)</td>
                                 </tr>
                             }
@@ -256,6 +324,15 @@
     private ListingSort _sort = ListingSort.UpdatedDesc;
     private IDisposable? _live;
     private CancellationTokenSource? _loadCts;
+
+    // Bulk auto-refill: selection survives paging and filter changes, so listings can be picked across pages.
+    private bool _selecting;
+    private readonly HashSet<int> _selected = [];
+    private bool? _bulkEnabled;
+    private int? _bulkThreshold;
+    private int? _bulkRefillTo;
+    private string? _bulkError;
+    private bool _applying;
 
     private DateTime Now => Time.GetUtcNow().UtcDateTime;
     private int PageCount => Math.Max(1, (_total + PageSize - 1) / PageSize);
@@ -390,6 +467,81 @@
         var id = await ImportQueue.ImportShopAsync(s.ShopId, force, user);
         Snackbar.Add(id is null ? $"An import for {s.ShopName} is already queued" : $"Import for {s.ShopName} queued (job {id})",
             Severity.Info);
+    }
+
+    private void ToggleSelecting()
+    {
+        _selecting = !_selecting;
+        if (!_selecting) (_bulkEnabled, _bulkThreshold, _bulkRefillTo, _bulkError) = (null, null, null, null);
+    }
+
+    private void Select(int id, bool selected)
+    {
+        if (selected) _selected.Add(id);
+        else _selected.Remove(id);
+    }
+
+    private bool PageSelected => _rows is { Count: > 0 } && _rows.All(r => _selected.Contains(r.Id));
+
+    private void SelectPage(bool selected)
+    {
+        foreach (var row in _rows ?? []) Select(row.Id, selected);
+    }
+
+    private async Task SelectAllMatchingAsync() =>
+        _selected.UnionWith(await Queries.SearchIdsAsync(CurrentFilter()));
+
+    private static string RefillLabel(RefillSetting? r) =>
+        r is { Enabled: true } ? $"Below {r.Threshold} → {r.RefillTo}" : "Off";
+
+    private async Task ApplyBulkAsync()
+    {
+        _bulkError = null;
+        var change = new BulkRefillChange(_bulkEnabled, _bulkThreshold, _bulkRefillTo);
+        if (change.IsEmpty)
+        {
+            _bulkError = "Choose on or off, a threshold or a refill-to value first.";
+            return;
+        }
+
+        var preview = await Refiller.PreviewBulkAsync(_selected, change);
+        if (preview.Problems.Count > 0)
+        {
+            _bulkError = string.Join(" ", preview.Problems);
+            return;
+        }
+        if (preview.Changing == 0)
+        {
+            Snackbar.Add("Nothing to change: the selected listings already have these settings.", Severity.Info);
+            return;
+        }
+
+        var message = $"{preview.Changing:N0} of {preview.Selected:N0} selected listing{(preview.Selected == 1 ? "" : "s")} will change " +
+                      $"({change.Describe()}). Nothing is sent to Etsy now.";
+        if (preview.WouldRefill > 0)
+            message += $" {preview.WouldRefill:N0} already have stock below the threshold and will be refilled at the next check " +
+                       "(after the next order, or within the hour).";
+        if (preview.NotActive > 0)
+            message += $" {preview.NotActive:N0} aren't active on Etsy, so they won't be refilled until they are.";
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Change auto-refill", message,
+            yesText: $"Change {preview.Changing:N0} listing{(preview.Changing == 1 ? "" : "s")}", cancelText: "Cancel");
+        if (confirmed != true) return;
+
+        _applying = true;
+        try
+        {
+            var changed = await Refiller.ApplyBulkAsync(_selected, change, (await AuthState).User);
+            Snackbar.Add($"Auto-refill updated on {changed:N0} listing{(changed == 1 ? "" : "s")}", Severity.Success);
+            await LoadAsync();
+        }
+        catch (ArgumentException ex)
+        {
+            _bulkError = ex.Message;
+        }
+        finally
+        {
+            _applying = false;
+        }
     }
 
     public void Dispose()
