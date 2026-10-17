@@ -1,0 +1,94 @@
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Shops
+@inject ShopService Shops
+@inject ShopAccentService Accents
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+@* Each shop's accent color (the ring, edge and tint that mark its listings). Automatic reads it from the shop's
+   profile image in the browser; an Admin can pick a color instead. *@
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Shop colors</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Each shop's color marks its listings and appears around its icon. By default it comes from the shop's profile
+        image. Pick a color to use instead.
+    </MudText>
+
+    @if (_shops is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_shops.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">Connect a shop to set its color.</MudText>
+    }
+    else
+    {
+        <div class="esm-shop-colors">
+            @foreach (var s in _shops)
+            {
+                var overridden = _overrides.TryGetValue(s.Id, out var custom);
+                var color = custom ?? _auto.GetValueOrDefault(s.Id);
+                <div class="esm-shop-color" style="@($"--shop: {color ?? "var(--esm-line)"}")">
+                    <span class="lp-shopmark">
+                        @if (s.IconUrl is { Length: > 0 })
+                        {
+                            <img src="@ShopIconCache.UrlFor(s.Id)" alt="" />
+                        }
+                        else
+                        {
+                            @s.Name[..1].ToUpperInvariant()
+                        }
+                    </span>
+                    <div class="esm-grow">
+                        <div class="esm-shop-color-name">@s.Name</div>
+                        <div class="small muted">@(overridden ? $"Custom, {custom}" : color is null ? "Automatic" : $"Automatic, {color}")</div>
+                    </div>
+                    <AuthorizeView Roles="@Roles.Admin" Context="auth">
+                        <input type="color" class="esm-color-input" value="@(color ?? ShopAccentService.PickerDefault)"
+                               aria-label="@($"Color for {s.Name}")" title="Pick a color"
+                               @onchange="e => SetAsync(s, e.Value?.ToString())" />
+                        @if (overridden)
+                        {
+                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetAsync(s, null)">Use automatic</MudButton>
+                        }
+                    </AuthorizeView>
+                </div>
+            }
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<ShopSummary>? _shops;
+    private Dictionary<int, string> _overrides = [];
+    private readonly Dictionary<int, string> _auto = [];
+    private bool _autoRequested;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
+        _overrides = await Accents.GetOverridesAsync(_shops.Select(s => s.Id));
+    }
+
+    // The automatic colors are read in the browser, as on the listings page.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shops is null || _autoRequested) return;
+        _autoRequested = true;
+        foreach (var s in _shops.Where(s => s.IconUrl is { Length: > 0 }))
+            if (await Js.InvokeAsync<string?>("esm.dominantColor", ShopIconCache.UrlFor(s.Id)) is { } color)
+                _auto[s.Id] = color.ToUpperInvariant();
+        if (_auto.Count > 0) StateHasChanged();
+    }
+
+    private async Task SetAsync(ShopSummary shop, string? hex)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        await Accents.SetAsync(shop.Id, hex, user);
+        _overrides = await Accents.GetOverridesAsync(_shops!.Select(s => s.Id));
+        Snackbar.Add(hex is null ? $"{shop.Name} uses its automatic color again" : $"Saved {shop.Name}'s color", Severity.Success);
+    }
+}

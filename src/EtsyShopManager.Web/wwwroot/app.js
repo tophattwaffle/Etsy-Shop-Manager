@@ -42,9 +42,12 @@ window.esm = {
             }
         });
         dialog.querySelector(".esm-reconnect-reload")?.addEventListener("click", () => location.reload());
-        // Each shop icon gets its shop's accent ring, as on the listings page.
+        // Each shop icon gets its shop's accent ring, as on the listings page: the color picked on the Shops page,
+        // else the one read from its profile image.
         for (const img of dialog.querySelectorAll(".esm-reconnect-mark img")) {
-            esm.dominantColor(img.src).then((c) => c && img.parentElement.style.setProperty("--shop", c));
+            const mark = img.parentElement;
+            if (mark.dataset.accent) mark.style.setProperty("--shop", mark.dataset.accent);
+            else esm.dominantColor(img.src).then((c) => c && mark.style.setProperty("--shop", c));
         }
     },
 

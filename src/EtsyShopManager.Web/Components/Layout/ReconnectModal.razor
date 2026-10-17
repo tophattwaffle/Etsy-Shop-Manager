@@ -1,6 +1,7 @@
 @using EtsyShopManager.Web.Modules.Listings
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
 @* Replaces Blazor's built-in "Rejoining the server" box (Blazor finds it by its id and sets the
    components-reconnect-* classes; app.js opens and closes it). Rendered with the page, so the shop icons are
    already loaded when the server is gone. The throbber is the shops' own icons hopping in turn. *@
@@ -15,7 +16,7 @@
         {
             @foreach (var id in _shopIds)
             {
-                <span class="esm-reconnect-mark"><img src="@ShopIconCache.UrlFor(id)" alt="" /></span>
+                <span class="esm-reconnect-mark" data-accent="@_overrides.GetValueOrDefault(id)"><img src="@ShopIconCache.UrlFor(id)" alt="" /></span>
             }
         }
     </div>
@@ -51,6 +52,7 @@
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
 
     private List<int> _shopIds = [];
+    private Dictionary<int, string> _overrides = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -60,5 +62,6 @@
         _shopIds = await db.Shops.AsNoTracking()
             .Where(s => s.IsActive && s.IconUrl != null && s.IconUrl != "")
             .OrderBy(s => s.Name).Select(s => s.Id).Take(4).ToListAsync();
+        _overrides = await ShopAccents.GetOverridesAsync(_shopIds);
     }
 }

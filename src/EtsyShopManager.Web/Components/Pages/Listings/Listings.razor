@@ -12,6 +12,7 @@
 @inject TimeProvider Time
 @inject StockRefiller Refiller
 @inject IDialogService Dialogs
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
 
 <PageTitle>Listings · Etsy Shop Manager</PageTitle>
 
@@ -341,6 +342,8 @@
     protected override async Task OnInitializedAsync()
     {
         _shops = await Queries.GetImportStatusAsync();
+        // Colors picked on the Shops page; the others are read from each shop's profile image after render.
+        foreach (var (id, color) in await ShopAccents.GetOverridesAsync(_shops.Select(s => s.ShopId))) _accents[id] = color;
         await LoadAsync();
         // Import status follows the job queue; the list itself changes when an import or photo download finishes.
         _live = JobEvents.Subscribe(c => ListingJobTypes.Contains(c.JobType), changes => InvokeAsync(async () =>
@@ -367,12 +370,12 @@
         if (_shops is not null && !_accentsRequested)
         {
             _accentsRequested = true;
-            foreach (var s in _shops.Where(s => s.HasIcon))
+            foreach (var s in _shops.Where(s => s.HasIcon && !_accents.ContainsKey(s.ShopId)))
             {
                 if (await Js.InvokeAsync<string?>("esm.dominantColor", ShopIconCache.UrlFor(s.ShopId)) is { } color)
                     _accents[s.ShopId] = color;
             }
-            if (_accents.Count > 0) StateHasChanged();
+            StateHasChanged();
         }
     }
 

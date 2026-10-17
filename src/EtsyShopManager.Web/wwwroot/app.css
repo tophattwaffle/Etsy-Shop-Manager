@@ -148,6 +148,19 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .redirect-uri { padding: 2px 6px; border-radius: 6px; background: var(--esm-sunk); word-break: break-all; }
 .error-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--esm-error); }
 
+/* Shop colors (Shops page): icon in its accent ring, name, and a round color picker */
+.esm-shop-colors { display: flex; flex-direction: column; gap: 4px; }
+.esm-shop-color { display: flex; align-items: center; gap: 14px; padding: 8px 4px; border-top: 1px solid var(--esm-line); }
+.esm-shop-color:first-child { border-top: 0; }
+.esm-shop-color-name { font-weight: 600; }
+.esm-color-input {
+    width: 36px; height: 36px; padding: 0; border: 1px solid var(--esm-line); border-radius: 50%; background: none;
+    cursor: pointer; flex: none;
+}
+.esm-color-input::-webkit-color-swatch-wrapper { padding: 3px; }
+.esm-color-input::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.esm-color-input::-moz-color-swatch { border: 0; border-radius: 50%; }
+
 /* ---- Listing detail and lookups ---- */
 .listing-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: var(--esm-radius-sm); display: block; }
 .listing-thumb.placeholder { background: var(--esm-sunk); }
