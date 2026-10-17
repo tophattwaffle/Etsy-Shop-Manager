@@ -380,7 +380,10 @@
             foreach (var s in _shops.Where(s => s.HasIcon && !_accents.ContainsKey(s.ShopId)))
             {
                 if (await Js.InvokeAsync<string?>("esm.dominantColor", ShopIconCache.UrlFor(s.ShopId)) is { } color)
+                {
                     _accents[s.ShopId] = color;
+                    await ShopAccents.SaveAutomaticAsync(s.ShopId, color); // for the Home Assistant card
+                }
             }
             StateHasChanged();
         }

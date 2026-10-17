@@ -94,6 +94,18 @@ public class OrderColorTests
     }
 
     [Fact]
+    public void Shop_accents_ride_along_by_Etsy_shop_id_and_change_the_version()
+    {
+        var plain = OrderColorService.Default.ToCardJson();
+        var json = OrderColorService.Default.ToCardJson(new Dictionary<string, string> { ["43"] = "#FF8800", ["42"] = "#6BC7BE" });
+
+        Assert.Null(plain["shop_accents"]);
+        Assert.Equal("#FF8800", (string)json["shop_accents"]!["43"]!);
+        Assert.Equal(["42", "43"], json["shop_accents"]!.AsObject().Select(kv => kv.Key));
+        Assert.NotEqual((string)plain["version"]!, (string)json["version"]!);
+    }
+
+    [Fact]
     public void Card_json_keys_are_the_card_config_keys()
     {
         var json = OrderColorService.Default.ToCardJson();
