@@ -31,6 +31,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ListingTextBlock> ListingTextBlocks => Set<ListingTextBlock>();
     public DbSet<VariationList> VariationLists => Set<VariationList>();
     public DbSet<ListingVariationList> ListingVariationLists => Set<ListingVariationList>();
+    public DbSet<PhotoTemplate> PhotoTemplates => Set<PhotoTemplate>();
+    public DbSet<ListingPhotoTemplate> ListingPhotoTemplates => Set<ListingPhotoTemplate>();
 
     public DbSet<ShippingProfile> ShippingProfiles => Set<ShippingProfile>();
     public DbSet<ProcessingProfile> ProcessingProfiles => Set<ProcessingProfile>();
@@ -194,6 +196,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         {
             e.HasIndex(x => x.Name).IsUnique();
             e.Property(x => x.Name).UseCollation("NOCASE");
+        });
+
+        b.Entity<PhotoTemplate>(e =>
+        {
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).UseCollation("NOCASE");
+            e.HasIndex(x => x.AltText).IsUnique();
+        });
+
+        b.Entity<ListingPhotoTemplate>(e =>
+        {
+            e.HasIndex(x => new { x.ListingId, x.PhotoTemplateId }).IsUnique();
+            e.HasIndex(x => x.PhotoTemplateId);
+            e.HasOne(x => x.Listing).WithMany().HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.PhotoTemplate).WithMany(x => x.Listings).HasForeignKey(x => x.PhotoTemplateId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<VariationList>(e =>

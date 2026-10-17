@@ -1,0 +1,74 @@
+@page "/photo-templates"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Templates
+@inject PhotoTemplateService Templates
+
+<PageTitle>Photo templates · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Photo templates">
+    <Summary>Photos shared by many listings, such as a color swatch chart, kept at the end of each listing's photos.</Summary>
+    <Actions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="photo-templates/new">New photo template</MudButton>
+    </Actions>
+</PageHeader>
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    @if (_templates is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_templates.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">
+            No photo templates yet. Create one from an image you add to many listings; listings that already have it (same alt
+            text) are found for you.
+        </MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <th class="esm-col-icon"></th>
+                    <SortHeader Sort="_sort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                    <SortHeader Sort="_sort" Column="position" Changed="StateHasChanged">Position</SortHeader>
+                    <SortHeader Sort="_sort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                    <SortHeader Sort="_sort" Column="changes" Changed="StateHasChanged">Waiting for changes</SortHeader>
+                    <SortHeader Sort="_sort" Column="attention" Changed="StateHasChanged">Need a look</SortHeader>
+                    <SortHeader Sort="_sort" Column="updated" Changed="StateHasChanged">Changed</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in _sort.Apply(_templates))
+                {
+                    <tr>
+                        <td><div class="esm-photo-thumb esm-template-thumb"><img src="@ImageStore.UrlFor(t.FileName)" alt="" /></div></td>
+                        <td><a href="@($"photo-templates/{t.Id}")">@t.Name</a></td>
+                        <td>@PhotoTemplatePage.PositionText(t.RankFromEnd)</td>
+                        <td>@t.Listings</td>
+                        <td>@(t.WithChanges == 0 ? "—" : t.WithChanges.ToString())</td>
+                        <td>@(t.NeedAttention == 0 ? "—" : t.NeedAttention.ToString())</td>
+                        <td>@ListingFormat.Local(t.UpdatedAtUtc)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    private IReadOnlyList<PhotoTemplateSummary>? _templates;
+
+    private readonly TableSort<PhotoTemplateSummary> _sort = new()
+    {
+        ["name"] = t => t.Name,
+        ["position"] = t => t.RankFromEnd,
+        ["listings"] = t => t.Listings,
+        ["changes"] = t => t.WithChanges,
+        ["attention"] = t => t.NeedAttention,
+        ["updated"] = t => t.UpdatedAtUtc,
+    };
+
+    protected override async Task OnInitializedAsync() => _templates = await Templates.ListAsync();
+}

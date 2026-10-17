@@ -1,0 +1,376 @@
+@page "/photo-templates/new"
+@page "/photo-templates/{Id:int}"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Templates
+@inject PhotoTemplateService Templates
+@inject ImageStore Store
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>@(_saved?.Name ?? "New photo template") · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="photo-templates" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> All photo templates
+</MudLink>
+
+@if (Id is not null && _saved is null)
+{
+    <PageHeader Title="Photo template" />
+    @if (_loaded) { <MudAlert Severity="Severity.Warning">This photo template no longer exists.</MudAlert> }
+    else { <MudProgressLinear Indeterminate="true" /> }
+}
+else
+{
+    <PageHeader Title="@(_saved?.Name ?? "New photo template")">
+        <Summary>
+            @if (_saved is null)
+            {
+                <span>Add the image, describe it, and choose where it goes. After saving, the app lists the listings that already have it.</span>
+            }
+            else
+            {
+                <span>Used by @_uses.Count listing@(_uses.Count == 1 ? "" : "s"). Saving the template changes no listing until you apply it.</span>
+            }
+        </Summary>
+        <Actions>
+            @if (_saved is not null)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty || _uploading)" OnClick="SaveAsync">Save template</MudButton>
+        </Actions>
+    </PageHeader>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">Template</MudText>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="4" md="3">
+                <div class="esm-photo-thumb">
+                    @if (_file is not null) { <img src="@ImageStore.UrlFor(_file)" alt="@_alt" /> }
+                </div>
+                <MudFileUpload T="IBrowserFile" FilesChanged="UploadAsync" Accept=".jpg,.jpeg,.png,.gif,.webp" Class="mt-2">
+                    <CustomContent>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="_uploading" OnClick="@(() => context.OpenFilePickerAsync())">
+                            @(_file is null ? "Add the image" : "Replace the image")
+                        </MudButton>
+                    </CustomContent>
+                </MudFileUpload>
+                @if (_error is not null) { <MudText Typo="Typo.body2" Class="error-text mt-2">@_error</MudText> }
+            </MudItem>
+            <MudItem xs="12" sm="8" md="9">
+                <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3"
+                              Counter="PhotoTemplateService.MaxNameLength" MaxLength="PhotoTemplateService.MaxNameLength" />
+                <MudTextField T="string" @bind-Value="_alt" Label="Alt text" Lines="2" Variant="Variant.Outlined" Immediate="true" Class="mb-3"
+                              Counter="PhotoEditor.MaxAltTextLength" MaxLength="PhotoEditor.MaxAltTextLength"
+                              HelperText="Describe the image for buyers using screen readers. It also identifies this photo on each listing, so give each template its own." />
+                <MudNumericField T="int" @bind-Value="_rank" Label="Position from the end" Min="1" Max="PhotoEditor.MaxPhotos" Variant="Variant.Outlined"
+                                 HelperText="@($"{PositionText(_rank)}. The listing's own photos come first.")" Class="esm-w-sm" />
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (_saved is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+                <MudText Typo="Typo.h6">Listings using this template</MudText>
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Outlined" Disabled="@(WithChanges == 0 || Dirty)" OnClick="ApplyAsync">
+                        Apply to @WithChanges listing@(WithChanges == 1 ? "" : "s")
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Pending == 0)" OnClick="ReviewAsync">
+                        Review and push @Pending listing@(Pending == 1 ? "" : "s")
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+            <MudText Typo="Typo.body2" Class="muted mb-2">
+                Applying puts the template's photo in its place on each listing as an unpushed edit (a new image replaces the old
+                copy); nothing is sent to Etsy until you review and push.
+            </MudText>
+            @if (_uses.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted">No listings yet. Link the ones below.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_useSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_useSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in _useSort.Apply(_uses))
+                        {
+                            <tr>
+                                <td><a href="@($"listings/{u.ListingId}/edit")">@u.Title</a> <span class="muted small">· @u.ShopName</span></td>
+                                <td><span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)</td>
+                                <td class="text-right"><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkAsync(u))">Unlink</MudButton></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudPaper>
+
+        @if (_review is not null)
+        {
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+                    <MudText Typo="Typo.h6">Review the push</MudText>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _review = null)">Close</MudButton>
+                </MudStack>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Each listing is pushed on its own, with all of its unpushed edits (not only this template), exactly as from its
+                    editor; its review lists every photo call. Listings with a problem are skipped; fix them in their editor.
+                </MudText>
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_reviewSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_reviewSort" Column="changes" Changed="StateHasChanged">Changes</SortHeader>
+                            <SortHeader Sort="_reviewSort" Column="ready" Changed="StateHasChanged">Ready</SortHeader>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _reviewSort.Apply(_review))
+                        {
+                            <tr>
+                                <td><a href="@($"listings/{item.ListingId}/edit")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
+                                <td>@string.Join(", ", item.Preview.Changes.Select(c => c.Label))</td>
+                                <td>
+                                    @if (item.Preview.CanPush)
+                                    {
+                                        <span><span class="esm-status-dot esm-dot-success"></span> Ready</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var b in item.Preview.Blockers) { <div class="small error-text">@b</div> }
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _pushing)" OnClick="PushAsync">
+                    Push @Ready listing@(Ready == 1 ? "" : "s") to Etsy
+                </MudButton>
+            </MudPaper>
+        }
+
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" Class="mb-2">Add listings</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-2">
+                Listings that already have a photo with this alt text keep it as the template's photo; the others get the photo
+                when you apply.
+            </MudText>
+            <MudTextField T="string" @bind-Value="_filter" Placeholder="Find a listing" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" Class="mb-2 esm-w-lg" />
+            <MudSimpleTable Dense="true">
+                <thead>
+                    <tr>
+                        <th class="esm-col-icon"></th>
+                        <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                        <SortHeader Sort="_candidateSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                        <SortHeader Sort="_candidateSort" Column="has" Changed="StateHasChanged">Has this photo</SortHeader>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _candidateSort.Apply(VisibleCandidates))
+                    {
+                        <tr>
+                            <td><MudCheckBox T="bool" Value="@_picked.Contains(c.ListingId)" ValueChanged="@(on => Pick(c.ListingId, on))" aria-label="@($"Link {c.Title}")" Dense="true" /></td>
+                            <td><a href="@($"listings/{c.ListingId}")">@c.Title</a></td>
+                            <td>@c.ShopName</td>
+                            <td>@(c.HasPhoto ? "Yes" : "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
+                Link @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
+            </MudButton>
+        </MudPaper>
+    }
+}
+
+@code {
+    /// <summary>JPEG, PNG, GIF or WebP up to this size (as in the photo editor).</summary>
+    private const long MaxBytes = 10 * 1024 * 1024;
+
+    [Parameter] public int? Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private PhotoTemplate? _saved;
+    private bool _loaded, _pushing, _uploading;
+    private string _name = "", _alt = "";
+    private string? _file, _filter, _error;
+    private int _rank = 1;
+    private IReadOnlyList<PhotoTemplateUse> _uses = [];
+    private IReadOnlyList<PhotoTemplateCandidate> _candidates = [];
+    private IReadOnlyList<TemplatePushItem>? _review;
+    private readonly HashSet<int> _picked = [];
+
+    public static string PositionText(int rankFromEnd) => rankFromEnd switch
+    {
+        1 => "Last photo",
+        2 => "Second to last",
+        3 => "Third to last",
+        var n => $"{n}th from the end",
+    };
+
+    private bool Dirty => _saved is null
+        ? _name.Trim().Length > 0 || _file is not null
+        : _name.Trim() != _saved.Name || _alt.Trim() != _saved.AltText || _file != _saved.FileName || _rank != _saved.RankFromEnd;
+    private int WithChanges => _uses.Count(u => u.Status == PhotoTemplateUseStatus.HasChanges);
+    private int Pending => _uses.Count(u => u.PhotosPending);
+    private int Ready => _review?.Count(r => r.Preview.CanPush) ?? 0;
+    private IEnumerable<PhotoTemplateCandidate> VisibleCandidates => string.IsNullOrWhiteSpace(_filter)
+        ? _candidates : _candidates.Where(c => c.Title.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private readonly TableSort<PhotoTemplateUse> _useSort = new()
+    {
+        ["listing"] = u => u.Title,
+        ["status"] = u => StatusText(u),
+    };
+    private readonly TableSort<PhotoTemplateCandidate> _candidateSort = new()
+    {
+        ["listing"] = c => c.Title,
+        ["shop"] = c => c.ShopName,
+        ["has"] = c => c.HasPhoto,
+    };
+    private readonly TableSort<TemplatePushItem> _reviewSort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["changes"] = r => string.Join(", ", r.Preview.Changes.Select(c => c.Label)),
+        ["ready"] = r => r.Preview.CanPush,
+    };
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (Id is { } id && (_saved = await Templates.GetAsync(id)) is not null)
+        {
+            (_name, _alt, _file, _rank) = (_saved.Name, _saved.AltText, _saved.FileName, _saved.RankFromEnd);
+            _uses = await Templates.UsesAsync(id);
+            _candidates = await Templates.CandidatesAsync(id);
+            _picked.Clear();
+            _picked.UnionWith(_candidates.Where(c => c.HasPhoto).Select(c => c.ListingId));
+        }
+        _loaded = true;
+    }
+
+    private async Task<string?> User() => (await AuthState).User.Identity?.Name;
+
+    private static string StatusText(PhotoTemplateUse u) => u.Status switch
+    {
+        PhotoTemplateUseStatus.UpToDate => u.PhotosPending ? "Up to date, not pushed yet" : "Up to date",
+        PhotoTemplateUseStatus.WaitingForPush => "In the draft, not pushed yet",
+        PhotoTemplateUseStatus.HasChanges => u.Change ?? "Will change",
+        PhotoTemplateUseStatus.TooManyPhotos => $"Would have more than {PhotoEditor.MaxPhotos} photos; remove one in the editor",
+        _ => "Photos changed on Etsy: resolve it in the listing's editor first",
+    };
+
+    private static string StatusClass(PhotoTemplateUseStatus s) => s switch
+    {
+        PhotoTemplateUseStatus.UpToDate => "esm-dot-success",
+        PhotoTemplateUseStatus.HasChanges or PhotoTemplateUseStatus.WaitingForPush => "esm-dot-info",
+        _ => "esm-dot-warning",
+    };
+
+    private void Pick(int listingId, bool on)
+    {
+        if (on) _picked.Add(listingId); else _picked.Remove(listingId);
+    }
+
+    private async Task UploadAsync(IBrowserFile? file)
+    {
+        if (file is null) return;
+        _error = null;
+        if (file.Size > MaxBytes) { _error = $"{file.Name} is larger than {MaxBytes / 1024 / 1024} MB."; return; }
+        _uploading = true;
+        try
+        {
+            using var buffer = new MemoryStream();
+            await file.OpenReadStream(MaxBytes).CopyToAsync(buffer);
+            _file = await Store.SaveAsync(buffer.ToArray(), ImageStore.ExtensionFor(file.ContentType, file.Name));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            _error = $"Couldn't add {file.Name}: {ex.Message}";
+        }
+        finally { _uploading = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        var (id, error) = await Templates.SaveAsync(_saved?.Id, _name, _file, _alt, _rank, await User());
+        if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
+        if (_saved is null) { Nav.NavigateTo($"photo-templates/{id}"); return; }
+        await LoadAsync();
+        Snackbar.Add(WithChanges > 0
+            ? $"Template saved. {WithChanges} listing{(WithChanges == 1 ? "" : "s")} would change; apply it when you're ready."
+            : "Template saved.", Severity.Success);
+    }
+
+    private async Task DeleteAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Delete photo template",
+            $"Delete \"{_saved!.Name}\"? Listings keep the photo; they're only no longer linked.", yesText: "Delete template", cancelText: "Cancel");
+        if (ok != true) return;
+        await Templates.DeleteAsync(_saved.Id, await User());
+        Nav.NavigateTo("photo-templates");
+    }
+
+    private async Task ApplyAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Apply the template",
+            $"Put the template's photo in place on {WithChanges} listing{(WithChanges == 1 ? "" : "s")}? They become unpushed edits; " +
+            "nothing is sent to Etsy until you review and push.", yesText: "Apply", cancelText: "Cancel");
+        if (ok != true) return;
+        var count = await Templates.ApplyAsync(_saved!.Id, await User());
+        await LoadAsync();
+        _review = null;
+        Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} updated as unpushed edits.", Severity.Success);
+    }
+
+    private async Task ReviewAsync() => _review = await Templates.ReviewAsync(_saved!.Id);
+
+    private async Task PushAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Push to Etsy",
+            $"Push {Ready} listing{(Ready == 1 ? "" : "s")} to Etsy? Each one is a normal push with a snapshot you can restore.",
+            yesText: "Push to Etsy", cancelText: "Cancel");
+        if (ok != true) return;
+        _pushing = true;
+        try
+        {
+            var results = await Templates.PushAsync(_saved!.Id, await User());
+            var queued = results.Count(r => r.PushId is not null);
+            Snackbar.Add($"{queued} push{(queued == 1 ? "" : "es")} queued; results appear on each listing and on the Jobs page.", Severity.Info);
+            foreach (var s in results.Where(r => r.PushId is null)) Snackbar.Add($"{s.Title}: {string.Join(" ", s.Blockers)}", Severity.Warning);
+            _review = null;
+            await LoadAsync();
+        }
+        finally { _pushing = false; }
+    }
+
+    private async Task LinkAsync()
+    {
+        var count = await Templates.LinkAsync(_saved!.Id, _picked, await User());
+        await LoadAsync();
+        Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} linked.", Severity.Success);
+    }
+
+    private async Task UnlinkAsync(PhotoTemplateUse u)
+    {
+        await Templates.UnlinkAsync(_saved!.Id, u.ListingId, await User());
+        await LoadAsync();
+    }
+}

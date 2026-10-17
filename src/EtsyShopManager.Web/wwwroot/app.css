@@ -472,3 +472,5 @@ a.lp-status-error:hover { text-decoration: underline; }
 .esm-diff-added { color: var(--esm-success); }
 .esm-diff-gap { color: var(--esm-muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+/* Photo template thumbnails in the template list */
+.esm-template-thumb { width: 48px; }

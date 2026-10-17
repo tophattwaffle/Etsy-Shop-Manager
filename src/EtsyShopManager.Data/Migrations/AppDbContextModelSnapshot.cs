@@ -571,6 +571,40 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ListingOfferings");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingPhotoTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AppliedAltText")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AppliedFileName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LinkedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PendingFileName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PhotoTemplateId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhotoTemplateId");
+
+                    b.HasIndex("ListingId", "PhotoTemplateId")
+                        .IsUnique();
+
+                    b.ToTable("ListingPhotoTemplates");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingProduct", b =>
                 {
                     b.Property<int>("Id")
@@ -978,6 +1012,48 @@ namespace EtsyShopManager.Data.Migrations
                     b.HasIndex("ListingId");
 
                     b.ToTable("PhotoOrderTests");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.PhotoTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AltText")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<int>("RankFromEnd")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AltText")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("PhotoTemplates");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ProcessingProfile", b =>
@@ -1819,6 +1895,25 @@ namespace EtsyShopManager.Data.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingPhotoTemplate", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithMany()
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EtsyShopManager.Core.Domain.PhotoTemplate", "PhotoTemplate")
+                        .WithMany("Listings")
+                        .HasForeignKey("PhotoTemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+
+                    b.Navigation("PhotoTemplate");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingProduct", b =>
                 {
                     b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
@@ -2087,6 +2182,11 @@ namespace EtsyShopManager.Data.Migrations
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.PhotoTemplate", b =>
+                {
+                    b.Navigation("Listings");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Shop", b =>
