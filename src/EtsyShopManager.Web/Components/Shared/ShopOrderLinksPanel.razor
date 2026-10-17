@@ -6,12 +6,13 @@
 @inject IJSRuntime Js
 @inject ISnackbar Snackbar
 
-@* Per-shop browser/order link setting so each shop's orders on the Orders page can open in its own browser or profile. *@
+@* Per-shop browser for Etsy links (orders, "View on Etsy" on listings), so each shop opens where its Etsy account is
+   signed in. See ShopOrderLinkService. *@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-    <MudText Typo="Typo.h6" GutterBottom="true">Order links</MudText>
+    <MudText Typo="Typo.h6" GutterBottom="true">Etsy browser</MudText>
     <MudText Typo="Typo.body2" Class="muted mb-3">
-        Choose how receipt links on the Orders page open for each shop, so each shop can open in the browser or profile
-        where its Etsy account stays signed in.
+        Choose which browser opens each shop's Etsy links, such as orders and "View on Etsy" on a listing, so they open
+        where that shop's Etsy account is signed in.
     </MudText>
 
     @if (_shops is null)
@@ -20,7 +21,7 @@
     }
     else if (_shops.Count == 0)
     {
-        <MudText Typo="Typo.body2" Class="muted">Connect a shop to configure its order links.</MudText>
+        <MudText Typo="Typo.body2" Class="muted">Connect a shop to choose its browser.</MudText>
     }
     else
     {
@@ -60,11 +61,11 @@
                             <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveRowAsync(s, row)">Save</MudButton>
                         }
                         <MudSelect T="string" Value="row.Mode" ValueChanged="m => OnModeChangedAsync(s, row, m)"
-                                   Label="Open orders in" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-shop-link-select">
+                                   Label="Open Etsy in" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-shop-link-select">
                             <MudSelectItem T="string" Value="@ModeDefault">This browser</MudSelectItem>
                             <MudSelectItem T="string" Value="@ModeEdge">Microsoft Edge</MudSelectItem>
                             <MudSelectItem T="string" Value="@ModeChrome">Google Chrome</MudSelectItem>
-                            <MudSelectItem T="string" Value="@ModeCustom">Custom URL</MudSelectItem>
+                            <MudSelectItem T="string" Value="@ModeCustom">Custom order link</MudSelectItem>
                         </MudSelect>
                     </AuthorizeView>
                 </div>
@@ -167,7 +168,7 @@
         var user = (await AuthState).User.Identity?.Name;
         await OrderLinks.SetAsync(shop.Id, template, user);
         row.SavedTemplate = template;
-        Snackbar.Add($"Saved order link for {shop.Name}", Severity.Success);
+        Snackbar.Add($"Saved the Etsy browser for {shop.Name}", Severity.Success);
     }
 
     private async Task CopyChromeCommandAsync()
