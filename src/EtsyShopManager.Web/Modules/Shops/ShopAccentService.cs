@@ -6,7 +6,8 @@ namespace EtsyShopManager.Web.Modules.Shops;
 /// <summary>
 /// A shop's accent color: the ring, edge and tint that mark what belongs to it. By default the browser reads it from
 /// the shop's profile image (esm.dominantColor in app.js); an Admin can override it on the Shops page. Overrides are
-/// app settings ("Shops.AccentColor.{id}"), so they need no schema change.
+/// app settings ("Shops.AccentColor.{id}"), so they need no schema change. The browser also reports the automatic color
+/// it reads ("Shops.AutoAccentColor.{id}"), so the Home Assistant card, which can't read the image, gets the same one.
 /// </summary>
 public sealed partial class ShopAccentService(ISettingsStore settings, IAuditLog audit)
 {
@@ -17,6 +18,7 @@ public sealed partial class ShopAccentService(ISettingsStore settings, IAuditLog
     public const string PickerDefault = "#808080";
 
     public static string SettingKey(int shopId) => $"Shops.AccentColor.{shopId}";
+    public static string AutoSettingKey(int shopId) => $"Shops.AutoAccentColor.{shopId}";
 
     public static bool IsHex(string? value) => value is not null && HexPattern().IsMatch(value.Trim());
 
@@ -28,6 +30,26 @@ public sealed partial class ShopAccentService(ISettingsStore settings, IAuditLog
             if (await settings.GetAsync(SettingKey(id), ct) is { } value && IsHex(value))
                 result[id] = value.Trim().ToUpperInvariant();
         return result;
+    }
+
+    /// <summary>Each shop's color as the app shows it: the override, else the last automatic color a browser read.</summary>
+    public async Task<Dictionary<int, string>> GetEffectiveAsync(IEnumerable<int> shopIds, CancellationToken ct = default)
+    {
+        var ids = shopIds.Distinct().ToList();
+        var result = await GetOverridesAsync(ids, ct);
+        foreach (var id in ids.Where(id => !result.ContainsKey(id)))
+            if (await settings.GetAsync(AutoSettingKey(id), ct) is { } value && IsHex(value))
+                result[id] = value.Trim().ToUpperInvariant();
+        return result;
+    }
+
+    /// <summary>Remembers the color a browser read from the shop's profile image (only writes when it changed).</summary>
+    public async Task SaveAutomaticAsync(int shopId, string hex, CancellationToken ct = default)
+    {
+        if (!IsHex(hex)) return;
+        var value = hex.Trim().ToUpperInvariant();
+        if (await settings.GetAsync(AutoSettingKey(shopId), ct) != value)
+            await settings.SetAsync(AutoSettingKey(shopId), value, updatedBy: "browser", ct: ct);
     }
 
     /// <summary>Sets the shop's color, or with null goes back to the color read from its profile image.</summary>

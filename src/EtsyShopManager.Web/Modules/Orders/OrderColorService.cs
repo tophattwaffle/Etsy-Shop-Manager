@@ -17,8 +17,11 @@ public sealed record OrderColor(string Name, IReadOnlyList<string> Hex, bool Met
 /// </summary>
 public sealed record OrderColorConfig(IReadOnlyList<OrderColor> Colors, IReadOnlyList<string> RandomWords)
 {
-    /// <summary>The card's config keys (<c>colors</c>, <c>metallic</c>, <c>random_words</c>) plus a <c>version</c> hash.</summary>
-    public JsonObject ToCardJson()
+    /// <summary>
+    /// The card's config keys (<c>colors</c>, <c>metallic</c>, <c>random_words</c>), the shops' accent colors by Etsy
+    /// shop id (<c>shop_accents</c>, when given) and a <c>version</c> hash of all of it.
+    /// </summary>
+    public JsonObject ToCardJson(IReadOnlyDictionary<string, string>? shopAccents = null)
     {
         var colors = new JsonObject();
         foreach (var c in Colors) colors[c.Name] = new JsonArray(c.Hex.Select(h => (JsonNode)h).ToArray());
@@ -28,6 +31,9 @@ public sealed record OrderColorConfig(IReadOnlyList<OrderColor> Colors, IReadOnl
             ["metallic"] = new JsonArray(Colors.Where(c => c.Metallic).Select(c => (JsonNode)c.Name).ToArray()),
             ["random_words"] = new JsonArray(RandomWords.Select(w => (JsonNode)w).ToArray()),
         };
+        if (shopAccents is { Count: > 0 })
+            json["shop_accents"] = new JsonObject(shopAccents.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value)));
         json["version"] = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json.ToJsonString())))[..12];
         return json;
     }

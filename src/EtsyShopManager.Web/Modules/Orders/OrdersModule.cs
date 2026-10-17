@@ -42,11 +42,17 @@ public sealed class OrdersModule : IModule
         var ha = endpoints.MapGroup("/api/ha/v1").AllowAnonymous().AddEndpointFilter<ApiKeyEndpointFilter>();
 
         ha.MapGet("/shops", async (OrderQueries q, CancellationToken ct) => Results.Json(await q.HaShopsAsync(ct)));
-        ha.MapGet("/open-orders", async (OrderQueries q, OrderColorService colors, CancellationToken ct) =>
+        ha.MapGet("/open-orders", async (OrderQueries q, OrderColorService colors,
+            EtsyShopManager.Web.Modules.Shops.ShopService shops, EtsyShopManager.Web.Modules.Shops.ShopAccentService accents,
+            CancellationToken ct) =>
         {
             var payload = await q.HaOpenOrdersAllAsync(ct);
-            // The order color list rides along so the HA card colors exactly like the Orders page.
-            payload["color_config"] = (await colors.GetAsync(ct)).ToCardJson();
+            // The order color list and the shops' accent colors ride along, so the HA card colors exactly like the app.
+            var active = await shops.ListAsync(includeInactive: false, ct);
+            var byShop = await accents.GetEffectiveAsync(active.Select(s => s.Id), ct);
+            var shopAccents = active.Where(s => byShop.ContainsKey(s.Id))
+                .ToDictionary(s => s.EtsyShopId.ToString(System.Globalization.CultureInfo.InvariantCulture), s => byShop[s.Id]);
+            payload["color_config"] = (await colors.GetAsync(ct)).ToCardJson(shopAccents);
             return Results.Json(payload);
         });
         ha.MapGet("/shops/{shopId:long}/open-orders", async (long shopId, OrderQueries q, CancellationToken ct) =>

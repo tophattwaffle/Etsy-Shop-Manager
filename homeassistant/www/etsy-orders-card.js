@@ -1,4 +1,4 @@
-// etsy-orders-card v2.5.0 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.6.0 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
@@ -7,7 +7,9 @@
 // The coloring engine (EtsyOrderColors) is shared with the app's Orders page,
 // which loads this same file. Config:
 //   shops:             list of { entity, name?, icon? (emoji or text),
-//                      order_url? (desktop-only override of order_url) }
+//                      order_url? (desktop-only override of order_url),
+//                      accent? ("#hex" outline for this shop's orders; default
+//                      the shop's color from the app, none if it has none) }
 //   android_package:   on Android, open orders in this app (an intent link
 //                      with the web order page as fallback) instead of the
 //                      per-shop desktop links. Omit to use plain web links.
@@ -334,6 +336,7 @@ class EtsyOrdersCard extends HTMLElement {
       this._colors = new EtsyOrderColors(EtsyOrderColors.merge(shared, this._own));
       this._signature = null;
     }
+    this._shopAccents = shared?.shop_accents || {};
     const sig = this._config.shops.map((s) => hass.states[s.entity]?.last_updated).join("|");
     if (sig !== this._signature) {
       this._signature = sig;
@@ -470,8 +473,10 @@ class EtsyOrdersCard extends HTMLElement {
     }
 
     const orderUrl = this._orderUrlTemplate(shop);
+    // The shop's color from the app (keyed by Etsy shop id), unless the card sets its own.
+    const accent = shop.accent || this._shopAccents?.[String(st.attributes.shop_id)];
     const body = orders.length
-      ? orders.map((o) => this._order(o, orderUrl)).join("")
+      ? orders.map((o) => this._order(o, orderUrl, accent)).join("")
       : `<div class="empty">🎉 No open orders — nothing to ship.</div>`;
 
     return `<section class="shop">
@@ -491,7 +496,7 @@ class EtsyOrdersCard extends HTMLElement {
     return shop.order_url !== undefined ? shop.order_url : web;
   }
 
-  _order(o, orderUrl) {
+  _order(o, orderUrl, accent) {
     const c = this._config;
     const due = this._due(o.ship_by_ts);
     const buyer = (o.buyer_name || "").trim() || `#${o.receipt_id}`;
@@ -516,8 +521,10 @@ class EtsyOrdersCard extends HTMLElement {
       .join("");
     // Only web links get a new tab; an OS handler link (another browser) would leave a blank one behind.
     const target = url && /^https?:/i.test(url) ? ` target="_blank" rel="noopener"` : "";
-    const cls = `order${due.urgent ? " urgent" : ""}`;
-    const open = url ? `<a class="${cls}" href="${esc(url)}"${target}>` : `<div class="${cls}">`;
+    // An urgent order keeps its red background; the shop's outline shows either way.
+    const cls = `order${due.urgent ? " urgent" : ""}${accent ? " accent" : ""}`;
+    const style = accent ? ` style="--shop: ${esc(accent)}"` : "";
+    const open = url ? `<a class="${cls}" href="${esc(url)}"${target}${style}>` : `<div class="${cls}"${style}>`;
     return `${open}<div class="order-head"><span class="due ${due.cls}" style="${due.style}">${esc(due.text)}</span><span class="buyer">${esc(buyer)}</span>${price}</div>${items}${url ? "</a>" : "</div>"}`;
   }
 
@@ -544,6 +551,7 @@ class EtsyOrdersCard extends HTMLElement {
         a.order:hover { background: rgba(127, 127, 127, 0.18); }
         .order.urgent { background: rgba(219, 68, 55, 0.16); box-shadow: inset 0 0 0 1px rgba(219, 68, 55, 0.5); }
         a.order.urgent:hover { background: rgba(219, 68, 55, 0.26); }
+        .order.accent, .order.urgent.accent { box-shadow: inset 0 0 0 2px var(--shop); }
         .order-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
         .due { flex: none; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 10px; color: var(--primary-text-color);
                background: rgba(127, 127, 127, 0.18); border: 1px solid transparent; }

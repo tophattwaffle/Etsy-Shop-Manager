@@ -80,7 +80,10 @@
         _autoRequested = true;
         foreach (var s in _shops.Where(s => s.IconUrl is { Length: > 0 }))
             if (await Js.InvokeAsync<string?>("esm.dominantColor", ShopIconCache.UrlFor(s.Id)) is { } color)
+            {
                 _auto[s.Id] = color.ToUpperInvariant();
+                await Accents.SaveAutomaticAsync(s.Id, color); // for the Home Assistant card
+            }
         if (_auto.Count > 0) StateHasChanged();
     }
 

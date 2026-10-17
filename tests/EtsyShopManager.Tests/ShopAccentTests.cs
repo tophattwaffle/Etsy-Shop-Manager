@@ -33,6 +33,18 @@ public class ShopAccentTests
         Assert.Empty(await accents.GetOverridesAsync([1, 2]));
     }
 
+    [Fact]
+    public async Task Effective_color_is_the_override_else_the_last_automatic_one()
+    {
+        var accents = new ShopAccentService(new MemorySettings(), new NullAuditLog());
+        await accents.SaveAutomaticAsync(1, "#6bc7be");
+        await accents.SaveAutomaticAsync(2, "#123456");
+        await accents.SaveAutomaticAsync(3, "not a color");
+        await accents.SetAsync(2, "#FF8800", "tophattwaffle");
+
+        Assert.Equal(new Dictionary<int, string> { [1] = "#6BC7BE", [2] = "#FF8800" }, await accents.GetEffectiveAsync([1, 2, 3]));
+    }
+
     [Theory]
     [InlineData("red")]
     [InlineData("#12345")]
