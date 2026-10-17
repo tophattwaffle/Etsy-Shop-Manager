@@ -505,3 +505,15 @@ a.lp-status-error:hover { text-decoration: underline; }
     .esm-dash { grid-template-columns: minmax(0, 1fr); grid-auto-flow: row; }
     .esm-dash-module { grid-column: 1 / -1; }
 }
+/* Status dots next to plain text (text blocks) */
+.esm-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--esm-muted); margin-right: 4px; vertical-align: middle; }
+.esm-dot-success { background: var(--esm-success); }
+.esm-dot-info { background: var(--esm-info); }
+.esm-dot-warning { background: var(--esm-warning); }
+/* Line diff of a description (TextDiff.razor): removed lines struck through, added lines marked, gaps as an ellipsis */
+.esm-diff { font-family: Consolas, "Cascadia Mono", monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; border: 1px solid var(--esm-line); border-radius: var(--esm-radius-sm); padding: 8px 12px; background: var(--esm-sunk); }
+.esm-diff-line { min-height: 1.2em; }
+.esm-diff-removed { color: var(--esm-error); text-decoration: line-through; }
+.esm-diff-added { color: var(--esm-success); }
+.esm-diff-gap { color: var(--esm-muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

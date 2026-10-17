@@ -1,6 +1,6 @@
 # Etsy Shop Manager — Project Plan
 
-_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented; Phase 3 editor (fields, variations, prices, processing, push, drift, auto-refill) implemented; photo editing next. Last updated 2026-10-17._
+_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented; Phase 3 editor (all writable fields, photos, variations, push, drift, clone, auto-refill) implemented; Phase 4 started with text blocks, shared variation lists next. Last updated 2026-10-17._
 
 ## Goals
 
@@ -204,6 +204,14 @@ The base URL can be changed later under Admin → Settings. When it changes, the
   - **Styles and featured rank stay read-only:** Etsy's API (OpenAPI spec of 2026-10-17) no longer accepts `styles` or `featured_rank` in updateListing; styles can only be set by createDraftListing (the clone copies them), and featured rank has no write call at all.
   - Checked offline against all 131 real listings: unedited, no listing plans an attribute or personalization call; every one of the 19 settable attribute values re-selects to exactly Etsy's form; all 19 personalized listings rebuild their questions with Etsy's ids.
 - **Testing:** no real Etsy writes in development or tests. `FakeEtsyShop` records every write; tests assert the exact `updateListing` form and `updateListingInventory` JSON. Offline checks against a sanitized copy of production: the migration applies, all 130 listings load without false drift, and the inventory body reproduces every real inventory exactly (48 with variations).
+
+## Phase 4 implementation notes
+- **Text blocks (2026-10-17):** named reusable description text (Text blocks page; `TextBlockService`, `Modules/Templates`).
+  - **No markers on Etsy.** Descriptions stay plain text. The app keeps which listings use a block and the exact text it last put there (`ListingTextBlock.AppliedText`), and finds the block in a description by that text, so the link survives Etsy round-trips and buyers never see anything extra. Block text is normalized (
+ newlines, no trailing spaces, no blank lines around it).
+  - **Linking:** a new block lists the listings whose description already contains it word for word (on the real data, a choking-hazard paragraph was in 54 listings), to link in one go. The editor's "Insert text block" adds a block to the end of the description (a draft) and links it; the text can then be moved anywhere in the description.
+  - **Editing a block** changes nothing by itself. Each linked listing shows a status: up to date; has the old text (with a line diff of the description); edited by hand (the applied text isn't in the description any more: skipped, never overwritten; "Link again" once it contains the block's text); changed on Etsy (description drift: resolve in the editor first). "Apply" writes the new descriptions as drafts; "Review and push" shows each listing's normal push preview (all of its unpushed edits, blockers included) and queues the normal push for those that can go. Deleting a block only unlinks; listings keep their text.
+  - Not yet: placeholders (`{{shop.name}}`).
 
 ## Etsy errors in plain words (2026-10-17)
 - Etsy's error replies (`{"error": "…"}`, or a list of field checks `{"path": "/title/0", "type": "all_caps", "message": "…"}`) are turned into one sentence: what Etsy refused, its reason (known checks and messages reworded, others cleaned up), and what to do ("Change the title and try again", "Reconnect the shop", "Try again in a few minutes" for Etsy's own errors). It is the message of every failed Etsy call, so job results, toasts, the editor's push history, the clone page and the refill panel all show it; the raw reply stays in the Etsy write log.

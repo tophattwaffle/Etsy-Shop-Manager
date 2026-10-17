@@ -107,6 +107,7 @@ var modules = builder.AddModules(
     new OrdersModule(),
     new EtsyShopManager.Web.Modules.Dashboard.DashboardModule(),
     new EtsyShopManager.Web.Modules.Stock.EditorModule(),
+    new EtsyShopManager.Web.Modules.Templates.TemplatesModule(),
     new JobsModule(),
     new AdminModule());
 

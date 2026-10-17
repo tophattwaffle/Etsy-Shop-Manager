@@ -1,0 +1,69 @@
+@page "/text-blocks"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Templates
+@inject TextBlockService Blocks
+
+<PageTitle>Text blocks · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Text blocks">
+    <Summary>Reusable description text, such as care instructions. Change a block once and update every listing that uses it.</Summary>
+    <Actions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="text-blocks/new">New text block</MudButton>
+    </Actions>
+</PageHeader>
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    @if (_blocks is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_blocks.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">
+            No text blocks yet. Create one from text you use in several descriptions; the app finds the listings that already
+            contain it.
+        </MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <SortHeader Sort="_sort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                    <SortHeader Sort="_sort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                    <SortHeader Sort="_sort" Column="update" Changed="StateHasChanged">Waiting for the new text</SortHeader>
+                    <SortHeader Sort="_sort" Column="attention" Changed="StateHasChanged">Need a look</SortHeader>
+                    <SortHeader Sort="_sort" Column="updated" Changed="StateHasChanged">Changed</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in _sort.Apply(_blocks))
+                {
+                    <tr>
+                        <td><a href="@($"text-blocks/{b.Id}")">@b.Name</a></td>
+                        <td>@b.Listings</td>
+                        <td>@(b.WillChange == 0 ? "—" : b.WillChange.ToString())</td>
+                        <td>@(b.NeedAttention == 0 ? "—" : b.NeedAttention.ToString())</td>
+                        <td>@ListingFormat.Local(b.UpdatedAtUtc)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    private IReadOnlyList<TextBlockSummary>? _blocks;
+
+    private readonly TableSort<TextBlockSummary> _sort = new()
+    {
+        ["name"] = b => b.Name,
+        ["listings"] = b => b.Listings,
+        ["update"] = b => b.WillChange,
+        ["attention"] = b => b.NeedAttention,
+        ["updated"] = b => b.UpdatedAtUtc,
+    };
+
+    protected override async Task OnInitializedAsync() => _blocks = await Blocks.ListAsync();
+}
