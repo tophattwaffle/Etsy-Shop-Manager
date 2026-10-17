@@ -37,6 +37,22 @@ public class ListingsPageTests
     }
 
     [Fact]
+    public async Task Listings_can_be_found_by_category()
+    {
+        using var shop = new FakeEtsyShop();
+        var other = FakeEtsyShop.Listing(2, "Plant pot", state: "draft");
+        other["taxonomy_id"] = 2002;
+        shop.Listings.AddRange([FakeEtsyShop.Listing(1, "Galaxy vase"), other, FakeEtsyShop.Listing(3, "Moon vase")]);
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        var queries = shop.Provider.GetRequiredService<ListingQueries>();
+
+        var (vases, total) = await queries.SearchAsync(new ListingFilter { TaxonomyId = 1001 });
+        Assert.Equal(2, total);
+        Assert.Equal([1L, 3L], vases.Select(r => r.EtsyListingId).Order());
+        Assert.Equal([2L], (await queries.SearchAsync(new ListingFilter { TaxonomyId = 2002 })).Rows.Select(r => r.EtsyListingId));
+    }
+
+    [Fact]
     public async Task Shop_icon_is_downloaded_once_and_served_from_the_image_store()
     {
         using var shop = new FakeEtsyShop();
