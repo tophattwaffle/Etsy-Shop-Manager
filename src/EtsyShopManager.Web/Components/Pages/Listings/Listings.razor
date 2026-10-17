@@ -304,7 +304,7 @@
 
     private static readonly HashSet<string> ListingJobTypes =
     [
-        ImportShopListingsJob.Type, DownloadListingImagesJob.Type, ImportShopLookupsJob.Type,
+        ImportShopListingsJob.Type, DownloadListingImagesJob.Type, ImportShopLookupsJob.Type, RefillListingJob.Type, EtsyShopManager.Web.Modules.Editor.PushListingJob.Type,
         EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type, EtsyShopManager.Web.Modules.Shops.TokenKeepAliveJob.Type,
     ];
 
@@ -349,7 +349,8 @@
         _live = JobEvents.Subscribe(c => ListingJobTypes.Contains(c.JobType), changes => InvokeAsync(async () =>
         {
             _shops = await Queries.GetImportStatusAsync();
-            if (changes.Any(c => c.IsFinal && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type))
+            if (changes.Any(c => c.IsFinal && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type
+                    or RefillListingJob.Type or EtsyShopManager.Web.Modules.Editor.PushListingJob.Type))
                 await LoadAsync();
             StateHasChanged();
         }));

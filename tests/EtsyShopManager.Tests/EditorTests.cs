@@ -440,6 +440,20 @@ public class StockRefillTests
         Assert.Equal([999, 50], await db.ListingOfferings.OrderBy(o => o.Product.Sku == "SKU1-L").Select(o => o.Quantity).ToListAsync());
     }
 
+    [Theory]
+    [InlineData(true, 999 + 50)] // quantity varies by size: Etsy's listing total is the sum of the variations
+    [InlineData(false, 999)]     // one shared quantity: Etsy reports that quantity
+    public async Task A_refill_updates_the_listing_stock_shown_in_the_app(bool quantityVaries, int expected)
+    {
+        var (shop, id) = await SetupAsync(smallQty: 3, largeQty: quantityVaries ? 50 : 3, quantityVaries: quantityVaries);
+        using var _ = shop;
+
+        await Refiller(shop).RefillListingAsync(id, CancellationToken.None);
+
+        await using var db = shop.Db.CreateDbContext();
+        Assert.Equal(expected, (await db.Listings.SingleAsync()).Quantity);
+    }
+
     [Fact]
     public async Task Shared_quantity_refills_all_variations_together()
     {

@@ -204,6 +204,7 @@ public sealed class StockRefiller(
         var tracked = await db.Listings.Include(l => l.Products).ThenInclude(p => p.Offerings)
             .FirstAsync(l => l.Id == listingId, ct);
         ListingMapper.SyncInventory(tracked, updated);
+        tracked.Quantity = ListingMapper.ListingQuantity(updated); // the stock the tiles, list and listing page show
 
         var changes = plan.Values.Select(p => $"{p.Label}: {p.From} → {settings.RefillTo}").ToList();
         settings.Problem = null;

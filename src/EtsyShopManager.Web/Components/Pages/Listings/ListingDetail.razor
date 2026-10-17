@@ -259,10 +259,11 @@ else
     private IDisposable? _live;
 
     protected override void OnInitialized() =>
-        // Re-read the listing when an import or photo download for its shop finishes.
+        // Re-read the listing when an import, photo download, refill or push for its shop finishes.
         _live = JobEvents.Subscribe(
             c => c.IsFinal && c.ShopId == _listing?.ShopId
-                 && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type or ImportShopLookupsJob.Type,
+                 && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type or ImportShopLookupsJob.Type
+                     or EtsyShopManager.Web.Modules.Stock.RefillListingJob.Type or EtsyShopManager.Web.Modules.Editor.PushListingJob.Type,
             _ => InvokeAsync(async () => { await LoadAsync(showSpinner: false); StateHasChanged(); }));
 
     public void Dispose() => _live?.Dispose();
