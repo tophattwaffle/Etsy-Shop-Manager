@@ -12,6 +12,7 @@
 @inject IJobEvents JobEvents
 @inject OrderColorService Colors
 @inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
+@inject EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService ShopOrderLinks
 @inject IJSRuntime Js
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
@@ -68,7 +69,7 @@
                         <div>
                             <div class="order-buyer">@(o.BuyerName ?? $"#{o.EtsyReceiptId}")</div>
                             <div class="muted small">
-                                <a href="@($"https://www.etsy.com/your/orders/sold?order_id={o.EtsyReceiptId}")" target="_blank">#@o.EtsyReceiptId</a>
+                                <a href="@OrderUrl(o.ShopId, o.EtsyReceiptId)" target="@OrderTarget(o.ShopId, o.EtsyReceiptId)">#@o.EtsyReceiptId</a>
                                 · @o.Shop.Name · @ListingFormat.Local(o.EtsyCreatedAtUtc)
                             </div>
                         </div>
@@ -182,7 +183,7 @@
             </HeaderContent>
             <RowTemplate>
                 <MudTd>@ListingFormat.Local(context.EtsyCreatedAtUtc, "yyyy-MM-dd")</MudTd>
-                <MudTd><a href="@($"https://www.etsy.com/your/orders/sold?order_id={context.EtsyReceiptId}")" target="_blank">#@context.EtsyReceiptId</a></MudTd>
+                <MudTd><a href="@OrderUrl(context.ShopId, context.EtsyReceiptId)" target="@OrderTarget(context.ShopId, context.EtsyReceiptId)">#@context.EtsyReceiptId</a></MudTd>
                 <MudTd>@context.BuyerName</MudTd>
                 <MudTd class="small">@string.Join(", ", context.Items.Select(i => (i.Quantity > 1 ? $"{i.Quantity}× " : "") + ShortTitle(i.Title)))</MudTd>
                 <MudTd Class="text-right">@OrderTotal(context)</MudTd>
@@ -208,6 +209,7 @@
 
     private List<OrderShopStatus> _status = [];
     private Dictionary<int, string> _accents = [];
+    private Dictionary<int, string> _orderLinks = [];
     private bool _accentsRequested;
     private int? _shopId;
     private List<Order> _open = [];
@@ -248,7 +250,9 @@
     private async Task LoadAsync()
     {
         _status = await Queries.GetShopStatusAsync();
-        _accents = await ShopAccents.GetEffectiveAsync(_status.Select(s => s.ShopId));
+        var shopIds = _status.Select(s => s.ShopId).ToList();
+        _accents = await ShopAccents.GetEffectiveAsync(shopIds);
+        _orderLinks = await ShopOrderLinks.GetOverridesAsync(shopIds);
         _open = await Queries.GetOpenOrdersAsync(_shopId);
         var payload = HaPayloadBuilder.OpenOrders(_open, TimeZoneInfo.Local);
         _toMake = payload["items_needed"]!.AsArray().Select(n => n!.AsObject()).ToList();
@@ -285,6 +289,12 @@
     }
 
     private string ShopStyle(int shopId) => $"--shop: {Accent(shopId)}";
+
+    private string OrderUrl(int shopId, long receiptId) =>
+        EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService.FormatUrl(_orderLinks.GetValueOrDefault(shopId), receiptId);
+
+    private string? OrderTarget(int shopId, long receiptId) =>
+        EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService.OpensInNewTab(OrderUrl(shopId, receiptId)) ? "_blank" : null;
 
     private async Task OnShopChanged(int? id)
     {

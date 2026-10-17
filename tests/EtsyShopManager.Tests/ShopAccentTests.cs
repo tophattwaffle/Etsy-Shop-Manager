@@ -54,4 +54,48 @@ public class ShopAccentTests
         var accents = new ShopAccentService(new MemorySettings(), new NullAuditLog());
         await Assert.ThrowsAsync<ArgumentException>(() => accents.SetAsync(1, value, null));
     }
+
+    [Fact]
+    public async Task Order_link_override_is_saved_per_shop_and_can_revert_to_default()
+    {
+        var links = new ShopOrderLinkService(new MemorySettings(), new NullAuditLog());
+
+        Assert.Empty(await links.GetOverridesAsync([1, 2]));
+        Assert.Equal("https://www.etsy.com/your/orders/sold?order_id=987654", ShopOrderLinkService.FormatUrl(null, 987654));
+
+        await links.SetAsync(1, ShopOrderLinkService.EdgeTemplate, "tophattwaffle");
+        var overrides = await links.GetOverridesAsync([1, 2]);
+        Assert.Equal(ShopOrderLinkService.EdgeTemplate, overrides[1]);
+        Assert.Equal("microsoft-edge:https://www.etsy.com/your/orders/sold?order_id=987654",
+            ShopOrderLinkService.FormatUrl(overrides[1], 987654));
+
+        await links.SetAsync(1, ShopOrderLinkService.DefaultTemplate, "tophattwaffle");
+        Assert.Empty(await links.GetOverridesAsync([1, 2]));
+    }
+
+    [Fact]
+    public void Chrome_profile_templates_round_trip_and_only_http_links_open_in_a_new_tab()
+    {
+        var chrome = ShopOrderLinkService.ChromeTemplate("Profile 1");
+        Assert.Equal("esm-chrome://Profile%201/https://www.etsy.com/your/orders/sold?order_id={receipt_id}", chrome);
+        Assert.True(ShopOrderLinkService.TryGetChromeProfile(chrome, out var profile));
+        Assert.Equal("Profile 1", profile);
+
+        var formatted = ShopOrderLinkService.FormatUrl(chrome, 42);
+        Assert.Equal("esm-chrome://Profile%201/https://www.etsy.com/your/orders/sold?order_id=42", formatted);
+        Assert.False(ShopOrderLinkService.OpensInNewTab(formatted));
+        Assert.False(ShopOrderLinkService.OpensInNewTab(ShopOrderLinkService.FormatUrl(ShopOrderLinkService.EdgeTemplate, 42)));
+        Assert.True(ShopOrderLinkService.OpensInNewTab(ShopOrderLinkService.FormatUrl(null, 42)));
+        Assert.Equal("https://example.com/42", ShopOrderLinkService.FormatUrl("https://example.com/%7Breceipt_id%7D", 42));
+    }
+
+    [Theory]
+    [InlineData("https://www.etsy.com/your/orders/sold")]
+    [InlineData("javascript:alert({receipt_id})")]
+    [InlineData("not-a-scheme/{receipt_id}")]
+    public async Task Invalid_order_link_templates_are_rejected(string template)
+    {
+        var links = new ShopOrderLinkService(new MemorySettings(), new NullAuditLog());
+        await Assert.ThrowsAsync<ArgumentException>(() => links.SetAsync(1, template, null));
+    }
 }

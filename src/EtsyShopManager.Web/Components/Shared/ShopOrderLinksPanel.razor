@@ -1,0 +1,178 @@
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Shops
+@inject ShopService Shops
+@inject ShopAccentService Accents
+@inject ShopOrderLinkService OrderLinks
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+@* Per-shop browser/order link setting so each shop's orders on the Orders page can open in its own browser or profile. *@
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Order links</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Choose how receipt links on the Orders page open for each shop, so each shop can open in the browser or profile
+        where its Etsy account stays signed in.
+    </MudText>
+
+    @if (_shops is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_shops.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">Connect a shop to configure its order links.</MudText>
+    }
+    else
+    {
+        <div class="esm-shop-colors">
+            @foreach (var s in _shops)
+            {
+                var row = _rows[s.Id];
+                var color = _accents.GetValueOrDefault(s.Id);
+                <div class="esm-shop-color" style="@($"--shop: {color ?? "var(--esm-line)"}")">
+                    <span class="lp-shopmark">
+                        @if (s.IconUrl is { Length: > 0 })
+                        {
+                            <img src="@ShopIconCache.UrlFor(s.Id)" alt="" />
+                        }
+                        else
+                        {
+                            @s.Name[..1].ToUpperInvariant()
+                        }
+                    </span>
+                    <div class="esm-grow">
+                        <div class="esm-shop-color-name">@s.Name</div>
+                        <div class="small muted">@Describe(row)</div>
+                    </div>
+                    <AuthorizeView Roles="@Roles.Admin" Context="auth">
+                        <MudSelect T="string" Value="row.Mode" ValueChanged="m => OnModeChangedAsync(s, row, m)"
+                                   Label="Open orders in" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                            <MudSelectItem T="string" Value="@ModeDefault">This browser</MudSelectItem>
+                            <MudSelectItem T="string" Value="@ModeEdge">Microsoft Edge</MudSelectItem>
+                            <MudSelectItem T="string" Value="@ModeChrome">Google Chrome</MudSelectItem>
+                            <MudSelectItem T="string" Value="@ModeCustom">Custom URL</MudSelectItem>
+                        </MudSelect>
+                        @if (row.Mode == ModeChrome)
+                        {
+                            <MudTextField T="string" @bind-Value="row.ChromeProfile" Label="Chrome profile directory"
+                                          Placeholder="Default or Profile 1" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                          Class="esm-w-sm" />
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveRowAsync(s, row)">Save</MudButton>
+                        }
+                        else if (row.Mode == ModeCustom)
+                        {
+                            <MudTextField T="string" @bind-Value="row.CustomTemplate" Label="Order link template"
+                                          Placeholder="@ShopOrderLinkService.DefaultTemplate" Variant="Variant.Outlined"
+                                          Margin="Margin.Dense" Class="esm-w-md" Error="@(row.Error is not null)" ErrorText="@row.Error" />
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveRowAsync(s, row)">Save</MudButton>
+                        }
+                    </AuthorizeView>
+                </div>
+            }
+        </div>
+
+        @if (_rows.Values.Any(r => r.Mode == ModeChrome))
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3" Spacing="2" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.body2" Class="muted">
+                    First time using Google Chrome links on this Windows PC? Run this one-time PowerShell command (no admin needed) to register the <code>esm-chrome://</code> handler:
+                </MudText>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy"
+                           OnClick="CopyChromeCommandAsync">
+                    Copy Windows setup command
+                </MudButton>
+            </MudStack>
+        }
+    }
+</MudPaper>
+
+@code {
+    private const string ModeDefault = "default";
+    private const string ModeEdge = "edge";
+    private const string ModeChrome = "chrome";
+    private const string ModeCustom = "custom";
+
+    private sealed class RowState
+    {
+        public string Mode { get; set; } = ModeDefault;
+        public string ChromeProfile { get; set; } = ShopOrderLinkService.DefaultChromeProfile;
+        public string CustomTemplate { get; set; } = ShopOrderLinkService.DefaultTemplate;
+        public string? SavedTemplate { get; set; }
+        public string? Error { get; set; }
+    }
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<ShopSummary>? _shops;
+    private Dictionary<int, string> _accents = [];
+    private readonly Dictionary<int, RowState> _rows = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
+        var ids = _shops.Select(s => s.Id).ToList();
+        _accents = await Accents.GetEffectiveAsync(ids);
+        var overrides = await OrderLinks.GetOverridesAsync(ids);
+        foreach (var s in _shops)
+        {
+            overrides.TryGetValue(s.Id, out var saved);
+            _rows[s.Id] = BuildRow(saved);
+        }
+    }
+
+    private static RowState BuildRow(string? saved)
+    {
+        if (string.IsNullOrWhiteSpace(saved))
+            return new RowState { Mode = ModeDefault, SavedTemplate = null };
+        if (string.Equals(saved, ShopOrderLinkService.EdgeTemplate, StringComparison.OrdinalIgnoreCase))
+            return new RowState { Mode = ModeEdge, SavedTemplate = saved };
+        if (ShopOrderLinkService.TryGetChromeProfile(saved, out var profile))
+            return new RowState { Mode = ModeChrome, ChromeProfile = profile, SavedTemplate = saved };
+        return new RowState { Mode = ModeCustom, CustomTemplate = saved, SavedTemplate = saved };
+    }
+
+    private static string Describe(RowState row) => row.Mode switch
+    {
+        ModeDefault => "This browser (new tab)",
+        ModeEdge => "Microsoft Edge",
+        ModeChrome => $"Google Chrome ({(string.IsNullOrWhiteSpace(row.ChromeProfile) ? ShopOrderLinkService.DefaultChromeProfile : row.ChromeProfile.Trim())})",
+        _ => row.SavedTemplate ?? row.CustomTemplate,
+    };
+
+    private async Task OnModeChangedAsync(ShopSummary shop, RowState row, string mode)
+    {
+        row.Mode = mode;
+        row.Error = null;
+        if (mode is ModeDefault or ModeEdge or ModeChrome)
+            await SaveRowAsync(shop, row);
+    }
+
+    private async Task SaveRowAsync(ShopSummary shop, RowState row)
+    {
+        row.Error = null;
+        var template = row.Mode switch
+        {
+            ModeDefault => null,
+            ModeEdge => ShopOrderLinkService.EdgeTemplate,
+            ModeChrome => ShopOrderLinkService.ChromeTemplate(row.ChromeProfile),
+            _ => row.CustomTemplate,
+        };
+
+        if (!ShopOrderLinkService.IsValidTemplate(template, out var error))
+        {
+            row.Error = error;
+            return;
+        }
+
+        var user = (await AuthState).User.Identity?.Name;
+        await OrderLinks.SetAsync(shop.Id, template, user);
+        row.SavedTemplate = template;
+        Snackbar.Add($"Saved order link for {shop.Name}", Severity.Success);
+    }
+
+    private async Task CopyChromeCommandAsync()
+    {
+        var ok = await Js.InvokeAsync<bool>("esm.copy", ShopOrderLinkService.WindowsChromeHandlerCommand);
+        Snackbar.Add(ok ? "Copied PowerShell setup command" : "Copy failed (clipboard needs HTTPS)", ok ? Severity.Normal : Severity.Warning);
+    }
+}

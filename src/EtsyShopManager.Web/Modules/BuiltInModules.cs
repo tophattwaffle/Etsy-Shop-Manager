@@ -19,6 +19,7 @@ public sealed class ShopsModule : IModule
     {
         services.AddSingleton<ShopService>();
         services.AddSingleton<ShopAccentService>();
+        services.AddSingleton<ShopOrderLinkService>();
         services.AddJobHandler<TokenKeepAliveJob>();
         services.AddJobHandler<ShopRefreshJob>();
         services.AddJobHandler<RefreshAllShopsJob>();
