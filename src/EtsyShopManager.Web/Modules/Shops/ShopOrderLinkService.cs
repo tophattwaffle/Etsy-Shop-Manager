@@ -5,9 +5,11 @@ using EtsyShopManager.Core.Services;
 namespace EtsyShopManager.Web.Modules.Shops;
 
 /// <summary>
-/// Per-shop order link template used on the Orders page so each shop's receipts can open in its own browser or profile
-/// (for example <c>microsoft-edge:https://…</c> or <c>esm-chrome://Profile%201/https://…</c>), matching the Home
-/// Assistant card's <c>order_url</c> behaviour. Stored in app settings (<c>Shops.OrderUrl.{id}</c>).
+/// Which browser opens a shop's Etsy links (Shops page → "Etsy browser"), so each shop opens where its Etsy account is
+/// signed in. Stored as the shop's order link template (<c>Shops.OrderUrl.{id}</c>), for example
+/// <c>microsoft-edge:https://…</c> or <c>esm-chrome://Profile%201/https://…</c>, matching the Home Assistant card's
+/// <c>order_url</c>. Orders use the template itself (<see cref="FormatUrl"/>); any other Etsy link of the shop, such
+/// as "View on Etsy" on a listing, gets the same browser prefix (<see cref="InShopBrowser"/>).
 /// </summary>
 public sealed partial class ShopOrderLinkService(ISettingsStore settings, IAuditLog audit)
 {
@@ -78,6 +80,19 @@ public sealed partial class ShopOrderLinkService(ISettingsStore settings, IAudit
         var id = receiptId.ToString(CultureInfo.InvariantCulture);
         return t.Replace(Placeholder, id, StringComparison.OrdinalIgnoreCase)
                 .Replace("%7Breceipt_id%7D", id, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Any Etsy link of the shop (a listing, the shop page) opened in the shop's browser: the template's browser prefix
+    /// (<c>microsoft-edge:</c>, <c>esm-chrome://Profile/</c>) in front of <paramref name="url"/>. A custom template
+    /// that isn't a prefix on Etsy's order link only changes order links, so other links stay as they are.
+    /// </summary>
+    public static string InShopBrowser(string? template, string url)
+    {
+        if (string.IsNullOrWhiteSpace(template) || string.IsNullOrWhiteSpace(url) || !OpensInNewTab(url)) return url;
+        var t = template.Trim();
+        var at = t.IndexOf(DefaultTemplate, StringComparison.OrdinalIgnoreCase);
+        return at > 0 && at + DefaultTemplate.Length == t.Length ? t[..at] + url : url;
     }
 
     /// <summary>

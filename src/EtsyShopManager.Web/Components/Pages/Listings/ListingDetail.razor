@@ -4,6 +4,7 @@
 @using EtsyShopManager.Web.Modules.Listings
 @inject ListingQueries Queries
 @inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
+@inject EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService ShopLinks
 @implements IDisposable
 
 <PageTitle>@(_listing?.Title ?? "Listing") · Etsy Shop Manager</PageTitle>
@@ -52,7 +53,9 @@ else
                     <MudText Typo="Typo.body2" Class="muted">@l.Shop.Name · listing #@l.EtsyListingId</MudText>
                     @if (!string.IsNullOrEmpty(l.Url))
                     {
-                        <MudLink Href="@l.Url" Target="_blank" Typo="Typo.body2">View on Etsy</MudLink>
+                        @* In the browser chosen for this shop on the Shops page (Etsy browser). *@
+                        var etsyUrl = EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService.InShopBrowser(_shopBrowser, l.Url);
+                        <MudLink Href="@etsyUrl" Target="@(EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService.OpensInNewTab(etsyUrl) ? "_blank" : null)" Typo="Typo.body2">View on Etsy</MudLink>
                     }
                 </MudStack>
                 <MudText Typo="Typo.h6" Class="mt-2">
@@ -249,6 +252,7 @@ else
 }
 
 @code {
+    private string? _shopBrowser; // the shop's Etsy browser template (Shops page), null for this browser
     [Parameter] public int Id { get; set; }
 
     private bool _loading = true;
@@ -291,6 +295,7 @@ else
         _listing = await Queries.GetDetailAsync(Id);
         if (_listing is not null)
         {
+            _shopBrowser = (await ShopLinks.GetOverridesAsync([_listing.ShopId])).GetValueOrDefault(_listing.ShopId);
             _names = await Queries.GetLookupNamesAsync(_listing);
             _products = _listing.Products.Where(p => !p.IsDeleted)
                 .OrderBy(p => string.Join("|", p.PropertyValues.SelectMany(v => v.Values))).ToList();

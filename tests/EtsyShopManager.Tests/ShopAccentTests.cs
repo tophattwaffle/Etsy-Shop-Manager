@@ -45,6 +45,22 @@ public class ShopAccentTests
         Assert.Equal(new Dictionary<int, string> { [1] = "#6BC7BE", [2] = "#FF8800" }, await accents.GetEffectiveAsync([1, 2, 3]));
     }
 
+    [Fact]
+    public void Shop_browser_applies_to_any_Etsy_link_of_the_shop()
+    {
+        const string listing = "https://www.etsy.com/listing/123/galaxy-vase";
+
+        Assert.Equal(listing, ShopOrderLinkService.InShopBrowser(null, listing));
+        Assert.Equal("microsoft-edge:" + listing, ShopOrderLinkService.InShopBrowser(ShopOrderLinkService.EdgeTemplate, listing));
+        Assert.Equal("esm-chrome://Profile%201/" + listing,
+            ShopOrderLinkService.InShopBrowser(ShopOrderLinkService.ChromeTemplate("Profile 1"), listing));
+        // A custom order link that isn't a browser prefix only changes order links.
+        Assert.Equal(listing, ShopOrderLinkService.InShopBrowser("https://example.lan/orders/{receipt_id}", listing));
+        // Order links themselves still use the template.
+        Assert.Equal("microsoft-edge:https://www.etsy.com/your/orders/sold?order_id=7",
+            ShopOrderLinkService.FormatUrl(ShopOrderLinkService.EdgeTemplate, 7));
+    }
+
     [Theory]
     [InlineData("red")]
     [InlineData("#12345")]
