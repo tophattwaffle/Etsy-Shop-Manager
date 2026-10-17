@@ -447,3 +447,8 @@ a.lp-status-error:hover { text-decoration: underline; }
 .esm-variation-values { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .esm-variation-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .esm-variation-add .mud-input-control { margin: 0; }
+
+/* ---- Admin: photo order test ---- */
+.esm-photo-strip { display: flex; flex-wrap: wrap; gap: 12px; }
+.esm-photo-tile { margin: 0; width: 120px; display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--esm-muted); }
+.esm-photo-tile img { width: 120px; height: 96px; object-fit: cover; border-radius: var(--esm-radius-sm); background: var(--esm-sunk); display: block; }

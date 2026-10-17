@@ -25,6 +25,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ListingPush> ListingPushes => Set<ListingPush>();
     public DbSet<ListingSnapshot> ListingSnapshots => Set<ListingSnapshot>();
     public DbSet<ListingRefill> ListingRefills => Set<ListingRefill>();
+    public DbSet<PhotoOrderTest> PhotoOrderTests => Set<PhotoOrderTest>();
 
     public DbSet<ShippingProfile> ShippingProfiles => Set<ShippingProfile>();
     public DbSet<ProcessingProfile> ProcessingProfiles => Set<ProcessingProfile>();
@@ -176,6 +177,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.HasKey(x => x.ListingId);
             e.HasIndex(x => x.Enabled);
             e.HasOne(x => x.Listing).WithOne().HasForeignKey<ListingRefill>(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<PhotoOrderTest>(e =>
+        {
+            e.HasIndex(x => x.ListingId);
+            e.HasOne(x => x.Listing).WithMany().HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<ShopSyncState>(e =>

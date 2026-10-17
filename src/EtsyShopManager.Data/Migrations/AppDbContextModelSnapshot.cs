@@ -819,6 +819,53 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("OrderItems");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.PhotoOrderTest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("FinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("JobId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Outcome")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResultJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("StepsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ListingId");
+
+                    b.ToTable("PhotoOrderTests");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ProcessingProfile", b =>
                 {
                     b.Property<int>("Id")
@@ -1643,6 +1690,17 @@ namespace EtsyShopManager.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.PhotoOrderTest", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithMany()
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ProcessingProfile", b =>

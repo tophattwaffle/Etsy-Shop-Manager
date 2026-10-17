@@ -51,4 +51,27 @@ public sealed partial class EtsyApiClient
         return await response.Content.ReadFromJsonAsync<EtsyInventory>(EtsyJson.Options, ct)
                ?? throw new JsonException($"Empty inventory response for listing {listingId}");
     }
+
+    /// <summary>
+    /// uploadListingImage (POST, multipart) with an existing <paramref name="listingImageId"/> and a rank: Etsy's way to
+    /// put a photo the listing already has at a position. How Etsy moves the other photos is not documented; it is used only
+    /// by the Admin photo order test, on listings that aren't public.
+    /// </summary>
+    public async Task<EtsyListingImage> RepositionListingImageAsync(long etsyShopId, long listingId, long listingImageId, int rank,
+        bool overwrite, string? altText, EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(() =>
+        {
+            var form = new MultipartFormDataContent
+            {
+                { new StringContent(listingImageId.ToString(System.Globalization.CultureInfo.InvariantCulture)), "listing_image_id" },
+                { new StringContent(rank.ToString(System.Globalization.CultureInfo.InvariantCulture)), "rank" },
+                { new StringContent(overwrite ? "true" : "false"), "overwrite" },
+            };
+            if (altText is not null) form.Add(new StringContent(altText), "alt_text");
+            return new HttpRequestMessage(HttpMethod.Post, $"/v3/application/shops/{etsyShopId}/listings/{listingId}/images") { Content = form };
+        }, auth, ct);
+        return await response.Content.ReadFromJsonAsync<EtsyListingImage>(EtsyJson.Options, ct)
+               ?? throw new JsonException($"Empty image response for listing {listingId}");
+    }
 }

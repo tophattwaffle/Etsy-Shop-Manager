@@ -372,6 +372,8 @@ public sealed class EditorModule : IModule
         services.AddSingleton<StockRefiller>();
         services.AddSingleton<RefillQueue>();
         services.AddJobHandler<PushListingJob>();
+        services.AddSingleton<PhotoOrderTester>();
+        services.AddJobHandler<PhotoOrderTestJob>();
         services.AddJobHandler<RefillListingJob>();
         services.AddJobHandler<RefillSweepJob>();
         services.AddScoped<IDomainEventHandler<OrderReceived>, RefillOnOrderReceived>();
