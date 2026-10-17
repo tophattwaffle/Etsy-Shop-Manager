@@ -40,7 +40,11 @@ public sealed record ListingRow(
     int VariationCount,
     DateTime? EtsyUpdatedAtUtc,
     DateTime LastImportedAtUtc,
-    bool IsMissingOnEtsy);
+    bool IsMissingOnEtsy,
+    RefillSetting? Refill = null);
+
+/// <summary>A listing's auto-refill settings, as shown in the list view.</summary>
+public sealed record RefillSetting(bool Enabled, int Threshold, int RefillTo);
 
 public sealed record ShopImportStatus(
     int ShopId,
@@ -106,9 +110,18 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
                 l.Images.OrderBy(i => i.Rank).Select(i => i.ThumbFileName ?? i.FileName).FirstOrDefault(),
                 l.Images.Count,
                 l.Products.Count(p => !p.IsDeleted),
-                l.EtsyUpdatedAtUtc, l.LastImportedAtUtc, l.IsMissingOnEtsy))
+                l.EtsyUpdatedAtUtc, l.LastImportedAtUtc, l.IsMissingOnEtsy,
+                db.ListingRefills.Where(r => r.ListingId == l.Id)
+                    .Select(r => new RefillSetting(r.Enabled, r.Threshold, r.RefillTo)).FirstOrDefault()))
             .ToListAsync(ct);
         return (rows, total);
+    }
+
+    /// <summary>The ids of every listing matching the filter (all pages), for "select all" in bulk edits.</summary>
+    public async Task<List<int>> SearchIdsAsync(ListingFilter filter, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await Filter(db.Listings.AsNoTracking(), filter).Select(l => l.Id).ToListAsync(ct);
     }
 
     /// <summary>

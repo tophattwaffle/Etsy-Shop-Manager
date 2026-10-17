@@ -103,6 +103,7 @@ A guided form that enforces Etsy's required fields before allowing a push. Creat
 - Turned on per listing, with a threshold and a refill-to value (e.g. below 5, refill to 999).
 - Evaluated per offering (each variation combination), after every order poll.
 - Refills happen while stock is still above 0, so a listing never sells out (selling out deactivates it and reactivating costs a renewal fee).
+- Bulk edit from the listings page (Admin/Editor): "Bulk edit auto-refill" switches to the list with checkboxes (select a page, or all listings matching the filters) and sets on/off, threshold and refill-to; a blank field keeps each listing's own value. It only saves settings (after a confirmation that counts what the next check will refill); refills happen at the next check.
 
 ### 9. Home Assistant integration
 The existing card keeps its styling and logic. Only its data source changes. **Home Assistant talks only to this service, never to Etsy.**

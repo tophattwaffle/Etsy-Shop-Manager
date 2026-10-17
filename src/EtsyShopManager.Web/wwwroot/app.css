@@ -285,6 +285,11 @@ td > .esm-colorbox-note { margin-top: 0; min-width: 160px; }
 .lp-list-title { color: inherit; font-weight: 600; text-decoration: none; }
 .lp-list-title:hover { text-decoration: underline; }
 .lp-list-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--esm-muted); font-size: 0.8rem; }
+.lp-list-check { width: 44px; padding-right: 0 !important; }
+.lp-list tbody tr.is-selected { background: var(--esm-sunk); }
+.lp-bulk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.lp-bulk-fields { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.lp-bulk-fields .mud-input-control { flex: 1 1 160px; margin: 0; }
 .lp-sku { color: var(--esm-muted); font-size: 0.8rem; white-space: nowrap; }
 
 .lp-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 24px; font-size: 0.875rem; }
