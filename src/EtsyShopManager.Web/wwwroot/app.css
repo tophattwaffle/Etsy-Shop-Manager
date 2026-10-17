@@ -160,6 +160,12 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-color-input::-webkit-color-swatch-wrapper { padding: 3px; }
 .esm-color-input::-webkit-color-swatch { border: 0; border-radius: 50%; }
 .esm-color-input::-moz-color-swatch { border: 0; border-radius: 50%; }
+/* MudBlazor sets flex-grow: 1 on the outer .mud-select and width: auto !important on .mud-input-control;
+   pin the shop order-link dropdown to a fixed width so it stays aligned across rows regardless of text length. */
+.esm-shop-color > .mud-select { flex: 0 0 220px; width: 220px; }
+.esm-shop-color .esm-shop-link-select { width: 100% !important; }
+.esm-shop-color .esm-shop-link-profile { flex: 0 0 200px; width: 200px !important; }
+.esm-shop-color .esm-shop-link-custom { flex: 0 1 320px; width: 320px !important; }
 
 /* ---- Listing detail and lookups ---- */
 .listing-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: var(--esm-radius-sm); display: block; }
