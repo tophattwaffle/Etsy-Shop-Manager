@@ -41,10 +41,17 @@
 <MudPaper Class="pa-4" Elevation="0" Outlined="true">
     <MudSimpleTable Dense="true" Hover="true">
         <thead>
-            <tr><th>User</th><th>Role</th><th>Created</th><th>Last sign-in</th><th>Status</th><th></th></tr>
+            <tr>
+                <SortHeader Sort="_sort" Column="user" Changed="StateHasChanged">User</SortHeader>
+                <SortHeader Sort="_sort" Column="role" Changed="StateHasChanged">Role</SortHeader>
+                <SortHeader Sort="_sort" Column="created" Changed="StateHasChanged">Created</SortHeader>
+                <SortHeader Sort="_sort" Column="login" Changed="StateHasChanged">Last sign-in</SortHeader>
+                <SortHeader Sort="_sort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                <th></th>
+            </tr>
         </thead>
         <tbody>
-            @foreach (var u in _users)
+            @foreach (var u in _sort.Apply(_users))
             {
                 <tr>
                     <td><b>@u.UserName</b> <span class="muted">@u.DisplayName</span></td>
@@ -105,6 +112,15 @@
         DateTime? LastLoginAtUtc, bool IsLockedOut);
 
     private List<UserRow> _users = [];
+
+    private readonly TableSort<UserRow> _sort = new()
+    {
+        ["user"] = u => u.UserName,
+        ["role"] = u => u.Role,
+        ["created"] = u => u.CreatedAtUtc,
+        ["login"] = u => u.LastLoginAtUtc,
+        ["status"] = u => u.IsLockedOut,
+    };
     private string? _currentUserId;
     private string? _currentUserName;
     private bool _busy;

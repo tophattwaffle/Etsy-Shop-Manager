@@ -260,6 +260,8 @@ td > .esm-colorbox-note { margin-top: 0; min-width: 160px; }
 }
 .lp-card-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.85rem; }
 .lp-stock { color: var(--esm-muted); }
+.lp-refill { display: flex; align-items: center; gap: 4px; font-size: 0.78rem; color: var(--esm-muted); }
+.lp-refill .mud-icon-root { font-size: 1rem; color: var(--esm-success); }
 .lp-price { font-weight: 600; white-space: nowrap; }
 
 /* Shop mark: profile image ringed in the shop's colour */
@@ -283,7 +285,13 @@ td > .esm-colorbox-note { margin-top: 0; min-width: 160px; }
 .lp-badge-draft::before { background: var(--mud-palette-info); }
 .lp-badge-soldout::before { background: var(--mud-palette-warning); }
 .lp-badge-missing::before { background: var(--mud-palette-error); }
-
+/* Sortable table headers (SortHeader.razor): the whole label is the button; the arrow shows on hover and when active. */
+.esm-sort { all: unset; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font: inherit; color: inherit; border-radius: 4px; }
+.esm-sort:focus-visible { outline: 2px solid var(--esm-ink); outline-offset: 2px; }
+.esm-sort .esm-sort-arrow { font-size: 0.95rem; opacity: 0; }
+.esm-sort:hover .esm-sort-arrow, .esm-sort:focus-visible .esm-sort-arrow { opacity: 0.45; }
+.esm-sort.is-active .esm-sort-arrow { opacity: 1; }
+th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 /* List view */
 .lp-list-wrap { overflow-x: auto; border: 1px solid var(--esm-line); border-radius: var(--esm-radius); background: var(--esm-paper); }
 .lp-list { width: 100%; border-collapse: collapse; font-size: 0.875rem; }

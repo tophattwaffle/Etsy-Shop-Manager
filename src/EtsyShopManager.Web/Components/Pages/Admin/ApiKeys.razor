@@ -35,9 +35,18 @@
 
 <MudPaper Class="pa-4" Elevation="0" Outlined="true">
     <MudSimpleTable Dense="true" Hover="true">
-        <thead><tr><th>Name</th><th>Key</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+        <thead>
+            <tr>
+                <SortHeader Sort="_sort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                <SortHeader Sort="_sort" Column="key" Changed="StateHasChanged">Key</SortHeader>
+                <SortHeader Sort="_sort" Column="created" Changed="StateHasChanged">Created</SortHeader>
+                <SortHeader Sort="_sort" Column="used" Changed="StateHasChanged">Last used</SortHeader>
+                <SortHeader Sort="_sort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                <th></th>
+            </tr>
+        </thead>
         <tbody>
-            @foreach (var k in _keys)
+            @foreach (var k in _sort.Apply(_keys))
             {
                 <tr class="@(k.RevokedAtUtc is null ? "" : "muted")">
                     <td>@k.Name</td>
@@ -63,6 +72,15 @@
     [Inject] private IJSRuntime Js { get; set; } = default!;
 
     private List<ApiKeyInfo> _keys = [];
+
+    private readonly TableSort<ApiKeyInfo> _sort = new()
+    {
+        ["name"] = k => k.Name,
+        ["key"] = k => k.Prefix,
+        ["created"] = k => k.CreatedAtUtc,
+        ["used"] = k => k.LastUsedAtUtc,
+        ["status"] = k => k.RevokedAtUtc,
+    };
     private string? _name = "Home Assistant";
     private string? _newKey;
 

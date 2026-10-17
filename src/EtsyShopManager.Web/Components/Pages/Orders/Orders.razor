@@ -128,9 +128,17 @@
         else
         {
             <MudSimpleTable Dense="true" Hover="true">
-                <thead><tr><th class="text-right">Qty</th><th>Item</th><th>Variations</th><th>Personalization</th><th>Earliest ship-by</th></tr></thead>
+                <thead>
+                    <tr>
+                        <SortHeader Sort="_toMakeSort" Column="qty" Changed="StateHasChanged" Class="text-right">Qty</SortHeader>
+                        <SortHeader Sort="_toMakeSort" Column="item" Changed="StateHasChanged">Item</SortHeader>
+                        <SortHeader Sort="_toMakeSort" Column="variations" Changed="StateHasChanged">Variations</SortHeader>
+                        <SortHeader Sort="_toMakeSort" Column="personalization" Changed="StateHasChanged">Personalization</SortHeader>
+                        <SortHeader Sort="_toMakeSort" Column="shipby" Changed="StateHasChanged">Earliest ship-by</SortHeader>
+                    </tr>
+                </thead>
                 <tbody>
-                    @foreach (var row in _toMake)
+                    @foreach (var row in _toMakeSort.Apply(_toMake))
                     {
                         <tr>
                             <td class="text-right"><b>@((int)row["quantity"]!)</b></td>
@@ -162,8 +170,14 @@
                       Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
         <MudTable @ref="_history" T="Order" ServerData="LoadHistoryAsync" Dense="true" Hover="true" RowsPerPage="50">
             <HeaderContent>
-                <MudTh>Date</MudTh><MudTh>Receipt</MudTh><MudTh>Buyer</MudTh><MudTh>Items</MudTh>
-                <MudTh Class="text-right">Total</MudTh><MudTh>Status</MudTh><MudTh>Shop</MudTh>
+                @* Sorted by the server, so the order covers every page. *@
+                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Date" InitialDirection="SortDirection.Descending">Date</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Receipt">Receipt</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Buyer">Buyer</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Items">Items</MudTableSortLabel></MudTh>
+                <MudTh Class="text-right"><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Total">Total</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Status">Status</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Shop">Shop</MudTableSortLabel></MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd>@ListingFormat.Local(context.EtsyCreatedAtUtc, "yyyy-MM-dd")</MudTd>
@@ -192,6 +206,15 @@
     private int? _shopId;
     private List<Order> _open = [];
     private List<JsonObject> _toMake = [];
+
+    private readonly TableSort<JsonObject> _toMakeSort = new()
+    {
+        ["qty"] = r => (int?)r["quantity"],
+        ["item"] = r => ShortTitle((string?)r["title"]),
+        ["variations"] = r => string.Join(" ", r["variations"]?.AsArray().Select(v => (string?)v?["value"]) ?? []),
+        ["personalization"] = r => (string?)r["personalization"],
+        ["shipby"] = r => (long?)r["ship_by_ts"],
+    };
     private int _toMakeTotal;
     private MudTable<Order>? _history;
     private string? _historyText;
@@ -238,7 +261,9 @@
 
     private async Task<TableData<Order>> LoadHistoryAsync(TableState state, CancellationToken ct)
     {
-        var (orders, total) = await Queries.GetHistoryAsync(_shopId, _historyText, state.Page * state.PageSize, state.PageSize, ct);
+        var sortBy = state.SortDirection == SortDirection.None ? null : state.SortLabel;
+        var (orders, total) = await Queries.GetHistoryAsync(_shopId, _historyText, state.Page * state.PageSize, state.PageSize, ct,
+            sortBy, descending: state.SortDirection != SortDirection.Ascending);
         return new TableData<Order> { Items = orders, TotalItems = total };
     }
 

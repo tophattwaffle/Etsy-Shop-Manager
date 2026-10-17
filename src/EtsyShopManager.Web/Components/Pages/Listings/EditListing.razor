@@ -94,9 +94,15 @@ else
             else
             {
                 <MudSimpleTable Dense="true" Class="mt-2">
-                    <thead><tr><th>Field</th><th>On Etsy now</th><th>After the push</th></tr></thead>
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_changeSort" Column="field" Changed="StateHasChanged">Field</SortHeader>
+                            <SortHeader Sort="_changeSort" Column="from" Changed="StateHasChanged">On Etsy now</SortHeader>
+                            <SortHeader Sort="_changeSort" Column="to" Changed="StateHasChanged">After the push</SortHeader>
+                        </tr>
+                    </thead>
                     <tbody>
-                        @foreach (var c in _preview.Changes)
+                        @foreach (var c in _changeSort.Apply(_preview.Changes))
                         {
                             <tr><td>@c.Label</td><td class="muted">@_lookups.Describe(c.Key, c.From)</td><td>@_lookups.Describe(c.Key, c.To)</td></tr>
                         }
@@ -139,7 +145,8 @@ else
                 @if (Products.Count > 0)
                 {
                     <MudSimpleTable Dense="true">
-                        <thead><tr><th>Variation</th><th>Price (@(l.CurrencyCode ?? ""))</th><th>Processing profile</th></tr></thead>
+                        @* An editing grid: rows stay in variation order while prices are typed in (not sortable). *@
+                        <thead class="esm-fixed-order"><tr><th>Variation</th><th>Price (@(l.CurrencyCode ?? ""))</th><th>Processing profile</th></tr></thead>
                         <tbody>
                             @foreach (var (product, index) in Products.Select((p, i) => (p!, i)))
                             {
@@ -270,9 +277,17 @@ else
         <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
             <MudText Typo="Typo.h6" Class="mb-2">Push history</MudText>
             <MudSimpleTable Dense="true">
-                <thead><tr><th>When</th><th>By</th><th>Status</th><th>Changed</th><th></th></tr></thead>
+                <thead>
+                    <tr>
+                        <SortHeader Sort="_pushSort" Column="when" Changed="StateHasChanged">When</SortHeader>
+                        <SortHeader Sort="_pushSort" Column="by" Changed="StateHasChanged">By</SortHeader>
+                        <SortHeader Sort="_pushSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                        <SortHeader Sort="_pushSort" Column="changed" Changed="StateHasChanged">Changed</SortHeader>
+                        <th></th>
+                    </tr>
+                </thead>
                 <tbody>
-                    @foreach (var p in _snapshot.RecentPushes)
+                    @foreach (var p in _pushSort.Apply(_snapshot.RecentPushes))
                     {
                         <tr>
                             <td>@ListingFormat.Local(p.RequestedAtUtc)</td>
@@ -314,8 +329,24 @@ else
     private bool _unsaved, _pushing, _notFound;
     private IDisposable? _live;
 
+    private TableSort<FieldChange> _changeSort = new();
+    private readonly TableSort<ListingPush> _pushSort = new()
+    {
+        ["when"] = p => p.RequestedAtUtc,
+        ["by"] = p => p.RequestedBy,
+        ["status"] = p => PushLabel(p.Status),
+        ["changed"] = p => ChangedLabels(p),
+    };
+
     protected override async Task OnInitializedAsync()
     {
+        // The change values sort by what the table shows (lookup names, not ids).
+        _changeSort = new()
+        {
+            ["field"] = c => c.Label,
+            ["from"] = c => _lookups?.Describe(c.Key, c.From),
+            ["to"] = c => _lookups?.Describe(c.Key, c.To),
+        };
         await LoadAsync();
         // Reload when a push, import or refill for this shop finishes (the page shows the result).
         _live = JobEvents.Subscribe(c => c.IsFinal && c.ShopId == _snapshot?.Listing.ShopId

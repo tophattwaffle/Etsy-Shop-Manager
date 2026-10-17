@@ -35,16 +35,16 @@
         <MudSimpleTable Dense="true" Hover="true">
             <thead>
                 <tr>
-                    <th>Shop</th>
-                    <th>Status</th>
-                    <th>Token expires</th>
-                    <th>Refresh token issued</th>
-                    <th>Details updated</th>
+                    <SortHeader Sort="_sort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                    <SortHeader Sort="_sort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                    <SortHeader Sort="_sort" Column="expires" Changed="StateHasChanged">Token expires</SortHeader>
+                    <SortHeader Sort="_sort" Column="issued" Changed="StateHasChanged">Refresh token issued</SortHeader>
+                    <SortHeader Sort="_sort" Column="updated" Changed="StateHasChanged">Details updated</SortHeader>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
-                @foreach (var s in _shops)
+                @foreach (var s in _sort.Apply(_shops))
                 {
                     <tr>
                         <td>
@@ -105,6 +105,15 @@
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private List<ShopSummary>? _shops;
+
+    private readonly TableSort<ShopSummary> _sort = new()
+    {
+        ["shop"] = s => s.Name,
+        ["status"] = s => !s.IsActive ? 2 : s.NeedsReauth || !s.HasToken ? 1 : 0, // connected, reconnect needed, disconnected
+        ["expires"] = s => s.AccessTokenExpiresAtUtc,
+        ["issued"] = s => s.RefreshTokenIssuedAtUtc,
+        ["updated"] = s => s.LastSyncedAtUtc,
+    };
     private bool _busy;
 
     private IDisposable? _live;

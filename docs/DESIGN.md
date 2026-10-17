@@ -58,6 +58,14 @@ Never use it for text.
 **Filtering lists.** Follow the listings page: pill search box, sort select and view toggle in one row, and filters in a
 right-hand panel with counts. On phones the panel becomes swipeable chip rows above the results.
 
+**Tables.** Every data table sorts by clicking a column header; clicking again flips the direction, and an arrow shows
+which column and which way. Use `<SortHeader>` with a `TableSort<T>` (rows already loaded: numbers, dates and money sort
+by value, text ignores case) or a `ColumnSort` that the page turns into its query when the table is paged, so the order
+covers every page (the listings list view, the audit log; a `MudTable` with server data uses `MudTableSortLabel`).
+Header cells without a label (checkboxes, photos, row actions) stay plain. An editing grid whose rows must keep their
+order while you type marks its header `<thead class="esm-fixed-order">`. Key/value detail tables have no header row.
+*(checked)*
+
 **No inline styles.** Add a class to `app.css` instead. The only exception is setting a custom property, such as
 `style="--shop: …"`, or a value computed in code (`style="@ShopStyle(id)"`). *(checked)*
 

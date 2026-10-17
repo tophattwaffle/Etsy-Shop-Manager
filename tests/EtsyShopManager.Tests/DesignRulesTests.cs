@@ -82,6 +82,43 @@ public partial class DesignRulesTests
         Assert.Contains("esm.initReconnect();", File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.js")));
     }
 
+    /// <summary>
+    /// Data tables sort by clicking a column header: every labelled header cell is a <c>&lt;SortHeader&gt;</c> (or a
+    /// <c>MudTableSortLabel</c> in a MudTable). Header cells without a label (checkboxes, photos, actions) are fine, and an
+    /// editing grid whose rows must keep their order opts out with <c>&lt;thead class="esm-fixed-order"&gt;</c>.
+    /// </summary>
+    [Fact]
+    public void Table_headers_are_sortable()
+    {
+        var offenders = RazorFiles()
+            .SelectMany(f => TableHeader().Matches(f.Text).Cast<Match>()
+                .Where(h => !h.Value.Contains("esm-fixed-order"))
+                .SelectMany(h => PlainHeaderCell().Matches(h.Value).Cast<Match>())
+                .Select(c => $"{f.Name}: \"{c.Value.Trim()}…\" — use <SortHeader> (see docs/DESIGN.md, Tables)"))
+            .ToList();
+        Assert.True(offenders.Count == 0, string.Join(Environment.NewLine, offenders));
+    }
+
+    [Fact]
+    public void Sort_rule_catches_plain_headers()
+    {
+        Assert.Matches(PlainHeaderCell(), "<th>Name</th>");
+        Assert.Matches(PlainHeaderCell(), "<th class=\"text-right\">Qty</th>");
+        Assert.Matches(PlainHeaderCell(), "<th>@p.Name</th>");
+        Assert.Matches(PlainHeaderCell(), "<MudTh>Date</MudTh>");
+        Assert.DoesNotMatch(PlainHeaderCell(), "<th></th>");
+        Assert.DoesNotMatch(PlainHeaderCell(), "<th scope=\"col\"><span class=\"visually-hidden\">Photo</span></th>");
+        Assert.DoesNotMatch(PlainHeaderCell(), "<MudTh><MudTableSortLabel T=\"Order\">Date</MudTableSortLabel></MudTh>");
+        Assert.DoesNotMatch(PlainHeaderCell(), "<SortHeader Sort=\"_sort\" Column=\"name\">Name</SortHeader>");
+    }
+
+    [GeneratedRegex("<thead\\b.*?</thead>|<HeaderContent>.*?</HeaderContent>", RegexOptions.Singleline)]
+    private static partial Regex TableHeader();
+
+    // A header cell whose content starts with text (a label) rather than another element.
+    [GeneratedRegex("<(?:th|MudTh)\\b[^>]*>\\s*[^\\s<]")]
+    private static partial Regex PlainHeaderCell();
+
     [GeneratedRegex("Typo=\"Typo\\.h[1-4]\"")]
     private static partial Regex HeadingTypo();
 

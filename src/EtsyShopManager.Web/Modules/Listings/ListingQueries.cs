@@ -5,7 +5,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Modules.Listings;
 
-public enum ListingSort { UpdatedDesc, TitleAsc, PriceAsc, PriceDesc, QuantityAsc, CreatedDesc }
+public enum ListingSort
+{
+    UpdatedDesc, TitleAsc, PriceAsc, PriceDesc, QuantityAsc, CreatedDesc,
+    // Also reachable from the list view's column headers.
+    UpdatedAsc, TitleDesc, QuantityDesc, StateAsc, StateDesc, SkuAsc, SkuDesc, RefillAsc, RefillDesc,
+}
 
 public sealed record ListingFilter
 {
@@ -94,11 +99,23 @@ public sealed class ListingQueries(IDbContextFactory<AppDbContext> dbFactory)
 
         IOrderedQueryable<Listing> ordered = filter.Sort switch
         {
-            ListingSort.TitleAsc => q.OrderBy(l => l.Title),
+            ListingSort.TitleAsc => q.OrderBy(l => EF.Functions.Collate(l.Title, "NOCASE")),
             ListingSort.PriceAsc => q.OrderBy(l => (double)l.PriceAmount / l.PriceDivisor),
             ListingSort.PriceDesc => q.OrderByDescending(l => (double)l.PriceAmount / l.PriceDivisor),
             ListingSort.QuantityAsc => q.OrderBy(l => l.Quantity),
             ListingSort.CreatedDesc => q.OrderByDescending(l => l.EtsyCreatedAtUtc),
+            ListingSort.UpdatedAsc => q.OrderBy(l => l.EtsyUpdatedAtUtc),
+            ListingSort.TitleDesc => q.OrderByDescending(l => EF.Functions.Collate(l.Title, "NOCASE")),
+            ListingSort.QuantityDesc => q.OrderByDescending(l => l.Quantity),
+            ListingSort.StateAsc => q.OrderBy(l => l.IsMissingOnEtsy).ThenBy(l => l.State),
+            ListingSort.StateDesc => q.OrderByDescending(l => l.IsMissingOnEtsy).ThenByDescending(l => l.State),
+            ListingSort.SkuAsc => q.OrderBy(l => EF.Functions.Collate(l.Skus.OrderBy(s => s).FirstOrDefault()!, "NOCASE")),
+            ListingSort.SkuDesc => q.OrderByDescending(l => EF.Functions.Collate(l.Skus.OrderBy(s => s).FirstOrDefault()!, "NOCASE")),
+            // Off first, then by threshold and refill-to.
+            ListingSort.RefillAsc => q.OrderBy(l => db.ListingRefills.Where(r => r.ListingId == l.Id && r.Enabled).Select(r => (int?)r.Threshold).FirstOrDefault())
+                .ThenBy(l => db.ListingRefills.Where(r => r.ListingId == l.Id && r.Enabled).Select(r => (int?)r.RefillTo).FirstOrDefault()),
+            ListingSort.RefillDesc => q.OrderByDescending(l => db.ListingRefills.Where(r => r.ListingId == l.Id && r.Enabled).Select(r => (int?)r.Threshold).FirstOrDefault())
+                .ThenByDescending(l => db.ListingRefills.Where(r => r.ListingId == l.Id && r.Enabled).Select(r => (int?)r.RefillTo).FirstOrDefault()),
             _ => q.OrderByDescending(l => l.EtsyUpdatedAtUtc),
         };
 

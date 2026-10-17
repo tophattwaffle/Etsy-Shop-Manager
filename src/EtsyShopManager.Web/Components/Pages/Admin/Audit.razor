@@ -10,7 +10,13 @@
 <MudPaper Class="pa-4" Elevation="0" Outlined="true">
     <MudSimpleTable Dense="true" Hover="true">
         <thead>
-            <tr><th>When</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>
+            <tr>
+                <SortHeader Sort="_sort" Column="when" Changed="LoadAsync">When</SortHeader>
+                <SortHeader Sort="_sort" Column="user" Changed="LoadAsync">User</SortHeader>
+                <SortHeader Sort="_sort" Column="action" Changed="LoadAsync">Action</SortHeader>
+                <SortHeader Sort="_sort" Column="entity" Changed="LoadAsync">Entity</SortHeader>
+                <SortHeader Sort="_sort" Column="details" Changed="LoadAsync">Details</SortHeader>
+            </tr>
         </thead>
         <tbody>
             @foreach (var e in _entries)
@@ -35,12 +41,29 @@
     private List<AuditEntry> _entries = [];
     private int _pageSize = 200;
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    // Sorted in the query, so the order covers the whole log and "Load more" continues it.
+    private readonly ColumnSort _sort = new("when", "user", "action", "entity", "details");
+
+    protected override Task OnInitializedAsync()
+    {
+        _sort.Set("when", descending: true);
+        return LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        _entries = await db.AuditEntries.AsNoTracking().OrderByDescending(e => e.Id).Take(_pageSize).ToListAsync();
+        var q = db.AuditEntries.AsNoTracking();
+        var desc = _sort.Descending;
+        var ordered = _sort.Column switch
+        {
+            "user" => q.OrderBy(e => EF.Functions.Collate(e.UserName!, "NOCASE"), desc),
+            "action" => q.OrderBy(e => e.Action, desc),
+            "entity" => q.OrderBy(e => e.EntityType, desc).ThenBy(e => e.EntityId),
+            "details" => q.OrderBy(e => EF.Functions.Collate(e.Details!, "NOCASE"), desc),
+            _ => q.OrderBy(e => e.Id, desc),
+        };
+        _entries = await ordered.ThenByDescending(e => e.Id).Take(_pageSize).ToListAsync();
     }
 
     private async Task MoreAsync()

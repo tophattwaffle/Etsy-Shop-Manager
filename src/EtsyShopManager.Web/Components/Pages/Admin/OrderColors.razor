@@ -53,7 +53,14 @@
 
     <MudSimpleTable Dense="true" Hover="true">
         <thead>
-            <tr><th>Preview</th><th>Name</th><th>Colors</th><th>Metallic</th><th class="esm-col-icon"></th></tr>
+            @* Sorting reorders the rows once per click, so a row doesn't move while its name is being typed. *@
+            <tr>
+                <SortHeader Sort="_sort" Column="preview" Changed="SortRows">Preview</SortHeader>
+                <SortHeader Sort="_sort" Column="name" Changed="SortRows">Name</SortHeader>
+                <SortHeader Sort="_sort" Column="colors" Changed="SortRows">Colors</SortHeader>
+                <SortHeader Sort="_sort" Column="metallic" Changed="SortRows">Metallic</SortHeader>
+                <th class="esm-col-icon"></th>
+            </tr>
         </thead>
         <tbody>
             @foreach (var row in Visible)
@@ -81,6 +88,16 @@
     }
 
     private List<Row> _rows = [];
+
+    private readonly TableSort<Row> _sort = new()
+    {
+        ["preview"] = r => r.Name, // the swatch shows the name
+        ["name"] = r => r.Name,
+        ["colors"] = r => r.Hex,
+        ["metallic"] = r => r.Metallic,
+    };
+
+    private void SortRows() => _rows = _sort.Apply(_rows).ToList();
     private string _randomWords = "";
     private string? _filter;
     private bool _dirty;
