@@ -79,7 +79,13 @@ public partial class DesignRulesTests
                      "components-seconds-to-next-attempt", "components-reconnect-current-attempt", "components-reconnect-max-retries" })
             Assert.Contains($"id=\"{id}\"", modal);
         Assert.Contains("<ReconnectModal />", File.ReadAllText(Path.Combine(Components, "App.razor")));
-        Assert.Contains("esm.initReconnect();", File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.js")));
+        var appJs = File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.js"));
+        Assert.Contains("esm.initReconnect();", appJs);
+        // Blazor is started by app.js (with the faster reconnect schedule and our dialog's id); without that call the
+        // app would never start at all.
+        Assert.Contains("autostart=\"false\"", File.ReadAllText(Path.Combine(Components, "App.razor")));
+        Assert.Contains("esm.startBlazor();", appJs);
+        Assert.Contains("dialogId: \"components-reconnect-modal\"", appJs);
     }
 
     [Fact]

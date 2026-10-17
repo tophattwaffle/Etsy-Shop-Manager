@@ -18,7 +18,8 @@
     {
         <ReconnectModal />
     }
-    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    @* Started by app.js (esm.startBlazor) with a faster reconnect schedule. *@
+    <script src="@Assets["_framework/blazor.web.js"]" autostart="false"></script>
     <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
     @* The Home Assistant card: the Orders page uses its coloring engine (window.EtsyOrderColors). *@
     <script src="@EtsyShopManager.Web.Modules.Orders.OrderCardScript.VersionedUrl"></script>

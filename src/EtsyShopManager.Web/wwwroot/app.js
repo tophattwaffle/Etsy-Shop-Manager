@@ -1,4 +1,27 @@
 window.esm = {
+    // How long a reconnect may take before the reconnect dialog opens.
+    reconnectGraceMs: 1500,
+
+    // Gaps between reconnect attempts. Blazor's default is ten instant attempts, then 5 s apart; a phone coming back
+    // to the tab often fails the instant ones (its network is still waking) and then sat out the full 5 s. These start
+    // fast and back off, then settle at 5 s for a server restarting after a deploy (about 2.5 minutes in all).
+    reconnectDelayMs: function (previousAttempts, maxRetries) {
+        if (maxRetries && previousAttempts >= maxRetries) return null;
+        return [0, 250, 500, 750, 1000, 1000, 2000, 2000, 3000][previousAttempts] ?? 5000;
+    },
+
+    startBlazor: function () {
+        Blazor.start({
+            circuit: {
+                reconnectionOptions: {
+                    maxRetries: 36,
+                    retryIntervalMilliseconds: esm.reconnectDelayMs,
+                    dialogId: "components-reconnect-modal",
+                },
+            },
+        });
+    },
+
     // The reconnect dialog (Components/Layout/ReconnectModal.razor). Blazor finds it by id, sets its
     // components-reconnect-* classes and raises components-reconnect-state-changed on it; this opens and
     // closes it and wires the buttons, as the .NET template's ReconnectModal.razor.js does.
@@ -23,14 +46,26 @@ window.esm = {
             dialog.querySelector(".esm-reconnect-attempt").innerText = String(current - firstShown + 1);
             dialog.querySelector(".esm-reconnect-attempts").innerText = String(Math.max(1, max - firstShown + 1));
         };
+        // A dropped connection that comes straight back (a phone returning to the tab, a Wi-Fi blip) shouldn't flash
+        // the dialog: it only opens if reconnecting takes longer than this.
+        let showTimer = null;
+        const open = () => { clearTimeout(showTimer); showTimer = null; if (!dialog.open) dialog.showModal(); };
         dialog.addEventListener("components-reconnect-state-changed", (e) => {
             const state = e.detail.state;
             if (state === "retrying" && e.detail.secondsToNextAttempt > 0) showAttempt(e.detail.currentAttempt);
             if (state === "hide" || state === "failed") firstShown = null;
-            if ((state === "show" || state === "paused") && !dialog.open) dialog.showModal();
-            else if (state === "hide") dialog.close();
+            if (state === "show") showTimer ??= setTimeout(open, esm.reconnectGraceMs);
+            else if (state === "paused" || state === "failed" || state === "resume-failed") open();
+            if (state === "hide") { clearTimeout(showTimer); showTimer = null; dialog.close(); }
             else if (state === "failed") document.addEventListener("visibilitychange", retryWhenVisible);
             else if (state === "rejected") location.reload();
+        });
+        // Back on the page (a phone unlocked, the tab shown again) while reconnecting: try now instead of waiting
+        // out the current gap between attempts.
+        document.addEventListener("visibilitychange", () => {
+            // Only a nudge: Blazor keeps its own schedule if this attempt fails too.
+            if (document.visibilityState === "visible" && dialog.classList.contains("components-reconnect-retrying"))
+                Blazor.reconnect().catch(() => { });
         });
         dialog.addEventListener("cancel", (e) => e.preventDefault()); // Escape can't dismiss it
         document.getElementById("components-reconnect-button")?.addEventListener("click", retry);
@@ -175,3 +210,4 @@ window.esm = {
 };
 
 esm.initReconnect();
+esm.startBlazor();
