@@ -20,8 +20,10 @@ public sealed record ManagedListingState
 {
     /// <summary>Bump when the field set or normalisation changes, so old hashes are not compared with new ones.</summary>
     /// <remarks>2: title, description, tags, materials and styles are HTML-decoded. 3: properties keep their name (variation
-    /// names such as "Bulk Pricing", needed to add or rename variations). 4: photo alt text is HTML-decoded too.</remarks>
-    public const int CurrentVersion = 4;
+    /// names such as "Bulk Pricing", needed to add or rename variations). 4: photo alt text is HTML-decoded too.
+    /// 5: attributes and personalization become editable: attributes without their name (Etsy's name for a property can
+    /// differ from the taxonomy's), values in id order; personalization as decoded questions without Etsy's ids.</remarks>
+    public const int CurrentVersion = 5;
 
     public string State { get; init; } = "";
     public string Title { get; init; } = "";
@@ -53,8 +55,8 @@ public sealed record ManagedListingState
     public decimal? ItemHeight { get; init; }
     public string? ItemDimensionsUnit { get; init; }
     public List<long> ProductionPartnerIds { get; init; } = [];
-    public JsonElement? Personalization { get; init; }
-    public List<ManagedProperty> Attributes { get; init; } = [];
+    public List<ManagedPersonalizationQuestion> Personalization { get; init; } = [];
+    public List<ManagedAttribute> Attributes { get; init; } = [];
     public ManagedInventory Inventory { get; init; } = new();
     public List<ManagedImage> Images { get; init; } = [];
 
@@ -97,10 +99,8 @@ public sealed record ManagedListingState
         ItemHeight = listing.ItemHeight,
         ItemDimensionsUnit = listing.ItemDimensionsUnit,
         ProductionPartnerIds = [.. listing.ProductionPartnerIds.Order()],
-        Personalization = string.IsNullOrWhiteSpace(listing.PersonalizationJson)
-            ? null
-            : JsonSerializer.Deserialize<JsonElement>(listing.PersonalizationJson),
-        Attributes = [.. listing.Attributes.Select(ManagedProperty.From).OrderBy(p => p.PropertyId)],
+        Personalization = ManagedPersonalizationQuestion.Parse(listing.PersonalizationJson),
+        Attributes = [.. listing.Attributes.Select(ManagedAttribute.From).OrderBy(p => p.PropertyId)],
         Inventory = ManagedInventory.From(listing),
         Images = [.. listing.Images.OrderBy(i => i.Rank).ThenBy(i => i.EtsyImageId)
             .Select(i => new ManagedImage(i.EtsyImageId, i.Rank, i.AltText ?? ""))],
@@ -149,6 +149,66 @@ public sealed record ManagedInventory
             .OrderBy(p => string.Join(";", p.PropertyValues.Select(v => v.Key)), StringComparer.Ordinal)
             .ThenBy(p => p.Sku, StringComparer.Ordinal)],
     };
+}
+
+/// <summary>A category attribute: values with their ids, in id order (the order Etsy returns them in can vary).</summary>
+public sealed record ManagedAttribute(long PropertyId, long? ScaleId, List<long> ValueIds, List<string> Values)
+{
+    public static ManagedAttribute From(PropertyValue v)
+    {
+        var pairs = v.ValueIds.Zip(v.Values).OrderBy(p => p.First).ThenBy(p => p.Second, StringComparer.Ordinal).ToList();
+        // Values without an id (or ids without a value) are kept after the pairs, as Etsy gave them.
+        return new(v.PropertyId, v.ScaleId,
+            [.. pairs.Select(p => p.First), .. v.ValueIds.Skip(pairs.Count)],
+            [.. pairs.Select(p => p.Second), .. v.Values.Skip(pairs.Count)]);
+    }
+}
+
+/// <summary>
+/// A personalization question as the seller sets it, without Etsy's question and option ids (Etsy may issue new ones
+/// on every write). Text is HTML-decoded. <see cref="AddOnPrice"/> is in the shop's currency (e.g. 2.50).
+/// </summary>
+public sealed record ManagedPersonalizationQuestion(string QuestionType, string QuestionText, string? Instructions, bool Required,
+    long? MaxAllowedCharacters, long? MaxAllowedFiles, decimal? AddOnPrice, List<string>? Options)
+{
+    /// <summary>The questions of Etsy's personalization_questions JSON (as stored by the import), in Etsy's order.</summary>
+    public static List<ManagedPersonalizationQuestion> Parse(string? questionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(questionsJson)) return [];
+        using var doc = JsonDocument.Parse(questionsJson);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array) return [];
+        return [.. doc.RootElement.EnumerateArray().Where(q => q.ValueKind == JsonValueKind.Object).Select(q => new ManagedPersonalizationQuestion(
+            Str(q, "question_type") ?? "text_input",
+            Text(Str(q, "question_text")) ?? "",
+            Text(Str(q, "instructions")),
+            q.TryGetProperty("required", out var r) && r.ValueKind == JsonValueKind.True,
+            Long(q, "max_allowed_characters"),
+            Long(q, "max_allowed_files"),
+            Price(q),
+            q.TryGetProperty("options", out var o) && o.ValueKind == JsonValueKind.Array && o.GetArrayLength() > 0
+                ? [.. o.EnumerateArray().Select(x => Text(x.ValueKind == JsonValueKind.Object ? Str(x, "label") : null) ?? "")]
+                : null))];
+    }
+
+    private static string? Str(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static long? Long(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : null;
+
+    /// <summary>Plain text with Etsy's HTML encoding and Windows newlines removed; empty counts as none.</summary>
+    private static string? Text(string? s) =>
+        string.IsNullOrEmpty(s) ? null : System.Net.WebUtility.HtmlDecode(s).Replace("\r\n", "\n");
+
+    /// <summary>Etsy returns the add-on price as money (amount and divisor); some replies use a plain number.</summary>
+    private static decimal? Price(JsonElement q)
+    {
+        if (!q.TryGetProperty("add_on_price", out var p)) return null;
+        if (p.ValueKind == JsonValueKind.Number) return p.GetDecimal();
+        if (p.ValueKind != JsonValueKind.Object || !p.TryGetProperty("amount", out var a) || a.ValueKind != JsonValueKind.Number) return null;
+        var divisor = p.TryGetProperty("divisor", out var d) && d.ValueKind == JsonValueKind.Number && d.GetInt64() > 0 ? d.GetInt64() : 100;
+        return a.GetDecimal() / divisor;
+    }
 }
 
 public sealed record ManagedProduct(string Sku, List<ManagedProperty> PropertyValues, List<ManagedOffering> Offerings);

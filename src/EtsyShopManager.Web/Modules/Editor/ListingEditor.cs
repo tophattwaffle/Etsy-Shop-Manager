@@ -111,12 +111,16 @@ public sealed class ListingEditor(
         var busy = await db.ListingPushes.AnyAsync(p => p.ListingId == listingId
             && (p.Status == ListingPushStatus.Pending || p.Status == ListingPushStatus.Running)
             && db.Jobs.Any(j => j.Id == p.JobId && (j.Status == JobStatus.Pending || j.Status == JobStatus.Running)), ct);
-        return Preview(listing, Model(listing), busy, images.Exists);
+        var model = Model(listing);
+        var properties = await AttributeEditor.LoadAsync(db, (long?)model.Local("taxonomy_id"), ct);
+        return Preview(listing, model, busy, images.Exists, properties);
     }
 
     /// <summary>The preview for a model (pure, for tests and the UI).</summary>
     /// <param name="fileExists">Whether a photo added in the app is still in the image store (unchecked when null).</param>
-    public static PushPreview Preview(Listing listing, ListingEditModel model, bool pushInProgress, Func<string, bool>? fileExists = null)
+    /// <param name="attributeProperties">The local category's attribute properties (null when they aren't in the app).</param>
+    public static PushPreview Preview(Listing listing, ListingEditModel model, bool pushInProgress, Func<string, bool>? fileExists = null,
+        IReadOnlyList<AttributeProperty>? attributeProperties = null)
     {
         var changes = model.PendingFields
             .Select(k => new FieldChange(k, Label(k), model.Etsy[k]?.DeepClone(), model.Local(k)?.DeepClone()))
@@ -170,6 +174,26 @@ public sealed class ListingEditor(
             warnings.Add($"Photos: {calls.Count} call{(calls.Count == 1 ? "" : "s")} to Etsy, one at a time, stopping at the first one Etsy rejects. " +
                          "Etsy doesn't renumber the other photos when one moves, so every photo not already in place gets its position.");
             warnings.AddRange(calls.Select(c => c.Describe(listing.Shop?.EtsyShopId ?? 0, listing.EtsyListingId)));
+        }
+        var shopId = listing.Shop?.EtsyShopId ?? 0;
+        if (changes.Any(c => c.Key == ListingFields.Attributes))
+        {
+            string Name(long id) => attributeProperties?.FirstOrDefault(p => p.PropertyId == id)?.Label
+                                    ?? listing.Attributes.FirstOrDefault(a => a.PropertyId == id)?.PropertyName ?? $"Property {id}";
+            blockers.AddRange(AttributeEditor.Problems(model.Etsy[ListingFields.Attributes], local[ListingFields.Attributes], attributeProperties, Name));
+            warnings.AddRange(AttributeEditor.Warnings(local[ListingFields.Attributes], attributeProperties,
+                changes.Any(c => c.Key == "taxonomy_id"), Name));
+            var calls = AttributeEditor.Plan(model.Etsy[ListingFields.Attributes], local[ListingFields.Attributes]);
+            warnings.Add($"Category attributes: {calls.Count} call{(calls.Count == 1 ? "" : "s")} to Etsy, one per attribute changed, " +
+                         "after the listing fields (so a new category is in place first).");
+            warnings.AddRange(calls.Select(c => c.Describe(shopId, listing.EtsyListingId, Name(c.PropertyId))));
+        }
+        if (changes.Any(c => c.Key == ListingFields.Personalization))
+        {
+            blockers.AddRange(PersonalizationEditor.Problems(local[ListingFields.Personalization]));
+            if (PersonalizationEditor.Call(model.Etsy[ListingFields.Personalization], local[ListingFields.Personalization], shopId,
+                    listing.EtsyListingId) is { } call)
+                warnings.Add($"Personalization: 1 call to Etsy, which replaces all of the listing's questions. {call}");
         }
         if (changes.Any(c => c.Key == ListingFields.Inventory) && local[ListingFields.Inventory] is { } inventory)
         {
@@ -310,11 +334,23 @@ public sealed class ListingEditor(
         var old = JsonNode.Parse(snapshot.ManagedJson)!.AsObject();
         await UpdateAsync(snapshot.ListingId, user, "listing.snapshot-restored", model =>
         {
-            foreach (var field in ListingFields.All.Where(f => f.Editable && old.ContainsKey(f.Key)))
+            foreach (var field in ListingFields.All.Where(f => f.Editable && old.ContainsKey(f.Key) && CurrentForm(f.Key, old[f.Key])))
                 model.Set(field.Key, old[field.Key]);
             return $"snapshot {snapshotId} from {snapshot.TakenAtUtc.ToString("u", CultureInfo.InvariantCulture)} loaded into the draft";
         }, ct);
     }
+
+    /// <summary>
+    /// Whether a snapshot's value has today's managed form. Snapshots taken before managed-state version 5 hold
+    /// personalization as Etsy's raw questions (or null for none) and attributes with their names; restoring those would
+    /// read as "remove every question" or as a change to every attribute, so they're left as they are.
+    /// </summary>
+    private static bool CurrentForm(string key, JsonNode? value) => key switch
+    {
+        ListingFields.Personalization => value is JsonArray q && q.All(x => x is JsonObject o && !o.ContainsKey("question_id")),
+        ListingFields.Attributes => value is JsonArray a && a.All(x => x is JsonObject o && !o.ContainsKey("property_name")),
+        _ => true,
+    };
 
     public static string Label(string key) => ListingFields.Find(key)?.Label ?? key;
 }

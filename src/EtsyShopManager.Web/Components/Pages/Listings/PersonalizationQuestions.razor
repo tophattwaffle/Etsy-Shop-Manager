@@ -1,0 +1,119 @@
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Core.Listings
+@using EtsyShopManager.Web.Modules.Editor
+
+@* A listing's personalization questions (up to five). Every change goes back to the editor as the new local list;
+   a push replaces all of Etsy's questions with it. *@
+
+@if (_questions.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-2">Buyers aren't asked for personalization.</MudText>
+}
+@foreach (var (q, i) in _questions.Select((q, i) => (q, i)))
+{
+    var index = i;
+    <div class="esm-variation">
+        <div class="esm-variation-head">
+            <div class="esm-variation-name">Question @(i + 1)</div>
+            <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@(i == 0)" OnClick="@(() => Move(index, -1))">Move up</MudButton>
+            <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@(i == _questions.Count - 1)" OnClick="@(() => Move(index, 1))">Move down</MudButton>
+            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => Remove(index))">Remove question</MudButton>
+        </div>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudSelect T="string" Value="q.QuestionType" ValueChanged="@(t => Update(index, q with { QuestionType = t, Options = t == q.QuestionType ? q.Options : null, MaxAllowedCharacters = q.MaxAllowedCharacters ?? PersonalizationEditor.DefaultMaxCharacters, MaxAllowedFiles = q.MaxAllowedFiles ?? 1 }))"
+                           Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var t in PersonalizationEditor.Types) { <MudSelectItem T="string" Value="t">@PersonalizationEditor.TypeLabel(t)</MudSelectItem> }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="8">
+                <MudTextField T="string" Value="q.QuestionText" ValueChanged="@(v => Update(index, q with { QuestionText = v ?? "" }))" Label="Title"
+                              Counter="PersonalizationEditor.MaxQuestionText" MaxLength="PersonalizationEditor.MaxQuestionText"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            @if (q.QuestionType != PersonalizationEditor.Dropdown)
+            {
+                <MudItem xs="12">
+                    <MudTextField T="string" Value="q.Instructions" ValueChanged="@(v => Update(index, q with { Instructions = v }))" Label="Instructions for buyers"
+                                  Lines="4" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            }
+            @if (q.QuestionType == PersonalizationEditor.TextInput)
+            {
+                <MudItem xs="6" sm="4">
+                    <MudNumericField T="long?" Value="q.MaxAllowedCharacters" ValueChanged="@(v => Update(index, q with { MaxAllowedCharacters = v }))"
+                                     Label="Character limit" Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                @if (!q.Required)
+                {
+                    <MudItem xs="6" sm="4">
+                        <MudNumericField T="decimal?" Value="q.AddOnPrice" ValueChanged="@(v => Update(index, q with { AddOnPrice = v }))"
+                                         Label="Add-on price (optional)" Min="0m" Step="0.01m" Format="0.00" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                }
+            }
+            @if (q.QuestionType is PersonalizationEditor.UnlabeledUpload or PersonalizationEditor.LabeledUpload)
+            {
+                <MudItem xs="6" sm="4">
+                    <MudNumericField T="long?" Value="q.MaxAllowedFiles" ValueChanged="@(v => Update(index, q with { MaxAllowedFiles = v }))"
+                                     Label="Number of files" Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            }
+            @if (q.QuestionType is PersonalizationEditor.Dropdown or PersonalizationEditor.LabeledUpload)
+            {
+                <MudItem xs="12">
+                    <MudTextField T="string" Value="@string.Join("\n", q.Options ?? [])" ValueChanged="@(v => Update(index, q with { Options = Lines(v) }))"
+                                  Label="@(q.QuestionType == PersonalizationEditor.Dropdown ? "Choices, one per line" : "File labels, one per line")"
+                                  Lines="4" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  HelperText="@(q.QuestionType == PersonalizationEditor.Dropdown ? $"Up to {PersonalizationEditor.MaxDropdownLabel} characters each." : "One label per file.")" />
+                </MudItem>
+            }
+            <MudItem xs="12">
+                <MudSwitch T="bool" Value="q.Required" ValueChanged="@(v => Update(index, q with { Required = v }))" Color="Color.Primary"
+                           Label="Buyers must answer" />
+            </MudItem>
+        </MudGrid>
+    </div>
+}
+@if (_questions.Count < PersonalizationEditor.MaxQuestions)
+{
+    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="Add">Add a question</MudButton>
+}
+
+@code {
+    /// <summary>The local questions (managed-state JSON).</summary>
+    [Parameter] public JsonNode? Questions { get; set; }
+    [Parameter] public EventCallback<JsonArray> QuestionsChanged { get; set; }
+
+    private List<ManagedPersonalizationQuestion> _questions = [];
+
+    protected override void OnParametersSet() => _questions = PersonalizationEditor.FromManaged(Questions);
+
+    private static List<string>? Lines(string? text) =>
+        (text ?? "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList() is { Count: > 0 } lines ? lines : null;
+
+    private Task Update(int index, ManagedPersonalizationQuestion q)
+    {
+        var list = _questions.ToList();
+        list[index] = q;
+        return Changed(list);
+    }
+
+    private Task Move(int index, int by)
+    {
+        var list = _questions.ToList();
+        (list[index], list[index + by]) = (list[index + by], list[index]);
+        return Changed(list);
+    }
+
+    private Task Remove(int index)
+    {
+        var list = _questions.ToList();
+        list.RemoveAt(index);
+        return Changed(list);
+    }
+
+    private Task Add() => Changed([.. _questions, PersonalizationEditor.NewQuestion()]);
+
+    private Task Changed(List<ManagedPersonalizationQuestion> list) => QuestionsChanged.InvokeAsync(PersonalizationEditor.ToManaged(list));
+}

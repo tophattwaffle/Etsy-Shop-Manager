@@ -6,7 +6,8 @@ namespace EtsyShopManager.Core.Listings;
 /// <param name="Editable">Can be changed in the editor and pushed to Etsy.</param>
 /// <param name="Tracked">
 /// Changes made on Etsy are flagged as drift (and block pushes) instead of being accepted. Untracked fields simply
-/// follow Etsy, because the app can't edit them yet (photos, attributes…) or Etsy changes them on its own (state).
+/// follow Etsy, because the app can't edit them (styles and featured rank: Etsy's API can't change them on an existing
+/// listing) or Etsy changes them on its own (state).
 /// </param>
 public sealed record ListingField(string Key, string Label, bool Editable, bool Tracked);
 
@@ -14,6 +15,8 @@ public static class ListingFields
 {
     public const string Inventory = "inventory";
     public const string Images = "images";
+    public const string Attributes = "attributes";
+    public const string Personalization = "personalization";
     public const string State = "state";
 
     public static readonly IReadOnlyList<ListingField> All =
@@ -25,6 +28,8 @@ public static class ListingFields
         new("tags", "Tags", true, true),
         new("materials", "Materials", true, true),
         new("taxonomy_id", "Category", true, true),
+        new(Attributes, "Category attributes", true, true),
+        new(Personalization, "Personalization", true, true),
         new("shipping_profile_id", "Shipping profile", true, true),
         new("return_policy_id", "Return policy", true, true),
         new("shop_section_id", "Shop section", true, true),

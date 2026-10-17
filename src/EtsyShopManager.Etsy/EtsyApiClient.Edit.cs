@@ -77,6 +77,35 @@ public sealed partial class EtsyApiClient
         }, auth, ct);
     }
 
+    /// <summary>deleteListingProperty (DELETE): removes one category attribute from a listing.</summary>
+    public async Task DeleteListingPropertyAsync(long etsyShopId, long listingId, long propertyId, EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var _ = await SendAsync(() => new HttpRequestMessage(HttpMethod.Delete,
+            $"/v3/application/shops/{etsyShopId}/listings/{listingId}/properties/{propertyId}"), auth, ct);
+    }
+
+    /// <summary>
+    /// updateListingPersonalization (POST, JSON): replaces all of a listing's personalization questions. Sent with
+    /// supports_multiple_personalization_questions=true, because the app reads and writes the full question list (up to
+    /// five questions of every type); without it Etsy only takes one text question.
+    /// </summary>
+    public async Task UpdateListingPersonalizationAsync(long etsyShopId, long listingId, EtsyPersonalizationUpdate personalization,
+        EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var _ = await SendAsync(() => new HttpRequestMessage(HttpMethod.Post,
+            $"/v3/application/shops/{etsyShopId}/listings/{listingId}/personalization?supports_multiple_personalization_questions=true")
+        {
+            Content = JsonContent.Create(personalization, options: EtsyJson.Options),
+        }, auth, ct);
+    }
+
+    /// <summary>deleteListingPersonalization (DELETE): the listing no longer asks buyers for personalization.</summary>
+    public async Task DeleteListingPersonalizationAsync(long etsyShopId, long listingId, EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var _ = await SendAsync(() => new HttpRequestMessage(HttpMethod.Delete,
+            $"/v3/application/shops/{etsyShopId}/listings/{listingId}/personalization"), auth, ct);
+    }
+
     /// <summary>updateListingInventory (PUT). Replaces the whole inventory; returns the new one.</summary>
     public async Task<EtsyInventory> UpdateListingInventoryAsync(long listingId, EtsyInventoryUpdate inventory, EtsyAuth auth,
         CancellationToken ct = default)

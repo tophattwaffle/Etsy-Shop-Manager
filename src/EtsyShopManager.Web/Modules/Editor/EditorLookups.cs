@@ -16,7 +16,8 @@ public sealed record EditorLookups(
     IReadOnlyDictionary<long, string> Sections,
     IReadOnlyDictionary<long, string> ProductionPartners,
     IReadOnlyDictionary<long, string> Categories,
-    string? CurrencyCode)
+    string? CurrencyCode,
+    IReadOnlyDictionary<long, AttributeProperty>? AttributeProperties = null)
 {
     public static async Task<EditorLookups> LoadAsync(AppDbContext db, int shopId, IEnumerable<long> categoryIds, string? currency,
         CancellationToken ct = default)
@@ -31,8 +32,17 @@ public sealed record EditorLookups(
             await db.ShopSections.Where(x => x.ShopId == shopId).OrderBy(x => x.Rank).ToDictionaryAsync(x => x.EtsySectionId, x => x.Title, ct),
             await db.ProductionPartners.Where(x => x.ShopId == shopId).ToDictionaryAsync(x => x.EtsyPartnerId, x => x.Name, ct),
             await db.TaxonomyNodes.Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.FullPath, ct),
-            currency);
+            currency,
+            (await db.TaxonomyProperties.AsNoTracking().Where(x => ids.Contains(x.TaxonomyId) && x.SupportsAttributes).ToListAsync(ct))
+                .GroupBy(x => x.PropertyId).ToDictionary(g => g.Key, g => AttributeProperty.From(g.First())));
     }
+
+    /// <summary>An attribute's name, from the categories loaded.</summary>
+    public string AttributeName(long propertyId) =>
+        AttributeProperties?.GetValueOrDefault(propertyId)?.Label ?? $"Property {propertyId}";
+
+    private string? ScaleName(long propertyId, long scaleId) =>
+        AttributeProperties?.GetValueOrDefault(propertyId)?.Scales.FirstOrDefault(s => s.ScaleId == scaleId)?.Name;
 
     /// <summary>A field value as people read it: names instead of ids, Yes/No, prices per variation.</summary>
     public string Describe(string key, JsonNode? value)
@@ -50,6 +60,8 @@ public sealed record EditorLookups(
             "tags" or "materials" => value.AsArray().Count == 0 ? "—" : string.Join(", ", value.AsArray().Select(v => (string?)v)),
             "who_made" or "when_made" or ListingFields.State => ListingFormat.Humanize((string?)value),
             ListingFields.Inventory => DescribeInventory(value),
+            ListingFields.Attributes => AttributeEditor.Describe(value, AttributeName, ScaleName),
+            ListingFields.Personalization => PersonalizationEditor.Describe(value, CurrencyCode),
             ListingFields.Images => string.Join(", ", value.AsArray().Select((p, i) =>
                 $"{i + 1}. {((long?)p!["etsy_image_id"] is > 0 and long id ? $"#{id}" : "new photo")}" +
                 ((string?)p["alt_text"] is { Length: > 0 } alt ? $" ({(alt.Length > 40 ? alt[..40] + "…" : alt)})" : ""))) is { Length: > 0 } photos ? photos : "No photos",
