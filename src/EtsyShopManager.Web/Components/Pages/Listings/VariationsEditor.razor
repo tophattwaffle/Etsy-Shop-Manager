@@ -1,0 +1,158 @@
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Web.Modules.Editor
+
+@* The variations of a listing being edited: their values, names, and what the price and processing vary by. Every
+   change goes back to the editor as a new local inventory (nothing is sent to Etsy until a reviewed push). *@
+
+<div class="esm-variations">
+    @foreach (var v in _variations)
+    {
+        <div class="esm-variation">
+            <div class="esm-variation-head">
+                @if (v.IsCustom)
+                {
+                    <MudTextField T="string" Value="@v.Name" ValueChanged="@(n => Apply(i => VariationEditor.RenameVariation(i, v.PropertyId, n)))"
+                                  Label="Variation name" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm" />
+                }
+                else
+                {
+                    <div>
+                        <div class="esm-variation-name">@v.Name</div>
+                        <div class="small muted">One of Etsy's variations; its name is fixed.</div>
+                    </div>
+                }
+                <MudCheckBox T="bool" Value="@Varies(VariationEditor.PriceOnProperty, v)" Dense="true" Label="Price varies"
+                             ValueChanged="@(on => Apply(i => VariationEditor.SetVaries(i, VariationEditor.PriceOnProperty, v.PropertyId, on)))" />
+                <MudCheckBox T="bool" Value="@Varies(VariationEditor.ProcessingOnProperty, v)" Dense="true" Label="Processing varies"
+                             ValueChanged="@(on => Apply(i => VariationEditor.SetVaries(i, VariationEditor.ProcessingOnProperty, v.PropertyId, on)))" />
+                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
+                           OnClick="@(() => Apply(i => VariationEditor.RemoveVariation(i, v.PropertyId)))">Remove variation</MudButton>
+            </div>
+
+            <div class="esm-variation-values">
+                @foreach (var value in v.Values)
+                {
+                    @if (_renaming == (v.PropertyId, value))
+                    {
+                        <MudTextField T="string" @bind-Value="_renameText" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
+                                      aria-label="@($"New name for {value}")" Immediate="true" OnKeyDown="@(e => OnRenameKey(e, v.PropertyId, value))" />
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Rename(v.PropertyId, value))">Rename</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _renaming = null)">Cancel</MudButton>
+                    }
+                    else if (v.Values.Count > 1)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
+                                 OnClick="@(() => StartRename(v.PropertyId, value))"
+                                 OnClose="@(_ => Apply(i => VariationEditor.RemoveValue(i, v.PropertyId, value)))">@value</MudChip>
+                    }
+                    else
+                    {
+                        @* The last value can't be removed; remove the variation instead. *@
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
+                                 OnClick="@(() => StartRename(v.PropertyId, value))">@value</MudChip>
+                    }
+                }
+            </div>
+            <div class="esm-variation-add">
+                <MudTextField T="string" Value="@NewValue(v.PropertyId)" ValueChanged="@(t => _newValues[v.PropertyId] = t)" Immediate="true"
+                              Placeholder="@($"Add to {v.Name}")" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
+                              OnKeyDown="@(e => OnAddKey(e, v.PropertyId))" aria-label="@($"New value for {v.Name}")" />
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@string.IsNullOrWhiteSpace(NewValue(v.PropertyId))"
+                           OnClick="@(() => AddValue(v.PropertyId))">Add</MudButton>
+            </div>
+        </div>
+    }
+
+    @if (_variations.Count < VariationEditor.MaxVariations)
+    {
+        <div class="esm-variation">
+            <div class="esm-variation-name">Add a variation</div>
+            <div class="esm-variation-add">
+                <MudTextField T="string" @bind-Value="_newName" Label="Name (e.g. Size)" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm" />
+                <MudTextField T="string" @bind-Value="_newVariationValues" Label="Values, separated by commas" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+                <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                           Disabled="@(string.IsNullOrWhiteSpace(_newName) || string.IsNullOrWhiteSpace(_newVariationValues))"
+                           OnClick="AddVariation">Add variation</MudButton>
+            </div>
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <MudText Typo="Typo.body2" Class="error-text">@_error</MudText>
+    }
+</div>
+
+@code {
+    /// <summary>The local inventory (managed-state JSON).</summary>
+    [Parameter, EditorRequired] public JsonNode Inventory { get; set; } = default!;
+
+    /// <summary>Called with the new local inventory after each change.</summary>
+    [Parameter, EditorRequired] public EventCallback<JsonObject> InventoryChanged { get; set; }
+
+    /// <summary>Etsy's order of the variations (see VariationEditor.EtsyOrder), so they show as buyers see them.</summary>
+    [Parameter] public IReadOnlyList<long>? Order { get; set; }
+
+    private IReadOnlyList<Variation> _variations = [];
+    private readonly Dictionary<long, string?> _newValues = [];
+    private (long PropertyId, string Value)? _renaming;
+    private string? _renameText, _newName, _newVariationValues, _error;
+
+    protected override void OnParametersSet() => _variations = VariationEditor.Variations(Inventory, Order);
+
+    private bool Varies(string key, Variation v) => (Inventory[key]?.AsArray() ?? []).Any(x => (long)x! == v.PropertyId);
+
+    private string? NewValue(long propertyId) => _newValues.GetValueOrDefault(propertyId);
+
+    private async Task Apply(Func<JsonNode, JsonObject> change)
+    {
+        try
+        {
+            var inventory = change(Inventory);
+            _error = null;
+            await InventoryChanged.InvokeAsync(inventory);
+        }
+        catch (ArgumentException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task AddValue(long propertyId)
+    {
+        var text = NewValue(propertyId);
+        await Apply(i => VariationEditor.AddValue(i, propertyId, text ?? ""));
+        if (_error is null) _newValues[propertyId] = null;
+    }
+
+    private async Task OnAddKey(KeyboardEventArgs e, long propertyId)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(NewValue(propertyId))) await AddValue(propertyId);
+    }
+
+    private void StartRename(long propertyId, string value)
+    {
+        _renaming = (propertyId, value);
+        _renameText = value;
+    }
+
+    private async Task Rename(long propertyId, string value)
+    {
+        await Apply(i => VariationEditor.RenameValue(i, propertyId, value, _renameText ?? ""));
+        if (_error is null) _renaming = null;
+    }
+
+    private async Task OnRenameKey(KeyboardEventArgs e, long propertyId, string value)
+    {
+        if (e.Key == "Enter") await Rename(propertyId, value);
+        else if (e.Key == "Escape") _renaming = null;
+    }
+
+    private async Task AddVariation()
+    {
+        var values = (_newVariationValues ?? "").Split(',').Select(v => v.Trim()).Where(v => v.Length > 0).ToList();
+        await Apply(i => VariationEditor.AddVariation(i, _newName ?? "", values));
+        if (_error is null) (_newName, _newVariationValues) = (null, null);
+    }
+}

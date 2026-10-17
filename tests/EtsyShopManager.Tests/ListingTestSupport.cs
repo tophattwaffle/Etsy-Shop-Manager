@@ -371,6 +371,7 @@ internal sealed class FakeEtsyShop : IDisposable
     public JsonObject ListingJson(long id) => Listings.Single(l => (long)l["listing_id"]! == id);
 
     private long _nextEtsyId = 900_000;
+    private readonly Dictionary<(long PropertyId, string Value), long> _valueIds = [];
 
     /// <summary>getListing, inventory with the listing, updateListing and updateListingInventory, applied like Etsy would.</summary>
     private HttpResponseMessage? RespondEdit(HttpRequestMessage req, string path, System.Collections.Specialized.NameValueCollection query, string shop)
@@ -425,7 +426,18 @@ internal sealed class FakeEtsyShop : IDisposable
                     ["product_id"] = ++_nextEtsyId,
                     ["sku"] = (string?)p!["sku"],
                     ["is_deleted"] = false,
-                    ["property_values"] = p["property_values"]!.DeepClone(),
+                    // Etsy gives a new value an id (one per variation and text, reused across combinations).
+                    ["property_values"] = new JsonArray(p["property_values"]!.AsArray().Select(v =>
+                    {
+                        var pv = v!.DeepClone().AsObject();
+                        if (pv["value_ids"]?.AsArray().Count is null or 0 && (string?)pv["values"]?[0] is { } text)
+                        {
+                            var key = ((long)pv["property_id"]!, text);
+                            if (!_valueIds.TryGetValue(key, out var valueId)) _valueIds[key] = valueId = ++_nextEtsyId;
+                            pv["value_ids"] = new JsonArray(valueId);
+                        }
+                        return (JsonNode)pv;
+                    }).ToArray()),
                     ["offerings"] = new JsonArray(p["offerings"]!.AsArray().Select(o => (JsonNode)new JsonObject
                     {
                         ["offering_id"] = ++_nextEtsyId,

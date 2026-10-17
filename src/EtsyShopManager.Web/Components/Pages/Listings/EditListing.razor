@@ -138,25 +138,30 @@ else
             </MudPaper>
 
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-                <MudText Typo="Typo.h6" Class="mb-2">Price and processing</MudText>
+                <MudText Typo="Typo.h6" Class="mb-2">Variations, price and processing</MudText>
                 <MudText Typo="Typo.body2" Class="muted mb-2">
-                    Stock isn't edited here: Etsy, sales and auto-refill manage it. @Pending(ListingFields.Inventory)
+                    Stock isn't edited here: Etsy, sales and auto-refill manage it, and new combinations start with the
+                    listing's current stock. @Pending(ListingFields.Inventory)
                 </MudText>
+                @if (_form![ListingFields.Inventory] is { } inventoryNode)
+                {
+                    <VariationsEditor Inventory="inventoryNode" Order="VariationEditor.EtsyOrder(l)" InventoryChanged="@(i => Set(ListingFields.Inventory, i))" />
+                }
                 @if (Products.Count > 0)
                 {
                     <MudSimpleTable Dense="true">
                         @* An editing grid: rows stay in variation order while prices are typed in (not sortable). *@
-                        <thead class="esm-fixed-order"><tr><th>Variation</th><th>Price (@(l.CurrencyCode ?? ""))</th><th>Processing profile</th></tr></thead>
+                        <thead class="esm-fixed-order"><tr><th>Variation</th><th>Price (@(l.CurrencyCode ?? ""))</th><th>Processing profile</th><th>Available</th></tr></thead>
                         <tbody>
                             @foreach (var (product, index) in Products.Select((p, i) => (p!, i)))
                             {
                                 var offering = product["offerings"]![0]!;
                                 <tr>
-                                    <td>@EditorLookups.VariationName(product)</td>
+                                    <td>@EditorLookups.VariationName(product, VariationEditor.EtsyOrder(l))</td>
                                     <td>
                                         <MudNumericField T="decimal" Value="@Price(offering)" ValueChanged="@(v => SetPrice(index, v))"
                                                          Min="0.20m" Step="0.01m" Format="0.00" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                         Disabled="@(!Leads(index, "price_on_property"))" Class="esm-w-sm" />
+                                                         Disabled="@(!Leads(index, "price_on_property"))" Class="esm-w-sm esm-minw-price" />
                                     </td>
                                     <td>
                                         <MudSelect T="long?" Value="@((long?)offering["readiness_state_id"])" ValueChanged="@(v => SetProcessing(index, v))"
@@ -167,6 +172,11 @@ else
                                                 <MudSelectItem T="long?" Value="id">@name</MudSelectItem>
                                             }
                                         </MudSelect>
+                                    </td>
+                                    <td>
+                                        <MudSwitch T="bool" Value="@((bool?)offering["is_enabled"] ?? true)" Color="Color.Primary"
+                                                   ValueChanged="@(on => Set(ListingFields.Inventory, VariationEditor.SetAvailable(_form![ListingFields.Inventory]!, index, on)))"
+                                                   aria-label="@($"{EditorLookups.VariationName(product)} available to buyers")" />
                                     </td>
                                 </tr>
                             }

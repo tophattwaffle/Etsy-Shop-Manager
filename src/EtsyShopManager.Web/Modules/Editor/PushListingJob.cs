@@ -73,7 +73,7 @@ public sealed class PushListingJob(
         ListingEditModel model;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            listing = await db.Listings.AsNoTracking().Include(l => l.Shop).ThenInclude(s => s.Token).Include(l => l.EtsyState).Include(l => l.Products)
+            listing = await db.Listings.AsNoTracking().Include(l => l.Shop).ThenInclude(s => s.Token).Include(l => l.EtsyState).Include(l => l.Products).ThenInclude(p => p.Offerings).AsSplitQuery()
                 .FirstAsync(l => l.Id == listingId, ct);
             model = ListingEditModel.Parse(listing.EtsyState!.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         }
@@ -114,8 +114,8 @@ public sealed class PushListingJob(
             }
             if (inventoryChanged)
             {
-                var body = InventoryWriter.WithLocalPrices(inventory, local[ListingFields.Inventory]!);
-                logger.LogInformation("Pushing prices/processing for listing {ListingId}", listing.EtsyListingId);
+                var body = InventoryWriter.FromLocal(inventory, local[ListingFields.Inventory]!);
+                logger.LogInformation("Pushing the inventory (variations, prices, processing) for listing {ListingId}", listing.EtsyListingId);
                 await etsy.UpdateListingInventoryAsync(listing.EtsyListingId, body, auth, ct);
             }
         }
@@ -156,8 +156,12 @@ public sealed class PushListingJob(
         await importer.RefreshListingAsync(listingId, ct, raiseDriftEvents: false);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var row = await db.Listings.Include(l => l.EtsyState).FirstAsync(l => l.Id == listingId, ct);
-        var after = ListingEditModel.Parse(row.EtsyState!.ManagedJson, row.EtsyState.BaseJson, row.DraftJson);
-        var notApplied = after.AcceptPushed(JsonNode.Parse(row.EtsyState.ManagedJson)!.AsObject());
+        var newEtsy = JsonNode.Parse(row.EtsyState!.ManagedJson)!.AsObject();
+        var after = ListingEditModel.Parse(row.EtsyState.ManagedJson, row.EtsyState.BaseJson, row.DraftJson);
+        // New variation values got their ids from Etsy just now; the draft has none for them yet.
+        if (after.Draft[ListingFields.Inventory] is JsonObject draftInventory && newEtsy[ListingFields.Inventory] is { } etsyInventory)
+            after.Draft[ListingFields.Inventory] = VariationEditor.AdoptValueIds(draftInventory, etsyInventory);
+        var notApplied = after.AcceptPushed(newEtsy);
         ListingMapper.Apply(row, after);
         var push = await db.ListingPushes.FirstAsync(p => p.Id == pushId, ct);
         push.SnapshotId = snapshotId;

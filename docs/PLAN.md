@@ -1,6 +1,6 @@
 # Etsy Shop Manager — Project Plan
 
-_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented; Phase 3 first slice (editor, push, drift, auto-refill) implemented. Last updated 2026-10-16._
+_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented; Phase 3 editor (fields, variations, prices, processing, push, drift, auto-refill) implemented; photo editing next. Last updated 2026-10-17._
 
 ## Goals
 
@@ -195,6 +195,8 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - **Preview blockers:** drift, shop not connected, listing gone from Etsy, a push already queued, Etsy limits (title 140, 13 tags of ≤20 chars, 13 materials), prices > 0, one price/processing profile for all variations unless it varies by a property, status only active/inactive, and a listing read by an older managed-state version. Warnings: activating an inactive/expired listing or publishing a draft costs Etsy's fee.
 - **Text encoding:** Etsy returns title/description/tags HTML-encoded (`&#39;`, `&quot;`; 101 of 130 real descriptions). Import decodes them (managed-state version 2); pushes send plain text.
 - **Auto-refill:** per listing (on/off, threshold, refill-to ≤ 999). An enabled offering below the threshold is set to refill-to while the listing is active (shared quantity → all variations together); sold-out/inactive listings are flagged, not touched. Runs for the listings in each new order (right after the order check) and in an hourly sweep that finds low stock from one bulk read per 100 listings. Each refill is a job with the changes as its result, raises `StockRefilled` and is audited.
+- **Variations (2026-10-17):** the editor adds, renames and removes values and variations (up to two; new ones use Etsy's custom slots 513/514), sets what price and processing vary by, and switches combinations off. The inventory is always the full grid of combinations. A push sends the whole inventory built from a fresh read: existing combinations keep Etsy's stock, product order and variation order (the order of the dropdowns buyers see); new ones start with the listing's current stock. Etsy's inventory write is all-or-nothing, so a rejection leaves the listing as it was, and the Etsy writes page shows Etsy's reason. Managed state version 3 keeps variation names, so every listing must be imported once after deploying (pushes are blocked until then). Checked offline against all 131 real listings: with no edits the editor's request equals Etsy's current inventory exactly (this caught the variation order on 4 listings).
+- **Photos (next):** adding, deleting and alt text first; reordering only after TopHATTwaffle runs an Admin-only test tool on a non-public listing, because Etsy's reorder behaviour is undocumented and rejected the reverted attempt (#29) with "inconsistent order".
 - **Testing:** no real Etsy writes in development or tests. `FakeEtsyShop` records every write; tests assert the exact `updateListing` form and `updateListingInventory` JSON. Offline checks against a sanitized copy of production: the migration applies, all 130 listings load without false drift, and the inventory body reproduces every real inventory exactly (48 with variations).
 
 ## Etsy write journal

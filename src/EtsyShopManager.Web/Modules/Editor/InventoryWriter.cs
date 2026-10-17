@@ -61,24 +61,76 @@ public static class InventoryWriter
                          $"{string.Join("|", v["values"]!.AsArray().Select(x => (string?)x))}"));
 
     /// <summary>
-    /// Applies the prices and processing profiles of a managed-state inventory (the local, edited version) onto Etsy's
-    /// current inventory, matching products by their variation values. Quantities, SKUs and everything else stay as Etsy
-    /// has them. Products missing on either side are left as Etsy has them.
+    /// The inventory to send for a managed-state inventory (the local, edited version): its variations, combinations,
+    /// prices, processing, availability, SKUs and what varies by what, on top of a fresh read of Etsy's inventory.
+    /// Combinations Etsy already has (matched by their variation values) keep Etsy's stock and order; new ones follow
+    /// them and start with <see cref="NewCombinationStock"/>. Stock is never changed for existing combinations.
     /// </summary>
-    public static EtsyInventoryUpdate WithLocalPrices(EtsyInventory etsy, JsonNode localInventory)
+    public static EtsyInventoryUpdate FromLocal(EtsyInventory etsy, JsonNode localInventory)
     {
-        var local = (localInventory["products"]?.AsArray() ?? [])
-            .Select(p => p!)
-            .GroupBy(ProductKey)
-            .ToDictionary(g => g.Key, g => g.First()["offerings"]?.AsArray().FirstOrDefault());
+        var etsyProducts = etsy.Products.Where(p => !p.IsDeleted).ToList();
+        var etsyByKey = etsyProducts.GroupBy(p => ProductKey(p.PropertyValues)).ToDictionary(g => g.Key, g => g.First());
+        var etsyOrder = etsyProducts.Select((p, i) => (Key: ProductKey(p.PropertyValues), i)).GroupBy(x => x.Key)
+            .ToDictionary(g => g.Key, g => g.First().i);
+        var local = (localInventory["products"]?.AsArray() ?? []).Select(p => p!).ToList();
+        var newStock = NewCombinationStock(etsy);
+        // Etsy's order of the variations is the order buyers pick them in; managed state sorts them by id. A new one goes last.
+        var propertyOrder = etsyProducts.SelectMany(p => p.PropertyValues).Select(v => v.PropertyId).Distinct().ToList();
+        int Position(JsonNode? v) => propertyOrder.IndexOf((long)v!["property_id"]!) is var at and >= 0 ? at : propertyOrder.Count;
 
-        return FromEtsy(etsy, (product, _, update) =>
+        // Existing combinations in Etsy's order (which is the order buyers see the values in), then new ones.
+        var ordered = local.Select((p, i) => (Product: p, Key: ProductKey(p), i))
+            .OrderBy(x => etsyOrder.TryGetValue(x.Key, out var at) ? at : etsyProducts.Count + x.i)
+            .ToList();
+
+        return new EtsyInventoryUpdate
         {
-            if (!local.TryGetValue(ProductKey(product.PropertyValues), out var offering) || offering is null) return update;
-            var divisor = (int?)offering["price_divisor"] is int d && d > 0 ? d : 100;
-            update.Price = (decimal)(long)offering["price_amount"]! / divisor;
-            update.ReadinessStateId = (long?)offering["readiness_state_id"];
-            return update;
-        });
+            PriceOnProperty = Longs(localInventory["price_on_property"]),
+            QuantityOnProperty = Longs(localInventory["quantity_on_property"]),
+            SkuOnProperty = Longs(localInventory["sku_on_property"]),
+            ReadinessStateOnProperty = Longs(localInventory["readiness_state_on_property"]),
+            Products = [.. ordered.Select(x =>
+            {
+                etsyByKey.TryGetValue(x.Key, out var existing);
+                return new EtsyProductUpdate
+                {
+                    Sku = (string?)x.Product["sku"] ?? "",
+                    PropertyValues = [.. (x.Product["property_values"]?.AsArray() ?? []).OrderBy(Position).Select(v => new EtsyPropertyValueUpdate
+                    {
+                        PropertyId = (long)v!["property_id"]!,
+                        PropertyName = (string?)v["property_name"]
+                                       ?? existing?.PropertyValues.FirstOrDefault(e => e.PropertyId == (long)v["property_id"]!)?.PropertyName,
+                        ScaleId = (long?)v["scale_id"],
+                        ValueIds = Longs(v["value_ids"]),
+                        Values = [.. (v["values"]?.AsArray() ?? []).Select(s => (string)s!)],
+                    })],
+                    Offerings = [.. (x.Product["offerings"]?.AsArray() ?? []).Select((o, i) =>
+                    {
+                        var divisor = (int?)o!["price_divisor"] is int d && d > 0 ? d : 100;
+                        return new EtsyOfferingUpdate
+                        {
+                            Price = (decimal)(long)o["price_amount"]! / divisor,
+                            Quantity = existing?.Offerings.Where(e => !e.IsDeleted).ElementAtOrDefault(i)?.Quantity ?? newStock,
+                            IsEnabled = (bool?)o["is_enabled"] ?? true,
+                            ReadinessStateId = (long?)o["readiness_state_id"],
+                        };
+                    })],
+                };
+            })],
+        };
     }
+
+    /// <summary>
+    /// The stock a new combination starts with: with one shared stock (the usual case) that stock, so buyers see the same
+    /// number on every variation; with stock per variation the lowest enabled one. At least 1.
+    /// </summary>
+    public static int NewCombinationStock(EtsyInventory etsy)
+    {
+        var enabled = etsy.Products.Where(p => !p.IsDeleted)
+            .SelectMany(p => p.Offerings.Where(o => !o.IsDeleted && o.IsEnabled)).Select(o => o.Quantity).ToList();
+        if (enabled.Count == 0) return 1;
+        return Math.Max(1, (etsy.QuantityOnProperty ?? []).Count == 0 ? enabled.Max() : enabled.Min());
+    }
+
+    private static List<long> Longs(JsonNode? array) => [.. (array?.AsArray() ?? []).Select(x => (long)x!)];
 }

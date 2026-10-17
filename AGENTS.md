@@ -10,8 +10,8 @@ code is C# wherever possible and the UI is web-based. Full design and phase plan
 
 **This app is the system of record for listings.** Edits happen here; changes made on Etsy.com are detected and flagged
 (drift), never silently overwritten. Phases 0–2 (foundation, import, orders + Home Assistant) are done; Phase 3's
-first slice (editor for listing fields, prices and processing; preview → push with snapshots; drift; auto-refill) is in;
-photo and variation editing come next.
+editor (listing fields, variations, prices and processing; preview → push with snapshots; drift; auto-refill) is in;
+photo editing comes next (reordering only once proven on a non-public listing, see docs/PLAN.md).
 
 **Never write to the real Etsy shops while developing or testing.** Verify write paths with `FakeEtsyShop` (it records
 every PATCH/PUT body) and previews only. A sanitized copy of production data (tokens, keys and users removed) may be
@@ -98,8 +98,10 @@ pushed). Etsy returns title/description/tags HTML-encoded; the mapper decodes th
 **draft** (local edits). Drift = a tracked field where Etsy ≠ base; pending = local ≠ Etsy. `ListingEditor` saves drafts,
 resolves drift and builds the preview (blockers stop a push); `PushListingJob` re-reads, refuses on drift, snapshots,
 then `updateListing` (form) and `updateListingInventory`, re-reads and reconciles. Etsy replaces the whole inventory
-on every write, so `InventoryWriter` always rebuilds it from a fresh read and changes only what it means to (prices
-and processing for pushes, quantities for refills). `StockRefiller` refills enabled offerings below a listing's
+on every write, so `InventoryWriter` always rebuilds it from a fresh read and changes only what it means to (the edited
+variations, prices, processing and availability for pushes, keeping Etsy's stock, product order and variation order;
+quantities for refills). `VariationEditor` edits the variation structure in managed-state JSON (always the full grid of
+combinations; new values have no Etsy ids until Etsy assigns them, adopted on reconcile). `StockRefiller` refills enabled offerings below a listing's
 threshold while the listing is active, on each new order (`OrderReceived`) and in an hourly sweep.
 
 ### Orders and Home Assistant
