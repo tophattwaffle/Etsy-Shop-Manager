@@ -19,7 +19,8 @@ namespace EtsyShopManager.Core.Listings;
 public sealed record ManagedListingState
 {
     /// <summary>Bump when the field set or normalisation changes, so old hashes are not compared with new ones.</summary>
-    public const int CurrentVersion = 1;
+    /// <remarks>2: title, description, tags, materials and styles are HTML-decoded.</remarks>
+    public const int CurrentVersion = 2;
 
     public string State { get; init; } = "";
     public string Title { get; init; } = "";

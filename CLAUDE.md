@@ -8,8 +8,13 @@ code is C# wherever possible and the UI is web-based. Full design and phase plan
 `docs/SETUP.md`. CI/CD: `docs/DEPLOY.md`.
 
 **This app is the system of record for listings.** Edits happen here; changes made on Etsy.com are detected and flagged
-(drift), never silently overwritten. Phases 0–2 (foundation, import, orders + Home Assistant) are done; Phase 3 is the
-editor and render → diff → push path.
+(drift), never silently overwritten. Phases 0–2 (foundation, import, orders + Home Assistant) are done; Phase 3's
+first slice (editor for listing fields, prices and processing; preview → push with snapshots; drift; auto-refill) is in;
+photo and variation editing come next.
+
+**Never write to the real Etsy shops while developing or testing.** Verify write paths with `FakeEtsyShop` (it records
+every PATCH/PUT body) and previews only. A sanitized copy of production data (tokens, keys and users removed) may be
+used locally, with `--Etsy:ApiBaseUrl` pointed at a dead address; TopHATTwaffle does real pushes himself.
 
 ## Commands
 
@@ -80,8 +85,18 @@ Import (`Web/Modules/Listings/ListingImporter.cs` and jobs) is idempotent, match
 listings gone from Etsy are flagged, never deleted. Etsy reuses `listing_image_id`s on copied listings, so image ids
 are unique per listing only. Photos go into a content-hashed image store (`ImageStore`). `ManagedListingState` is the
 canonical form + hash of the fields the app manages (quantity, Etsy product/offering ids, stats and timestamps are
-deliberately excluded); it is the basis for Phase 3 drift detection. Bump `ManagedListingState.CurrentVersion` when
-its field set or normalisation changes.
+deliberately excluded); it is the basis for drift detection. Bump `ManagedListingState.CurrentVersion` when
+its field set or normalisation changes (listings read with an older version must be re-imported before they can be
+pushed). Etsy returns title/description/tags HTML-encoded; the mapper decodes them once, and pushes send plain text.
+
+### Editor, push and auto-refill
+`ListingEditModel` (Core) holds three versions as managed JSON: **Etsy** (last read), **base** (last agreed) and
+**draft** (local edits). Drift = a tracked field where Etsy ≠ base; pending = local ≠ Etsy. `ListingEditor` saves drafts,
+resolves drift and builds the preview (blockers stop a push); `PushListingJob` re-reads, refuses on drift, snapshots,
+then `updateListing` (form) and `updateListingInventory`, re-reads and reconciles. Etsy replaces the whole inventory
+on every write, so `InventoryWriter` always rebuilds it from a fresh read and changes only what it means to (prices
+and processing for pushes, quantities for refills). `StockRefiller` refills enabled offerings below a listing's
+threshold while the listing is active, on each new order (`OrderReceived`) and in an hourly sweep.
 
 ### Orders and Home Assistant
 `OrderPoller` polls receipts per shop (default every 5 min, set in Admin → Settings). `OrdersModule` exposes a

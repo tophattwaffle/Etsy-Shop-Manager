@@ -91,3 +91,19 @@ internal sealed class NullAuditLog : EtsyShopManager.Core.Services.IAuditLog
     public Task WriteAsync(string action, string? entityType = null, string? entityId = null, string? details = null,
         string? userName = null, CancellationToken ct = default) => Task.CompletedTask;
 }
+
+/// <summary>Records enqueued jobs instead of running them (tests run handlers directly).</summary>
+internal sealed class RecordingJobQueue : EtsyShopManager.Core.Jobs.IJobQueue
+{
+    public List<EtsyShopManager.Core.Jobs.JobRequest> Requests { get; } = [];
+
+    public Task<long?> EnqueueAsync(EtsyShopManager.Core.Jobs.JobRequest request, CancellationToken ct = default)
+    {
+        if (request.DedupeKey is { } key && Requests.Any(r => r.DedupeKey == key)) return Task.FromResult<long?>(null);
+        Requests.Add(request);
+        return Task.FromResult<long?>(Requests.Count);
+    }
+
+    public Task<bool> RetryAsync(long jobId, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<bool> CancelAsync(long jobId, CancellationToken ct = default) => Task.FromResult(false);
+}

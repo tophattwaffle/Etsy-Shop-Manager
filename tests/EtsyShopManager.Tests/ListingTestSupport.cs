@@ -130,6 +130,12 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddSingleton<OrderPoller>();
         services.AddSingleton<OrderQueries>();
         services.AddSingleton<ApiKeyService>();
+        services.AddSingleton<RecordingJobQueue>();
+        services.AddSingleton<EtsyShopManager.Core.Jobs.IJobQueue>(sp => sp.GetRequiredService<RecordingJobQueue>());
+        services.AddSingleton<EtsyShopManager.Web.Modules.Editor.ListingEditor>();
+        services.AddSingleton<EtsyShopManager.Web.Modules.Stock.StockRefiller>();
+        services.AddSingleton<EtsyShopManager.Web.Modules.Stock.RefillQueue>();
+        services.AddTransient<EtsyShopManager.Web.Modules.Editor.PushListingJob>();
         Provider = services.BuildServiceProvider();
 
         using var db = Db.CreateDbContext();
@@ -246,6 +252,8 @@ internal sealed class FakeEtsyShop : IDisposable
         var query = System.Web.HttpUtility.ParseQueryString(req.RequestUri.Query);
         var shop = $"/v3/application/shops/{EtsyShopId}";
 
+        if (RespondEdit(req, path, query, shop) is { } edit) return edit;
+
         if (path == $"{shop}/listings")
         {
             var state = query["state"]!;
@@ -349,6 +357,101 @@ internal sealed class FakeEtsyShop : IDisposable
 
     private static HttpResponseMessage Json(JsonNode node) =>
         ScriptedHandler.Json(HttpStatusCode.OK, node.ToJsonString(new JsonSerializerOptions()));
+
+    /// <summary>Every write sent to the fake Etsy: method, path and body, in order.</summary>
+    public List<(string Method, string Path, string Body)> Writes { get; } = [];
+
+    /// <summary>Fails writes (PATCH/PUT) with this status, e.g. to test a failed push.</summary>
+    public HttpStatusCode? FailWritesWith { get; set; }
+
+    /// <summary>Fails only updateListingInventory (PUT) with this status: a push that is half written.</summary>
+    public HttpStatusCode? FailInventoryWritesWith { get; set; }
+
+    public JsonObject ListingJson(long id) => Listings.Single(l => (long)l["listing_id"]! == id);
+
+    private long _nextEtsyId = 900_000;
+
+    /// <summary>getListing, inventory with the listing, updateListing and updateListingInventory, applied like Etsy would.</summary>
+    private HttpResponseMessage? RespondEdit(HttpRequestMessage req, string path, System.Collections.Specialized.NameValueCollection query, string shop)
+    {
+        var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        // GET /v3/application/listings/{id}  (no inventory: Etsy's getListing can't include it)
+        if (req.Method == HttpMethod.Get && parts.Length == 4 && parts[2] == "listings" && long.TryParse(parts[3], out var getId))
+        {
+            var listing = (JsonObject)ListingJson(getId).DeepClone();
+            listing.Remove("inventory");
+            return Json(listing);
+        }
+        // PATCH /v3/application/shops/42/listings/{id}
+        if (req.Method == HttpMethod.Patch && path.StartsWith($"{shop}/listings/"))
+        {
+            var body = req.Content!.ReadAsStringAsync().Result;
+            Writes.Add(("PATCH", path, body));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            var listing = ListingJson(long.Parse(parts[5]));
+            foreach (var (key, value) in System.Web.HttpUtility.ParseQueryString(body) is var form
+                         ? form.AllKeys.Select(k => (k!, form[k]!)) : [])
+            {
+                listing[key] = key switch
+                {
+                    "tags" or "materials" => new JsonArray(value.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(v => (JsonNode)v).ToArray()),
+                    "production_partner_ids" => new JsonArray(),
+                    "is_supply" or "is_taxable" or "should_auto_renew" => value == "true",
+                    "taxonomy_id" or "shipping_profile_id" or "return_policy_id" or "shop_section_id" => long.Parse(value),
+                    "item_weight" or "item_length" or "item_width" or "item_height" => decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture),
+                    // Etsy stores the text and returns it HTML-encoded.
+                    "title" or "description" => value.Replace("'", "&#39;").Replace("\"", "&quot;"),
+                    _ => value,
+                };
+            }
+            listing["last_modified_timestamp"] = (long)listing["last_modified_timestamp"]! + 10;
+            return Json(listing.DeepClone());
+        }
+        // GET / PUT /v3/application/listings/{id}/inventory
+        if (parts.Length == 5 && parts[2] == "listings" && parts[4] == "inventory" && long.TryParse(parts[3], out var invId)
+            && Listings.Any(l => (long)l["listing_id"]! == invId))
+        {
+            var listing = ListingJson(invId);
+            if (req.Method == HttpMethod.Put)
+            {
+                var body = req.Content!.ReadAsStringAsync().Result;
+                Writes.Add(("PUT", path, body));
+                if ((FailWritesWith ?? FailInventoryWritesWith) is { } status) return new HttpResponseMessage(status);
+                var update = JsonNode.Parse(body)!.AsObject();
+                // Etsy stores the new table and issues new product/offering ids.
+                var products = new JsonArray(update["products"]!.AsArray().Select(p => (JsonNode)new JsonObject
+                {
+                    ["product_id"] = ++_nextEtsyId,
+                    ["sku"] = (string?)p!["sku"],
+                    ["is_deleted"] = false,
+                    ["property_values"] = p["property_values"]!.DeepClone(),
+                    ["offerings"] = new JsonArray(p["offerings"]!.AsArray().Select(o => (JsonNode)new JsonObject
+                    {
+                        ["offering_id"] = ++_nextEtsyId,
+                        ["quantity"] = (int)o!["quantity"]!,
+                        ["is_enabled"] = (bool)o["is_enabled"]!,
+                        ["is_deleted"] = false,
+                        ["price"] = Money((long)Math.Round((decimal)o["price"]! * 100)),
+                        ["readiness_state_id"] = o["readiness_state_id"]?.DeepClone(),
+                    }).ToArray()),
+                }).ToArray());
+                listing["inventory"] = new JsonObject
+                {
+                    ["products"] = products,
+                    ["price_on_property"] = update["price_on_property"]!.DeepClone(),
+                    ["quantity_on_property"] = update["quantity_on_property"]!.DeepClone(),
+                    ["sku_on_property"] = update["sku_on_property"]!.DeepClone(),
+                    ["readiness_state_on_property"] = update["readiness_state_on_property"]?.DeepClone() ?? new JsonArray(),
+                };
+                listing["last_modified_timestamp"] = (long)listing["last_modified_timestamp"]! + 10;
+                return Json(listing["inventory"]!.DeepClone());
+            }
+            var inventory = (JsonObject)(listing["inventory"] ?? Inventory(invId, 5)).DeepClone();
+            if (query["includes"] == "Listing") inventory["listing"] = listing.DeepClone();
+            return Json(inventory);
+        }
+        return null;
+    }
 
     /// <summary>Listings whose getListingProperties call returns 404.</summary>
     public HashSet<long> ListingsWithoutProperties { get; } = [];

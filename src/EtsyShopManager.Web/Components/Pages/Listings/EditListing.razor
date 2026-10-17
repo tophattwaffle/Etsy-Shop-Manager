@@ -1,0 +1,512 @@
+@page "/listings/{Id:int}/edit"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Core.Listings
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject ListingEditor Editor
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject ListingImportQueue ImportQueue
+
+<PageTitle>Edit @(_snapshot?.Listing.Title ?? "listing") · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="@($"listings/{Id}")" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> Back to listing
+</MudLink>
+
+@if (_snapshot is null || _form is null || _lookups is null)
+{
+    <PageHeader Title="Edit listing" />
+    @if (_notFound)
+    {
+        <MudAlert Severity="Severity.Warning">Listing not found.</MudAlert>
+    }
+    else
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+}
+else
+{
+    var l = _snapshot.Listing;
+    var model = _snapshot.Model;
+    <PageHeader Title="Edit listing">
+        <Summary>
+            @l.Shop.Name · #@l.EtsyListingId ·
+            @(model.DriftFields.Count > 0 ? "changed on Etsy, needs your choice"
+                : model.HasDraft ? $"{model.Draft.Count} unpushed change{(model.Draft.Count == 1 ? "" : "s")}" : "matches Etsy")
+            @if (_unsaved) { <span> · unsaved edits on this page</span> }
+        </Summary>
+        <Actions>
+            <MudButton Variant="Variant.Text" Disabled="@(!_unsaved && !model.HasDraft)" OnClick="DiscardAsync">Discard changes</MudButton>
+            <MudButton Variant="Variant.Outlined" Disabled="!_unsaved" OnClick="SaveAsync">Save draft</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ReviewAsync">Review and push</MudButton>
+        </Actions>
+    </PageHeader>
+
+    @if (ListingEditor.NeedsRefresh(l))
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4">
+            This listing was read from Etsy by an older version of the app, so some text may show Etsy's encoding.
+            Refresh it before editing; pushing is blocked until then.
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="RefreshFromEtsyAsync">Refresh from Etsy</MudButton>
+        </MudAlert>
+    }
+
+    @if (model.DriftFields.Count > 0)
+    {
+        <MudPaper Class="pa-4 mb-4 esm-drift" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6">Changed on Etsy</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                These were edited on etsy.com since this app last synced. Choose which version to keep before pushing.
+            </MudText>
+            @foreach (var key in model.DriftFields)
+            {
+                <div class="esm-drift-row">
+                    <div class="esm-drift-label">@ListingEditor.Label(key)</div>
+                    <div><span class="muted small">On Etsy now</span><div>@_lookups.Describe(key, model.Etsy[key])</div></div>
+                    <div><span class="muted small">This app</span><div>@_lookups.Describe(key, model.Local(key))</div></div>
+                    <div class="esm-drift-actions">
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => ResolveAsync(key, DriftResolution.KeepMine)">Keep mine</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => ResolveAsync(key, DriftResolution.TakeEtsy)">Take Etsy's</MudButton>
+                    </div>
+                </div>
+            }
+        </MudPaper>
+    }
+
+    @if (_preview is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">Review changes</MudText>
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _preview = null">Keep editing</MudButton>
+            </MudStack>
+            @if (_preview.Changes.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted">Nothing to push: this listing matches Etsy.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Class="mt-2">
+                    <thead><tr><th>Field</th><th>On Etsy now</th><th>After the push</th></tr></thead>
+                    <tbody>
+                        @foreach (var c in _preview.Changes)
+                        {
+                            <tr><td>@c.Label</td><td class="muted">@_lookups.Describe(c.Key, c.From)</td><td>@_lookups.Describe(c.Key, c.To)</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+            @foreach (var b in _preview.Blockers)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@b</MudAlert>
+            }
+            @foreach (var w in _preview.Warnings)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@w</MudAlert>
+            }
+            @if (_preview.CanPush)
+            {
+                <MudStack Row="true" Class="mt-3">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PushAsync" Disabled="_pushing">Push to Etsy</MudButton>
+                </MudStack>
+            }
+        </MudPaper>
+    }
+
+    <MudGrid>
+        <MudItem xs="12" md="8">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">About</MudText>
+                <MudTextField T="string" Value="@Str("title")" ValueChanged="@(v => SetStr("title", v))" Label="Title"
+                              Counter="ListingEditor.MaxTitleLength" MaxLength="ListingEditor.MaxTitleLength" Immediate="true"
+                              Variant="Variant.Outlined" Class="mb-3" HelperText="@Pending("title")" />
+                <MudTextField T="string" Value="@Str("description")" ValueChanged="@(v => SetStr("description", v))" Label="Description"
+                              Lines="12" Variant="Variant.Outlined" Immediate="true" HelperText="@Pending("description")" />
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Price and processing</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Stock isn't edited here: Etsy, sales and auto-refill manage it. @Pending(ListingFields.Inventory)
+                </MudText>
+                @if (Products.Count > 0)
+                {
+                    <MudSimpleTable Dense="true">
+                        <thead><tr><th>Variation</th><th>Price (@(l.CurrencyCode ?? ""))</th><th>Processing profile</th></tr></thead>
+                        <tbody>
+                            @foreach (var (product, index) in Products.Select((p, i) => (p!, i)))
+                            {
+                                var offering = product["offerings"]![0]!;
+                                <tr>
+                                    <td>@EditorLookups.VariationName(product)</td>
+                                    <td>
+                                        <MudNumericField T="decimal" Value="@Price(offering)" ValueChanged="@(v => SetPrice(index, v))"
+                                                         Min="0.20m" Step="0.01m" Format="0.00" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                         Disabled="@(!PriceVaries && index > 0)" Class="esm-w-sm" />
+                                    </td>
+                                    <td>
+                                        <MudSelect T="long?" Value="@((long?)offering["readiness_state_id"])" ValueChanged="@(v => SetProcessing(index, v))"
+                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!ProcessingVaries && index > 0)" Class="esm-minw-md">
+                                            <MudSelectItem T="long?" Value="null">—</MudSelectItem>
+                                            @foreach (var (id, name) in _lookups.ProcessingProfiles)
+                                            {
+                                                <MudSelectItem T="long?" Value="id">@name</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                    @if (Products.Count > 1 && (!PriceVaries || !ProcessingVaries))
+                    {
+                        <MudText Typo="Typo.body2" Class="muted mt-2">
+                            @(!PriceVaries ? "One price applies to every variation. " : "")@(!ProcessingVaries ? "One processing profile applies to every variation." : "")
+                        </MudText>
+                    }
+                }
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Tags and materials</MudText>
+                <MudTextField T="string" Value="@List("tags")" ValueChanged="@(v => SetList("tags", v))" Label="Tags (separate with commas)"
+                              Variant="Variant.Outlined" Class="mb-1" HelperText="@($"{Count("tags")} of {ListingEditor.MaxTags}. {Pending("tags")}")" />
+                <MudTextField T="string" Value="@List("materials")" ValueChanged="@(v => SetList("materials", v))" Label="Materials (separate with commas)"
+                              Variant="Variant.Outlined" HelperText="@($"{Count("materials")} of {ListingEditor.MaxMaterials}. {Pending("materials")}")" />
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Status</MudText>
+                <MudSelect T="string" Value="@Str(ListingFields.State)" ValueChanged="@(v => SetStr(ListingFields.State, v))" Label="Status"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@Pending(ListingFields.State)">
+                    @if (Str(ListingFields.State) is not ("active" or "inactive"))
+                    {
+                        <MudSelectItem T="string" Value="@Str(ListingFields.State)">@ListingFormat.StateLabel(Str(ListingFields.State) ?? "")</MudSelectItem>
+                    }
+                    <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("inactive")">Inactive</MudSelectItem>
+                </MudSelect>
+                <MudSwitch T="bool" Value="@Bool("should_auto_renew")" ValueChanged="@(v => SetBool("should_auto_renew", v))" Color="Color.Primary"
+                           Label="Renew automatically when it expires" Class="mt-2" />
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Shop settings</MudText>
+                <MudSelect T="long?" Value="@Long("shop_section_id")" ValueChanged="@(v => SetLong("shop_section_id", v))" Label="Shop section"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" HelperText="@Pending("shop_section_id")">
+                    <MudSelectItem T="long?" Value="null">None</MudSelectItem>
+                    @foreach (var (id, name) in _lookups.Sections) { <MudSelectItem T="long?" Value="id">@name</MudSelectItem> }
+                </MudSelect>
+                <MudSelect T="long?" Value="@Long("shipping_profile_id")" ValueChanged="@(v => SetLong("shipping_profile_id", v))" Label="Shipping profile"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" HelperText="@Pending("shipping_profile_id")">
+                    @foreach (var (id, name) in _lookups.ShippingProfiles) { <MudSelectItem T="long?" Value="id">@name</MudSelectItem> }
+                </MudSelect>
+                <MudSelect T="long?" Value="@Long("return_policy_id")" ValueChanged="@(v => SetLong("return_policy_id", v))" Label="Return policy"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" HelperText="@Pending("return_policy_id")">
+                    @foreach (var (id, name) in _lookups.ReturnPolicies) { <MudSelectItem T="long?" Value="id">@name</MudSelectItem> }
+                </MudSelect>
+                <MudAutocomplete T="CategoryOption" Value="@_category" ValueChanged="SetCategory" SearchFunc="SearchCategoriesAsync"
+                                 ToStringFunc="@(c => c?.Path ?? "")" Label="Category" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 MinCharacters="2" ResetValueOnEmptyText="false" HelperText="@Pending("taxonomy_id")" />
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Details</MudText>
+                <MudSelect T="string" Value="@Str("who_made")" ValueChanged="@(v => SetStr("who_made", v))" Label="Who made it?"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                    <MudSelectItem T="string" Value="@("i_did")">I did</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("collective")">A member of my shop</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("someone_else")">Another company or person</MudSelectItem>
+                </MudSelect>
+                <MudSelect T="string" Value="@Str("when_made")" ValueChanged="@(v => SetStr("when_made", v))" Label="When was it made?"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                    @foreach (var w in WhenMade) { <MudSelectItem T="string" Value="w">@ListingFormat.Humanize(w)</MudSelectItem> }
+                </MudSelect>
+                <MudSwitch T="bool" Value="@Bool("is_supply")" ValueChanged="@(v => SetBool("is_supply", v))" Color="Color.Primary" Label="A supply or tool to make things" />
+                <MudSwitch T="bool" Value="@Bool("is_taxable")" ValueChanged="@(v => SetBool("is_taxable", v))" Color="Color.Primary" Label="Taxable" />
+                @if (_lookups.ProductionPartners.Count > 0)
+                {
+                    <MudSelect T="long" MultiSelection="true" SelectedValues="@Partners" SelectedValuesChanged="SetPartners" Label="Production partners"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3">
+                        @foreach (var (id, name) in _lookups.ProductionPartners) { <MudSelectItem T="long" Value="id">@name</MudSelectItem> }
+                    </MudSelect>
+                }
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Weight and size</MudText>
+                <MudStack Row="true" Spacing="2">
+                    <MudNumericField T="decimal?" Value="@Dec("item_weight")" ValueChanged="@(v => SetDec("item_weight", v))" Label="Weight" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudSelect T="string" Value="@Str("item_weight_unit")" ValueChanged="@(v => SetStr("item_weight_unit", v))" Label="Unit" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var u in new[] { "oz", "lb", "g", "kg" }) { <MudSelectItem T="string" Value="u">@u</MudSelectItem> }
+                    </MudSelect>
+                </MudStack>
+                <MudStack Row="true" Spacing="2" Class="mt-2">
+                    <MudNumericField T="decimal?" Value="@Dec("item_length")" ValueChanged="@(v => SetDec("item_length", v))" Label="Length" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudNumericField T="decimal?" Value="@Dec("item_width")" ValueChanged="@(v => SetDec("item_width", v))" Label="Width" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudNumericField T="decimal?" Value="@Dec("item_height")" ValueChanged="@(v => SetDec("item_height", v))" Label="Height" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudStack>
+                <MudSelect T="string" Value="@Str("item_dimensions_unit")" ValueChanged="@(v => SetStr("item_dimensions_unit", v))" Label="Size unit"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2">
+                    @foreach (var u in new[] { "in", "ft", "mm", "cm", "m", "yd" }) { <MudSelectItem T="string" Value="u">@u</MudSelectItem> }
+                </MudSelect>
+            </MudPaper>
+
+            <RefillPanel ListingId="Id" ShopId="l.ShopId" />
+        </MudItem>
+    </MudGrid>
+
+    @if (_snapshot.RecentPushes.Count > 0)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" Class="mb-2">Push history</MudText>
+            <MudSimpleTable Dense="true">
+                <thead><tr><th>When</th><th>By</th><th>Status</th><th>Changed</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var p in _snapshot.RecentPushes)
+                    {
+                        <tr>
+                            <td>@ListingFormat.Local(p.RequestedAtUtc)</td>
+                            <td>@p.RequestedBy</td>
+                            <td>
+                                <MudChip T="string" Size="Size.Small" Color="@PushColor(p.Status)">@PushLabel(p.Status)</MudChip>
+                                @if (p.Error is not null) { <div class="small error-text">@p.Error</div> }
+                            </td>
+                            <td class="small">@ChangedLabels(p)</td>
+                            <td class="text-right">
+                                @if (p.SnapshotId is { } snapshotId)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => RestoreAsync(snapshotId)">Restore the version before this</MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudPaper>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    public sealed record CategoryOption(long Id, string Path);
+
+    private static readonly string[] WhenMade =
+        ["made_to_order", "2020_2026", "2010_2019", "2007_2009", "before_2007", "2000_2006", "1990s", "1980s", "1970s",
+         "1960s", "1950s", "1940s", "1930s", "1920s", "1910s", "1900s", "1800s", "1700s", "before_1700"];
+
+    private EditorSnapshot? _snapshot;
+    private EditorLookups? _lookups;
+    private JsonObject? _form;
+    private CategoryOption? _category;
+    private PushPreview? _preview;
+    private bool _unsaved, _pushing, _notFound;
+    private IDisposable? _live;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // Reload when a push, import or refill for this shop finishes (the page shows the result).
+        _live = JobEvents.Subscribe(c => c.IsFinal && c.ShopId == _snapshot?.Listing.ShopId
+                                         && c.JobType is PushListingJob.Type or ImportShopListingsJob.Type,
+            _ => InvokeAsync(async () => { await LoadAsync(keepForm: _unsaved); StateHasChanged(); }));
+    }
+
+    private async Task LoadAsync(bool keepForm = false)
+    {
+        _snapshot = await Editor.LoadAsync(Id);
+        if (_snapshot is null) { _notFound = true; return; }
+        var model = _snapshot.Model;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var categoryIds = new[] { model.Etsy["taxonomy_id"], model.Local("taxonomy_id") }
+            .Where(v => v is not null).Select(v => (long)v!);
+        _lookups = await EditorLookups.LoadAsync(db, _snapshot.Listing.ShopId, categoryIds, _snapshot.Listing.CurrencyCode);
+        if (keepForm && _form is not null) return;
+        _form = model.LocalState();
+        _category = Long("taxonomy_id") is { } t ? new CategoryOption(t, _lookups.Categories.GetValueOrDefault(t, $"#{t}")) : null;
+        _unsaved = false;
+    }
+
+    // ---- Form values (the local version as managed-state JSON) ----
+
+    private string? Str(string key) => (string?)_form![key];
+    private bool Bool(string key) => (bool?)_form![key] ?? false;
+    private long? Long(string key) => (long?)_form![key];
+    private decimal? Dec(string key) => (decimal?)_form![key];
+    private string List(string key) => string.Join(", ", (_form![key]?.AsArray() ?? []).Select(v => (string?)v));
+    private int Count(string key) => _form![key]?.AsArray().Count ?? 0;
+    private IReadOnlyCollection<long> Partners => [.. (_form!["production_partner_ids"]?.AsArray() ?? []).Select(v => (long)v!)];
+
+    private void Set(string key, JsonNode? value) { _form![key] = value; _unsaved = true; _preview = null; }
+    private void SetStr(string key, string? v) => Set(key, v is null ? null : JsonValue.Create(v));
+    private void SetBool(string key, bool v) => Set(key, JsonValue.Create(v));
+    private void SetLong(string key, long? v) => Set(key, v is null ? null : JsonValue.Create(v.Value));
+    private void SetDec(string key, decimal? v) => Set(key, v is null ? null : JsonValue.Create(v.Value));
+    private void SetPartners(IReadOnlyCollection<long>? ids) => Set("production_partner_ids", new JsonArray([.. (ids ?? []).Select(i => (JsonNode)i)]));
+
+    private void SetList(string key, string? text) =>
+        Set(key, new JsonArray([.. (text ?? "").Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).Select(t => (JsonNode)t)]));
+
+    private void SetCategory(CategoryOption? c)
+    {
+        _category = c;
+        if (c is not null) SetLong("taxonomy_id", c.Id);
+    }
+
+    private async Task<IEnumerable<CategoryOption>> SearchCategoriesAsync(string text, CancellationToken ct)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync(ct);
+        var pattern = "%" + (text ?? "").Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+        return await db.TaxonomyNodes.Where(n => !n.HasChildren && EF.Functions.Like(n.FullPath, pattern, "\\"))
+            .OrderBy(n => n.FullPath).Take(50).Select(n => new CategoryOption(n.Id, n.FullPath)).ToListAsync(ct);
+    }
+
+    // Prices and processing: products of the local inventory, in managed-state order.
+    private JsonArray Products => _form![ListingFields.Inventory]?["products"]?.AsArray() ?? [];
+    private bool PriceVaries => (_form![ListingFields.Inventory]?["price_on_property"]?.AsArray().Count ?? 0) > 0;
+    private bool ProcessingVaries => (_form![ListingFields.Inventory]?["readiness_state_on_property"]?.AsArray().Count ?? 0) > 0;
+
+    private static decimal Price(JsonNode offering) =>
+        (decimal)((long?)offering["price_amount"] ?? 0) / ((int?)offering["price_divisor"] is int d && d > 0 ? d : 100);
+
+    private void SetPrice(int index, decimal price)
+    {
+        var inventory = _form![ListingFields.Inventory]!.DeepClone();
+        foreach (var (product, i) in inventory["products"]!.AsArray().Select((p, i) => (p!, i)))
+        {
+            if (PriceVaries && i != index) continue; // one price for all unless it varies by a property
+            var offering = product["offerings"]![0]!;
+            var divisor = (int?)offering["price_divisor"] is int d && d > 0 ? d : 100;
+            offering["price_amount"] = (long)Math.Round(price * divisor);
+        }
+        Set(ListingFields.Inventory, inventory);
+    }
+
+    private void SetProcessing(int index, long? readiness)
+    {
+        var inventory = _form![ListingFields.Inventory]!.DeepClone();
+        foreach (var (product, i) in inventory["products"]!.AsArray().Select((p, i) => (p!, i)))
+        {
+            if (ProcessingVaries && i != index) continue;
+            product["offerings"]![0]!["readiness_state_id"] = readiness is null ? null : JsonValue.Create(readiness.Value);
+        }
+        Set(ListingFields.Inventory, inventory);
+    }
+
+    /// <summary>"Unpushed" under a field whose local value differs from Etsy's.</summary>
+    private string? Pending(string key) =>
+        _snapshot is { } s && !JsonNode.DeepEquals(_form![key], s.Model.Etsy[key]) ? "Not on Etsy yet." : null;
+
+    // ---- Actions ----
+
+    private async Task<string?> User() => (await AuthState).User.Identity?.Name;
+
+    private async Task SaveAsync()
+    {
+        var model = _snapshot!.Model;
+        var changes = ListingFields.All.Where(f => f.Editable && !JsonNode.DeepEquals(_form![f.Key], model.Local(f.Key)))
+            .ToDictionary(f => f.Key, f => _form![f.Key]?.DeepClone());
+        if (changes.Count > 0) await Editor.SaveAsync(Id, changes, await User());
+        await LoadAsync();
+        Snackbar.Add("Draft saved. Nothing has been sent to Etsy.", Severity.Success);
+    }
+
+    private async Task ReviewAsync()
+    {
+        if (_unsaved) await SaveAsync();
+        _preview = await Editor.PreviewAsync(Id);
+    }
+
+    private async Task PushAsync()
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Push to Etsy",
+            $"Send {_preview!.Changes.Count} change{(_preview.Changes.Count == 1 ? "" : "s")} to the live listing on Etsy? " +
+            "A snapshot of the current Etsy version is kept so you can restore it.",
+            yesText: "Push to Etsy", cancelText: "Cancel");
+        if (confirmed != true) return;
+        _pushing = true;
+        try
+        {
+            var (pushId, blockers) = await Editor.RequestPushAsync(Id, await User());
+            if (pushId is null) { Snackbar.Add(string.Join(" ", blockers), Severity.Warning); return; }
+            Snackbar.Add("Pushing to Etsy…", Severity.Info);
+            _preview = null;
+            await LoadAsync();
+        }
+        finally { _pushing = false; }
+    }
+
+    private async Task RefreshFromEtsyAsync()
+    {
+        var id = await ImportQueue.ImportShopAsync(_snapshot!.Listing.ShopId, force: false, await User());
+        Snackbar.Add(id is null ? "An import for this shop is already queued" : "Refreshing this shop's listings from Etsy…", Severity.Info);
+    }
+
+    private async Task ResolveAsync(string key, DriftResolution resolution)
+    {
+        await Editor.ResolveDriftAsync(Id, key, resolution, await User());
+        await LoadAsync();
+        _preview = null;
+    }
+
+    private async Task DiscardAsync()
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Discard changes",
+            "Discard all edits that haven't been pushed? The listing goes back to what's on Etsy.",
+            yesText: "Discard", cancelText: "Cancel");
+        if (confirmed != true) return;
+        await Editor.DiscardAsync(Id, null, await User());
+        await LoadAsync();
+        _preview = null;
+    }
+
+    private async Task RestoreAsync(int snapshotId)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Restore a previous version",
+            "Load the version Etsy had before that push into your draft? Nothing is sent until you review and push.",
+            yesText: "Load into draft", cancelText: "Cancel");
+        if (confirmed != true) return;
+        await Editor.RestoreSnapshotAsync(snapshotId, await User());
+        await LoadAsync();
+        _preview = await Editor.PreviewAsync(Id);
+    }
+
+    private static string PushLabel(ListingPushStatus s) => s switch
+    {
+        ListingPushStatus.Pending => "Queued",
+        ListingPushStatus.Running => "Pushing",
+        ListingPushStatus.Succeeded => "Pushed",
+        ListingPushStatus.PartlyApplied => "Partly applied",
+        _ => "Failed",
+    };
+
+    private static Color PushColor(ListingPushStatus s) => s switch
+    {
+        ListingPushStatus.Succeeded => Color.Success,
+        ListingPushStatus.Failed => Color.Error,
+        ListingPushStatus.PartlyApplied => Color.Warning,
+        _ => Color.Info,
+    };
+
+    private static string ChangedLabels(ListingPush p)
+    {
+        try
+        {
+            return string.Join(", ", (JsonNode.Parse(p.ChangesJson)?.AsArray() ?? []).Select(c => (string?)c!["label"]));
+        }
+        catch (System.Text.Json.JsonException) { return ""; }
+    }
+
+    public void Dispose() => _live?.Dispose();
+}

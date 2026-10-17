@@ -17,16 +17,18 @@ public static class ListingMapper
     {
         target.EtsyListingId = source.ListingId;
         target.State = source.State;
-        target.Title = source.Title;
-        target.Description = source.Description ?? "";
+        // Etsy returns text HTML-encoded ("you&#39;re", "&quot;"). Keep plain text, so it shows and is pushed as written
+        // (Etsy encodes it again in its own output).
+        target.Title = Text(source.Title);
+        target.Description = Text(source.Description);
         target.PriceAmount = source.Price?.Amount ?? 0;
         target.PriceDivisor = source.Price?.Divisor is > 0 ? source.Price.Divisor : 100;
         target.CurrencyCode = source.Price?.CurrencyCode;
         target.Quantity = source.Quantity;
         target.Skus = source.Skus?.Where(s => !string.IsNullOrEmpty(s)).ToList() ?? [];
-        target.Tags = source.Tags ?? [];
-        target.Materials = source.Materials ?? [];
-        target.Styles = source.Style ?? [];
+        target.Tags = source.Tags?.Select(Text).ToList() ?? [];
+        target.Materials = source.Materials?.Select(Text).ToList() ?? [];
+        target.Styles = source.Style?.Select(Text).ToList() ?? [];
         target.TaxonomyId = source.TaxonomyId;
         target.ShippingProfileId = source.ShippingProfileId;
         target.ReturnPolicyId = source.ReturnPolicyId;
@@ -60,6 +62,9 @@ public static class ListingMapper
         target.EtsyStateChangedAtUtc = FromUnix(source.StateTimestamp);
         target.EtsyEndsAtUtc = FromUnix(source.EndingTimestamp);
     }
+
+    /// <summary>Etsy's HTML-encoded text as plain text.</summary>
+    public static string Text(string? html) => System.Net.WebUtility.HtmlDecode(html ?? "");
 
     /// <summary>Personalization questions as JSON, or null when the listing has none.</summary>
     private static string? PersonalizationJson(EtsyListing source)
@@ -198,11 +203,35 @@ public static class ListingMapper
         if (state.ManagedHash != hash || state.ManagedVersion != ManagedListingState.CurrentVersion)
         {
             if (state.ManagedHash != "") state.ManagedChangedAtUtc = nowUtc;
+            // A new managed-field definition makes the old base incomparable: start again from Etsy's state.
+            if (state.ManagedVersion != ManagedListingState.CurrentVersion) state.BaseJson = null;
             state.ManagedHash = hash;
             state.ManagedJson = managedJson;
             state.ManagedVersion = ManagedListingState.CurrentVersion;
         }
         if (state.RawJson != rawJson) state.RawJson = rawJson;
         state.FetchedAtUtc = nowUtc;
+    }
+
+    /// <summary>
+    /// Brings the editor bookkeeping in line with the Etsy state just stored: updates the base (untracked fields follow
+    /// Etsy), drops draft entries that no longer differ, and sets HasDraft/HasDrift. Returns the drifted fields.
+    /// </summary>
+    public static IReadOnlyList<string> UpdateEditState(Listing target)
+    {
+        var state = target.EtsyState ?? throw new InvalidOperationException("SetEtsyState first.");
+        var model = ListingEditModel.Parse(state.ManagedJson, state.BaseJson, target.DraftJson);
+        Apply(target, model);
+        return model.DriftFields;
+    }
+
+    /// <summary>Stores a (changed) edit model back on the listing.</summary>
+    public static void Apply(Listing target, ListingEditModel model)
+    {
+        var baseJson = model.Base.ToJsonString();
+        if (target.EtsyState!.BaseJson != baseJson) target.EtsyState.BaseJson = baseJson;
+        target.DraftJson = model.HasDraft ? model.Draft.ToJsonString() : null;
+        target.HasDraft = model.HasDraft;
+        target.HasDrift = model.DriftFields.Count > 0;
     }
 }

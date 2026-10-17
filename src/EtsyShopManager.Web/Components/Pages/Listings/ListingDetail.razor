@@ -24,7 +24,18 @@ else
 {
     var l = _listing;
     var names = _names!;
-    <PageHeader Title="@l.Title" />
+    <PageHeader Title="@l.Title">
+        <Summary>
+            @if (l.HasDrift) { <span class="error-text">Changed on Etsy since the last sync · </span> }
+            @if (l.HasDraft) { <span>Unpushed edits · </span> }
+            @l.Shop.Name
+        </Summary>
+        <Actions>
+            <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"listings/{l.Id}/edit")">Edit listing</MudButton>
+            </AuthorizeView>
+        </Actions>
+    </PageHeader>
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Start">
             @if (ImageStore.UrlFor(l.Images.FirstOrDefault()?.ThumbFileName ?? l.Images.FirstOrDefault()?.FileName) is { } hero)
@@ -54,6 +65,8 @@ else
             </div>
         </MudStack>
     </MudPaper>
+
+    <RefillPanel ListingId="l.Id" ShopId="l.ShopId" />
 
     <MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
         <MudTabPanel Text="Details">

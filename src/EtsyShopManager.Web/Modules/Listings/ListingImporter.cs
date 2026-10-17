@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EtsyShopManager.Core.Domain;
+using EtsyShopManager.Core.Events;
 using EtsyShopManager.Core.Jobs;
 using EtsyShopManager.Data;
 using EtsyShopManager.Etsy;
@@ -21,6 +22,7 @@ public sealed record ShopImportResult(string RunId, bool Resumed, int ListingsSe
 public sealed class ListingImporter(
     IDbContextFactory<AppDbContext> dbFactory,
     EtsyApiClient etsy,
+    IDomainEventPublisher events,
     TimeProvider time,
     ILogger<ListingImporter> logger)
 {
@@ -151,7 +153,7 @@ public sealed class ListingImporter(
     }
 
     private async Task UpsertPageAsync(int shopId, long etsyShopId, List<EtsyRaw<EtsyListing>> page, string runId,
-        bool force, CancellationToken ct)
+        bool force, CancellationToken ct, bool raiseDriftEvents = true)
     {
         if (page.Count == 0) return;
         var auth = EtsyAuth.ForShop(shopId);
@@ -166,6 +168,7 @@ public sealed class ListingImporter(
             .AsSplitQuery()
             .Where(l => ids.Contains(l.EtsyListingId))
             .ToDictionaryAsync(l => l.EtsyListingId, ct);
+        var newlyDrifted = new List<(Listing Listing, IReadOnlyList<string> Fields)>();
 
         foreach (var (src, raw) in page)
         {
@@ -211,12 +214,42 @@ public sealed class ListingImporter(
             }
 
             ListingMapper.SetEtsyState(listing, raw, now);
+            var hadDrift = listing.HasDrift;
+            var drift = ListingMapper.UpdateEditState(listing);
+            if (drift.Count > 0 && !hadDrift) newlyDrifted.Add((listing, drift));
             listing.LastSeenRunId = runId;
             listing.IsMissingOnEtsy = false;
             listing.LastImportedAtUtc = now;
         }
 
         await db.SaveChangesAsync(ct);
+
+        if (raiseDriftEvents)
+            foreach (var (listing, fields) in newlyDrifted)
+                await events.PublishAsync(new DriftDetected(listing.ShopId, listing.Id, listing.EtsyListingId, fields), ct);
+    }
+
+    /// <summary>
+    /// Re-reads one listing from Etsy (fields, images, inventory, attributes) and updates the local copy and edit state,
+    /// as an import would. Used right before and after a push; the re-read after a push passes
+    /// <paramref name="raiseDriftEvents"/> = false, because Etsy then legitimately differs from the old base until the
+    /// push reconciles it.
+    /// </summary>
+    public async Task RefreshListingAsync(int listingId, CancellationToken ct, bool raiseDriftEvents = true)
+    {
+        int shopId;
+        long etsyShopId, etsyListingId;
+        string runId;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            var row = await db.Listings.AsNoTracking().Where(l => l.Id == listingId)
+                .Select(l => new { l.ShopId, l.Shop.EtsyShopId, l.EtsyListingId, l.LastSeenRunId })
+                .FirstOrDefaultAsync(ct) ?? throw new JobPermanentFailureException($"Listing {listingId} does not exist.");
+            (shopId, etsyShopId, etsyListingId, runId) = (row.ShopId, row.EtsyShopId, row.EtsyListingId, row.LastSeenRunId ?? "");
+        }
+
+        var raw = await etsy.GetListingAsync(etsyListingId, EtsyAuth.ForShop(shopId), ct);
+        await UpsertPageAsync(shopId, etsyShopId, [raw], runId, force: true, ct, raiseDriftEvents);
     }
 
     /// <summary>Replaces the shop's cached shipping, processing and return profiles, sections and partners.</summary>
