@@ -574,7 +574,7 @@ public class StockRefillTests
 
         await using var db = shop.Db.CreateDbContext();
         var settings = await db.ListingRefills.SingleAsync();
-        Assert.Contains("Etsy rejected the refill", settings.Problem);
+        Assert.StartsWith("The refill wasn't applied. Etsy rejected the variations, prices and stock", settings.Problem);
         Assert.Equal(settings.Problem, settings.LastResult);
         Assert.NotNull(settings.LastCheckedAtUtc);
         Assert.Null(settings.LastRefilledAtUtc);

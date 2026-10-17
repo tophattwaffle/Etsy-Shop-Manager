@@ -372,6 +372,12 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>Fails writes (PATCH/PUT) with this status, e.g. to test a failed push.</summary>
     public HttpStatusCode? FailWritesWith { get; set; }
 
+    /// <summary>Etsy's reply body for the failures above on updateListing and createDraftListing (none when null).</summary>
+    public string? FailWritesBody { get; set; }
+
+    private HttpResponseMessage Failure(HttpStatusCode status) =>
+        FailWritesBody is { } body ? ScriptedHandler.Json(status, body) : new HttpResponseMessage(status);
+
     /// <summary>Fails only updateListingInventory (PUT) with this status: a push that is half written.</summary>
     public HttpStatusCode? FailInventoryWritesWith { get; set; }
 
@@ -469,7 +475,7 @@ internal sealed class FakeEtsyShop : IDisposable
         {
             var body = req.Content!.ReadAsStringAsync().Result;
             Writes.Add(("POST", path, body));
-            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            if (FailWritesWith is { } status) return Failure(status);
             var form = System.Web.HttpUtility.ParseQueryString(body);
             var id = ++_nextEtsyId;
             var price = (long)Math.Round(decimal.Parse(form["price"]!, System.Globalization.CultureInfo.InvariantCulture) * 100);
@@ -563,7 +569,7 @@ internal sealed class FakeEtsyShop : IDisposable
         {
             var body = req.Content!.ReadAsStringAsync().Result;
             Writes.Add(("PATCH", path, body));
-            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            if (FailWritesWith is { } status) return Failure(status);
             var listing = ListingJson(long.Parse(parts[5]));
             foreach (var (key, value) in System.Web.HttpUtility.ParseQueryString(body) is var form
                          ? form.AllKeys.Select(k => (k!, form[k]!)) : [])

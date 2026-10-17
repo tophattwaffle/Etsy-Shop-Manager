@@ -86,7 +86,10 @@ shop, encrypted with Data Protection (machine DPAPI), refreshed on demand one re
 refresh token marks the shop as needing reconnection. Every write (POST/PUT/PATCH/DELETE on the application API, each
 attempt) is recorded with Etsy's reply by `EtsyWriteJournalHandler` (innermost) into `EtsyWriteLogs` (Admin → Etsy writes,
 kept 90 days); OAuth calls and headers are never recorded, file uploads only as name and size. `EtsyCallContext` names
-the job that made the call.
+the job that made the call. A failed call's exception message is `EtsyErrorText`'s plain-words version of Etsy's reply
+(what was refused, Etsy's reason, what to do); that is what job results, the editor, clone page and refill panel show,
+while the raw reply stays on `EtsyApiException.ResponseBody` and in the write log. `ListingTextRules` checks Etsy's
+title/tag/material rules in the push and clone reviews.
 
 ### Listings
 Import (`Web/Modules/Listings/ListingImporter.cs` and jobs) is idempotent, matched by Etsy id, resumable page by page;

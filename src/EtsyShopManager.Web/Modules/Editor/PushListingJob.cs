@@ -165,8 +165,10 @@ public sealed class PushListingJob(
         {
             logger.LogWarning(ex, "Push {PushId} failed after a partial write; reconciling listing {ListingId}", pushId, listing.EtsyListingId);
             var rest = await ReconcileAsync(pushId, listingId, snapshotId, uploaded, ct);
-            var applied = preview.Changes.Select(c => c.Key).Except(rest).Select(ListingEditor.Label);
-            var message = $"{ex.Message} Applied before the error: {string.Join(", ", applied)}; the rest is still in your edits.";
+            var applied = preview.Changes.Select(c => c.Key).Except(rest).Select(ListingEditor.Label).ToList();
+            var message = applied.Count == 0
+                ? $"{ex.Message} Nothing else changed on Etsy; your edits are kept."
+                : $"{ex.Message} Applied before the error: {string.Join(", ", applied)}; the rest is still in your edits.";
             await FinishAsync(pushId, ListingPushStatus.PartlyApplied, message);
             await audit.WriteAsync("listing.pushed", nameof(Listing), listing.EtsyListingId.ToString(), message, "system", ct);
             throw new JobPermanentFailureException(message, ex);

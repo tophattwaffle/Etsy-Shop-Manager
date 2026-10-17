@@ -60,8 +60,10 @@ public sealed partial class EtsyApiClient(IHttpClientFactory httpClientFactory, 
             string? error = null;
             try { error = JsonSerializer.Deserialize<EtsyErrorResponse>(body, EtsyJson.Options)?.Error; }
             catch (JsonException) { }
+            // The message is what people see (job results, the editor, the clone page); Etsy's raw reply stays on the
+            // exception and in the Etsy write log.
             throw new EtsyApiException(response.StatusCode, error, body,
-                $"Etsy API {(int)response.StatusCode} for {response.RequestMessage?.Method} {response.RequestMessage?.RequestUri?.AbsolutePath}: {error ?? body}");
+                EtsyErrorText.Describe(response.StatusCode, body, response.RequestMessage?.Method, response.RequestMessage?.RequestUri?.AbsolutePath));
         }
     }
 
