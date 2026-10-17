@@ -370,8 +370,9 @@ internal sealed class FakeEtsyShop : IDisposable
     public JsonObject ListingJson(long id) => Listings.Single(l => (long)l["listing_id"]! == id);
 
     private long _nextEtsyId = 900_000;
+    private readonly Dictionary<long, JsonObject> _archivedImages = [];
 
-    /// <summary>getListing, inventory with the listing, updateListing and updateListingInventory, applied like Etsy would.</summary>
+    /// <summary>getListing, inventory with the listing, updateListing, updateListingInventory and image writes, applied like Etsy would.</summary>
     private HttpResponseMessage? RespondEdit(HttpRequestMessage req, string path, System.Collections.Specialized.NameValueCollection query, string shop)
     {
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -381,6 +382,74 @@ internal sealed class FakeEtsyShop : IDisposable
             var listing = (JsonObject)ListingJson(getId).DeepClone();
             listing.Remove("inventory");
             return Json(listing);
+        }
+        // POST /v3/application/shops/42/listings/{id}/images  (uploadListingImage, multipart/form-data)
+        if (req.Method == HttpMethod.Post && parts.Length == 7 && path.StartsWith($"{shop}/listings/") && parts[6] == "images")
+        {
+            var listingId = long.Parse(parts[5]);
+            var fields = new Dictionary<string, string>();
+            var summary = new List<string>();
+            foreach (var part in (MultipartFormDataContent)req.Content!)
+            {
+                var name = part.Headers.ContentDisposition?.Name?.Trim('"') ?? "";
+                var fileName = part.Headers.ContentDisposition?.FileName?.Trim('"');
+                if (fileName is not null)
+                {
+                    var bytes = part.ReadAsByteArrayAsync().Result;
+                    fields["image"] = fileName;
+                    summary.Add($"image={fileName}({bytes.Length}b)");
+                }
+                else
+                {
+                    var val = part.ReadAsStringAsync().Result;
+                    fields[name] = val;
+                    summary.Add($"{name}={val}");
+                }
+            }
+            Writes.Add(("POST", path, string.Join("&", summary)));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+
+            var listing = ListingJson(listingId);
+            var images = listing["images"]!.AsArray();
+            var rank = int.Parse(fields.GetValueOrDefault("rank", "1"));
+            var alt = fields.GetValueOrDefault("alt_text", "").Replace("'", "&#39;").Replace("\"", "&quot;");
+            JsonObject target;
+            if (fields.TryGetValue("listing_image_id", out var rawId) && long.TryParse(rawId, out var imageId))
+            {
+                target = images.Select(n => n!.AsObject()).FirstOrDefault(i => (long)i["listing_image_id"]! == imageId)
+                         ?? (_archivedImages.TryGetValue(imageId, out var archived) ? (JsonObject)archived.DeepClone() : Image(listingId, imageId, rank));
+                if (!images.Any(i => (long)i!["listing_image_id"]! == imageId)) images.Add(target);
+            }
+            else
+            {
+                target = Image(listingId, ++_nextEtsyId, rank);
+                images.Add(target);
+            }
+            target["rank"] = rank;
+            target["alt_text"] = alt;
+            var sorted = images.Select(n => (JsonNode)n!.DeepClone()).OrderBy(n => (int)n["rank"]!).ToArray();
+            listing["images"] = new JsonArray(sorted);
+            listing["last_modified_timestamp"] = (long)listing["last_modified_timestamp"]! + 10;
+            return ScriptedHandler.Json(HttpStatusCode.Created, target.ToJsonString(new JsonSerializerOptions()));
+        }
+        // DELETE /v3/application/shops/42/listings/{id}/images/{imageId}
+        if (req.Method == HttpMethod.Delete && parts.Length == 8 && path.StartsWith($"{shop}/listings/") && parts[6] == "images")
+        {
+            Writes.Add(("DELETE", path, ""));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            var listing = ListingJson(long.Parse(parts[5]));
+            var imageId = long.Parse(parts[7]);
+            var images = listing["images"]!.AsArray();
+            for (var i = images.Count - 1; i >= 0; i--)
+            {
+                if ((long)images[i]!["listing_image_id"]! == imageId)
+                {
+                    _archivedImages[imageId] = (JsonObject)images[i]!.DeepClone();
+                    images.RemoveAt(i);
+                }
+            }
+            listing["last_modified_timestamp"] = (long)listing["last_modified_timestamp"]! + 10;
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
         }
         // PATCH /v3/application/shops/42/listings/{id}
         if (req.Method == HttpMethod.Patch && path.StartsWith($"{shop}/listings/"))

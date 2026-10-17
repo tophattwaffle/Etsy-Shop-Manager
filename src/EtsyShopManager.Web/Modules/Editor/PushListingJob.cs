@@ -25,6 +25,7 @@ namespace EtsyShopManager.Web.Modules.Editor;
 public sealed class PushListingJob(
     IDbContextFactory<AppDbContext> dbFactory,
     ListingImporter importer,
+    ImageStore images,
     EtsyApiClient etsy,
     IDomainEventPublisher events,
     IAuditLog audit,
@@ -73,7 +74,7 @@ public sealed class PushListingJob(
             model = ListingEditModel.Parse(listing.EtsyState!.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         }
 
-        var preview = ListingEditor.Preview(listing, model, pushInProgress: false);
+        var preview = ListingEditor.Preview(listing, model, pushInProgress: false, images);
         if (preview.Blockers.Count > 0)
         {
             var reason = string.Join(" ", preview.Blockers);
@@ -88,7 +89,10 @@ public sealed class PushListingJob(
 
         var auth = EtsyAuth.ForShop(listing.ShopId);
         var local = model.LocalState();
-        var listingFields = preview.Changes.Where(c => c.Key != ListingFields.Inventory).Select(c => c.Key).ToList();
+        var listingFields = preview.Changes
+            .Where(c => c.Key is not (ListingFields.Inventory or ListingFields.Images))
+            .Select(c => c.Key).ToList();
+        var imagesChanged = preview.Changes.Any(c => c.Key == ListingFields.Images);
         var inventoryChanged = preview.Changes.Any(c => c.Key == ListingFields.Inventory);
 
         // 2. Snapshot what Etsy holds right now.
@@ -98,6 +102,7 @@ public sealed class PushListingJob(
         // 3. Write. Once something is written, a later failure must still reconcile; otherwise the next import would
         // report the fields this push changed as drift (changed on Etsy) and block further pushes.
         var wrote = false;
+        var uploadedFiles = new Dictionary<long, string>();
         try
         {
             if (listingFields.Count > 0)
@@ -106,6 +111,11 @@ public sealed class PushListingJob(
                 logger.LogInformation("Pushing {Fields} for listing {ListingId}", string.Join(", ", listingFields), listing.EtsyListingId);
                 await etsy.UpdateListingAsync(listing.Shop.EtsyShopId, listing.EtsyListingId, form, auth, ct);
                 wrote = true;
+            }
+            if (imagesChanged)
+            {
+                await PushImagesAsync(listing, model.Etsy[ListingFields.Images]!.AsArray(),
+                    local[ListingFields.Images]!.AsArray(), auth, uploadedFiles, () => wrote = true, ct);
             }
             if (inventoryChanged)
             {
@@ -117,7 +127,7 @@ public sealed class PushListingJob(
         catch (Exception ex) when (wrote && ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Push {PushId} failed after a partial write; reconciling listing {ListingId}", pushId, listing.EtsyListingId);
-            var rest = await ReconcileAsync(pushId, listingId, snapshotId, ct);
+            var rest = await ReconcileAsync(pushId, listingId, snapshotId, uploadedFiles, ct);
             var applied = preview.Changes.Select(c => c.Key).Except(rest).Select(ListingEditor.Label);
             var message = $"{ex.Message} Applied before the error: {string.Join(", ", applied)}; the rest is still in your edits.";
             await FinishAsync(pushId, ListingPushStatus.PartlyApplied, message);
@@ -126,7 +136,7 @@ public sealed class PushListingJob(
         }
 
         // 4. Re-read and reconcile: Etsy's new state is agreed; what Etsy didn't take stays in the draft.
-        var notApplied = await ReconcileAsync(pushId, listingId, snapshotId, ct);
+        var notApplied = await ReconcileAsync(pushId, listingId, snapshotId, uploadedFiles, ct);
 
         var pushed = preview.Changes.Select(c => c.Key).Except(notApplied).ToList();
         var labels = string.Join(", ", pushed.Select(ListingEditor.Label));
@@ -145,12 +155,103 @@ public sealed class PushListingJob(
         return $"pushed {labels}";
     }
 
+    private async Task PushImagesAsync(Listing listing, JsonArray etsyImages, JsonArray localImages, EtsyAuth auth,
+        Dictionary<long, string> uploadedFiles, Action markWrote, CancellationToken ct)
+    {
+        var shopId = listing.Shop.EtsyShopId;
+        var etsyListingId = listing.EtsyListingId;
+        var currentByRank = etsyImages.Select((img, idx) => (
+                Rank: (int?)img?["rank"] ?? (idx + 1),
+                Id: (long?)img?["etsy_image_id"] ?? 0,
+                Alt: (string?)img?["alt_text"] ?? ""))
+            .GroupBy(x => x.Rank).ToDictionary(g => g.Key, g => g.First());
+
+        var keptIds = localImages.Select(i => (long?)i?["etsy_image_id"] ?? 0).Where(id => id > 0).ToHashSet();
+        var toDelete = etsyImages.Select(i => (long?)i?["etsy_image_id"] ?? 0)
+            .Where(id => id > 0 && !keptIds.Contains(id)).ToList();
+
+        // If every existing photo is being replaced, keep one until the first new photo is uploaded so the listing is
+        // never left with zero photos on Etsy.
+        long? deleteAfterFirstUpload = keptIds.Count == 0 && toDelete.Count > 0 ? toDelete[^1] : null;
+        foreach (var id in deleteAfterFirstUpload is null ? toDelete : toDelete.SkipLast(1))
+        {
+            logger.LogInformation("Deleting image {ImageId} from listing {ListingId}", id, etsyListingId);
+            await etsy.DeleteListingImageAsync(shopId, etsyListingId, id, auth, ct);
+            markWrote();
+        }
+
+        var ranksShifted = toDelete.Count > 0;
+        for (var i = 0; i < localImages.Count; i++)
+        {
+            var img = localImages[i]!.AsObject();
+            var rank = i + 1;
+            img["rank"] = rank;
+            var id = (long?)img["etsy_image_id"] ?? 0;
+            var alt = (string?)img["alt_text"] ?? "";
+
+            if (id <= 0)
+            {
+                var fileName = (string?)img["file_name"]
+                    ?? throw new JobPermanentFailureException($"Photo #{rank} has no uploaded file.");
+                var bytes = await File.ReadAllBytesAsync(images.PathFor(fileName), ct);
+                logger.LogInformation("Uploading new image ({FileName}) at rank {Rank} for listing {ListingId}", fileName, rank, etsyListingId);
+                var created = await etsy.UploadListingImageAsync(shopId, etsyListingId, bytes, fileName, rank, alt, auth, ct);
+                markWrote();
+                ranksShifted = true;
+                uploadedFiles[created.ListingImageId] = fileName;
+                img["etsy_image_id"] = created.ListingImageId;
+                img.Remove("file_name");
+                await SaveDraftImagesAsync(listing.Id, localImages, ct);
+
+                if (deleteAfterFirstUpload is { } deferredId)
+                {
+                    deleteAfterFirstUpload = null;
+                    logger.LogInformation("Deleting replaced image {ImageId} from listing {ListingId}", deferredId, etsyListingId);
+                    await etsy.DeleteListingImageAsync(shopId, etsyListingId, deferredId, auth, ct);
+                }
+                continue;
+            }
+
+            if (!ranksShifted && currentByRank.TryGetValue(rank, out var cur) && cur.Id == id && cur.Alt == alt)
+                continue;
+
+            if (!currentByRank.TryGetValue(rank, out var curAtRank) || curAtRank.Id != id)
+                ranksShifted = true;
+
+            logger.LogInformation("Updating image {ImageId} to rank {Rank} for listing {ListingId}", id, rank, etsyListingId);
+            await etsy.UploadListingImageAsync(shopId, etsyListingId, id, rank, alt, auth, ct);
+            markWrote();
+        }
+    }
+
+    private async Task SaveDraftImagesAsync(int listingId, JsonArray localImages, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var row = await db.Listings.FirstAsync(l => l.Id == listingId, ct);
+        if (string.IsNullOrWhiteSpace(row.DraftJson)) return;
+        var draft = JsonNode.Parse(row.DraftJson)!.AsObject();
+        draft[ListingFields.Images] = localImages.DeepClone();
+        row.DraftJson = draft.ToJsonString();
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>Re-reads the listing: Etsy's new state becomes agreed. Returns the draft fields Etsy doesn't hold.</summary>
-    private async Task<IReadOnlyList<string>> ReconcileAsync(int pushId, int listingId, int snapshotId, CancellationToken ct)
+    private async Task<IReadOnlyList<string>> ReconcileAsync(int pushId, int listingId, int snapshotId,
+        IReadOnlyDictionary<long, string> uploadedFiles, CancellationToken ct)
     {
         await importer.RefreshListingAsync(listingId, ct, raiseDriftEvents: false);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var row = await db.Listings.Include(l => l.EtsyState).FirstAsync(l => l.Id == listingId, ct);
+        var row = await db.Listings.Include(l => l.EtsyState).Include(l => l.Images).FirstAsync(l => l.Id == listingId, ct);
+        var now = time.GetUtcNow().UtcDateTime;
+        foreach (var (etsyImageId, fileName) in uploadedFiles)
+        {
+            if (row.Images.FirstOrDefault(i => i.EtsyImageId == etsyImageId) is { FileName: null } imgRow && images.Exists(fileName))
+            {
+                imgRow.FileName = fileName;
+                imgRow.ByteSize = new FileInfo(images.PathFor(fileName)).Length;
+                imgRow.DownloadedAtUtc = now;
+            }
+        }
         var after = ListingEditModel.Parse(row.EtsyState!.ManagedJson, row.EtsyState.BaseJson, row.DraftJson);
         var notApplied = after.AcceptPushed(JsonNode.Parse(row.EtsyState.ManagedJson)!.AsObject());
         ListingMapper.Apply(row, after);
@@ -200,8 +301,8 @@ public static class ListingFormMapper
             var value = local[key];
             switch (key)
             {
-                case ListingFields.Inventory:
-                    continue; // written through updateListingInventory
+                case ListingFields.Inventory or ListingFields.Images:
+                    continue; // written through their own endpoints
                 case "tags" or "materials" or "production_partner_ids":
                     // Array fields are sent comma-separated (Etsy doesn't allow commas inside tags or materials).
                     form.Add(new(key, string.Join(",", (value?.AsArray() ?? []).Select(v => v?.ToString()))));

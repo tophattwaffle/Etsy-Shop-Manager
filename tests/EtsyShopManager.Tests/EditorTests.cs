@@ -13,13 +13,14 @@ namespace EtsyShopManager.Tests;
 
 public class ListingEditModelTests
 {
-    private static JsonObject State(string title = "Vase", string state = "active", int images = 1) => new()
+    private static JsonObject State(string title = "Vase", string state = "active", int images = 1, int attributes = 1) => new()
     {
         ["state"] = state,
         ["title"] = title,
         ["description"] = "d",
         ["tags"] = new JsonArray("a", "b"),
         ["images"] = new JsonArray(Enumerable.Range(1, images).Select(i => (JsonNode)new JsonObject { ["etsy_image_id"] = i }).ToArray()),
+        ["attributes"] = new JsonArray(Enumerable.Range(1, attributes).Select(i => (JsonNode)new JsonObject { ["property_id"] = i }).ToArray()),
     };
 
     [Fact]
@@ -39,7 +40,7 @@ public class ListingEditModelTests
         Assert.Equal(["title"], m.PendingFields);
         m.Set("title", "Vase");
         Assert.False(m.HasDraft);
-        Assert.Throws<ArgumentException>(() => m.Set("images", new JsonArray()));
+        Assert.Throws<ArgumentException>(() => m.Set("attributes", new JsonArray()));
     }
 
     [Fact]
@@ -64,10 +65,10 @@ public class ListingEditModelTests
     [Fact]
     public void Untracked_fields_follow_Etsy_without_drift()
     {
-        var m = new ListingEditModel(State(state: "expired", images: 3), State(), null);
+        var m = new ListingEditModel(State(state: "expired", attributes: 3), State(), null);
         Assert.Empty(m.DriftFields);
         Assert.Equal("expired", (string?)m.Base["state"]);
-        Assert.Equal(3, m.Base["images"]!.AsArray().Count);
+        Assert.Equal(3, m.Base["attributes"]!.AsArray().Count);
     }
 
     [Fact]
@@ -106,12 +107,21 @@ public class ListingPushTests
         return await db.Listings.Include(l => l.EtsyState).SingleAsync(l => l.Id == id);
     }
 
-    private static async Task RunPushAsync(FakeEtsyShop s, int pushId) =>
-        await s.Provider.GetRequiredService<PushListingJob>().HandleAsync(new JobExecutionContext
+    private static async Task RunPushAsync(FakeEtsyShop s, int pushId)
+    {
+        try
         {
-            JobId = 1, JobType = PushListingJob.Type, Attempt = 1,
-            PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PushPayload(pushId), JobJson.Options),
-        }, CancellationToken.None);
+            await s.Provider.GetRequiredService<PushListingJob>().HandleAsync(new JobExecutionContext
+            {
+                JobId = 1, JobType = PushListingJob.Type, Attempt = 1,
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PushPayload(pushId), JobJson.Options),
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            s.Provider.GetRequiredService<RecordingJobQueue>().Requests.Clear();
+        }
+    }
 
     /// <summary>The managed inventory with the "Small" product's price changed.</summary>
     private static async Task<JsonNode> InventoryWithSmallPriceAsync(FakeEtsyShop s, int id, long amount)
@@ -388,11 +398,158 @@ public class ListingPushTests
             ["materials"] = new JsonArray("PLA", "paint"), [ListingFields.Inventory] = new JsonObject(),
         };
 
-        var form = ListingFormMapper.ToForm(local, ["title", "is_supply", "item_weight", "shop_section_id", "materials", ListingFields.Inventory]);
+        var form = ListingFormMapper.ToForm(local, ["title", "is_supply", "item_weight", "shop_section_id", "materials", ListingFields.Inventory, ListingFields.Images]);
 
         Assert.Equal(
             ["title=T", "is_supply=false", "item_weight=1.5", "shop_section_id=0", "materials=PLA,paint"],
             form.Select(kv => $"{kv.Key}={kv.Value}"));
+    }
+
+    [Fact]
+    public async Task Photos_can_be_reordered_edited_uploaded_deleted_and_restored_from_snapshot()
+    {
+        var (shop, id) = await ImportedAsync();
+        using var _ = shop;
+        var editor = Editor(shop);
+        var uploadedFile = await shop.Store.SaveAsync("NEW_JPEG_BYTES"u8.ToArray(), "jpg");
+
+        // Initial images on listing 1: #11 (rank 1, "Photo 1"), #12 (rank 2, "Photo 2").
+        // Delete #11, move #12 to rank 1 with new alt text, and add the uploaded photo at rank 2.
+        await editor.SaveAsync(id, new Dictionary<string, JsonNode?>
+        {
+            [ListingFields.Images] = new JsonArray(
+                new JsonObject { ["etsy_image_id"] = 11L * 1 + 1, ["rank"] = 1, ["alt_text"] = "Front's \"best\" view" },
+                new JsonObject { ["etsy_image_id"] = 0L, ["rank"] = 2, ["alt_text"] = "Side view", ["file_name"] = uploadedFile }),
+        }, "tophattwaffle");
+
+        var preview = await editor.PreviewAsync(id);
+        Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
+        var change = Assert.Single(preview.Changes);
+        Assert.Equal(ListingFields.Images, change.Key);
+
+        var (pushId, blockers) = await editor.RequestPushAsync(id, "tophattwaffle");
+        Assert.Empty(blockers);
+        await RunPushAsync(shop, pushId!.Value);
+
+        Assert.Equal(
+            [
+                ("DELETE", "/v3/application/shops/42/listings/1/images/11", ""),
+                ("POST", "/v3/application/shops/42/listings/1/images", "listing_image_id=12&rank=1&overwrite=true&alt_text=Front's \"best\" view"),
+                ("POST", "/v3/application/shops/42/listings/1/images", $"image={uploadedFile}(14b)&rank=2&overwrite=true&alt_text=Side view"),
+            ],
+            shop.Writes);
+
+        var after = await ListingAsync(shop, id);
+        Assert.False(after.HasDraft);
+        Assert.False(after.HasDrift);
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var imgs = await db.ListingImages.Where(i => i.ListingId == id).OrderBy(i => i.Rank).ToListAsync();
+            Assert.Equal([(12L, 1, "Front's \"best\" view"), (900_001L, 2, "Side view")],
+                imgs.Select(i => (i.EtsyImageId, i.Rank, i.AltText!)));
+            Assert.Equal(uploadedFile, imgs[1].FileName); // linked immediately without waiting for CDN download
+        }
+
+        // Restore the pre-push snapshot and push it back: #900001 is deleted and #11, #12 are restored.
+        int snapshotId;
+        await using (var db = shop.Db.CreateDbContext())
+            snapshotId = (await db.ListingPushes.SingleAsync(p => p.Id == pushId)).SnapshotId!.Value;
+        await editor.RestoreSnapshotAsync(snapshotId, "tophattwaffle");
+
+        shop.Writes.Clear();
+        var (restorePushId, restoreBlockers) = await editor.RequestPushAsync(id, "tophattwaffle");
+        Assert.Empty(restoreBlockers);
+        await RunPushAsync(shop, restorePushId!.Value);
+
+        Assert.Equal(
+            [
+                ("DELETE", "/v3/application/shops/42/listings/1/images/900001", ""),
+                ("POST", "/v3/application/shops/42/listings/1/images", "listing_image_id=11&rank=1&overwrite=true&alt_text=Photo 1"),
+                ("POST", "/v3/application/shops/42/listings/1/images", "listing_image_id=12&rank=2&overwrite=true&alt_text=Photo 2"),
+            ],
+            shop.Writes);
+        Assert.False((await ListingAsync(shop, id)).HasDraft);
+    }
+
+    [Fact]
+    public async Task Replacing_all_photos_uploads_a_new_one_before_deleting_the_last_old_one()
+    {
+        var (shop, id) = await ImportedAsync();
+        using var _ = shop;
+        var editor = Editor(shop);
+        var uploadedFile = await shop.Store.SaveAsync("REPLACEMENT_IMAGE"u8.ToArray(), "png");
+
+        await editor.SaveAsync(id, new Dictionary<string, JsonNode?>
+        {
+            [ListingFields.Images] = new JsonArray(
+                new JsonObject { ["etsy_image_id"] = 0L, ["rank"] = 1, ["alt_text"] = "Only photo", ["file_name"] = uploadedFile }),
+        }, "tophattwaffle");
+
+        var (pushId, _) = await editor.RequestPushAsync(id, "tophattwaffle");
+        await RunPushAsync(shop, pushId!.Value);
+
+        // #11 is deleted first, then the new photo is uploaded, and #12 is deleted after so Etsy never sees 0 photos.
+        Assert.Equal(
+            [
+                ("DELETE", "/v3/application/shops/42/listings/1/images/11"),
+                ("POST", "/v3/application/shops/42/listings/1/images"),
+                ("DELETE", "/v3/application/shops/42/listings/1/images/12"),
+            ],
+            shop.Writes.Select(w => (w.Method, w.Path)));
+        Assert.False((await ListingAsync(shop, id)).HasDraft);
+    }
+
+    [Fact]
+    public async Task Photo_drift_is_flagged_and_draft_uploads_are_protected_from_orphan_cleanup()
+    {
+        var (shop, id) = await ImportedAsync();
+        using var _ = shop;
+        var editor = Editor(shop);
+        var uploadedFile = await shop.Store.SaveAsync("DRAFT_UPLOAD"u8.ToArray(), "jpg");
+        File.SetLastWriteTimeUtc(shop.Store.PathFor(uploadedFile), shop.Time.Now.UtcDateTime.AddDays(-5));
+
+        await editor.SaveAsync(id, new Dictionary<string, JsonNode?>
+        {
+            [ListingFields.Images] = new JsonArray(
+                new JsonObject { ["etsy_image_id"] = 11L, ["rank"] = 1, ["alt_text"] = "Photo 1" },
+                new JsonObject { ["etsy_image_id"] = 12L, ["rank"] = 2, ["alt_text"] = "Photo 2" },
+                new JsonObject { ["etsy_image_id"] = 0L, ["rank"] = 3, ["alt_text"] = "New", ["file_name"] = uploadedFile }),
+        }, "tophattwaffle");
+
+        // Even though the file is 5 days old and no ListingImage row points to it yet, the draft keeps it alive.
+        await shop.Downloader.DeleteOrphansAsync(CancellationToken.None);
+        Assert.True(shop.Store.Exists(uploadedFile));
+
+        // A photo change on etsy.com is flagged as drift on Photos.
+        shop.ListingJson(1)["images"]![0]!["alt_text"] = "Edited on Etsy";
+        shop.ListingJson(1)["last_modified_timestamp"] = 1_760_000_500;
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+
+        var preview = await editor.PreviewAsync(id);
+        Assert.False(preview.CanPush);
+        Assert.Contains(preview.Blockers, b => b.Contains("Photos"));
+    }
+
+    [Fact]
+    public async Task Preview_blocks_invalid_photo_edits()
+    {
+        var (shop, id) = await ImportedAsync();
+        using var _ = shop;
+        var editor = Editor(shop);
+
+        await editor.SaveAsync(id, new Dictionary<string, JsonNode?> { [ListingFields.Images] = new JsonArray() }, "tophattwaffle");
+        Assert.Contains((await editor.PreviewAsync(id)).Blockers, b => b.Contains("at least one photo"));
+
+        var tooMany = new JsonArray(Enumerable.Range(1, 21)
+            .Select(i => (JsonNode)new JsonObject { ["etsy_image_id"] = (long)i, ["rank"] = i, ["alt_text"] = "" }).ToArray());
+        tooMany[0]!["alt_text"] = new string('a', 501);
+        tooMany[1]!["etsy_image_id"] = 0L; // new photo with no uploaded file
+        await editor.SaveAsync(id, new Dictionary<string, JsonNode?> { [ListingFields.Images] = tooMany }, "tophattwaffle");
+
+        var blockers = (await editor.PreviewAsync(id)).Blockers;
+        Assert.Contains(blockers, b => b.Contains("21 photos"));
+        Assert.Contains(blockers, b => b.Contains("501 characters"));
+        Assert.Contains(blockers, b => b.Contains("uploaded file is missing"));
     }
 }
 
