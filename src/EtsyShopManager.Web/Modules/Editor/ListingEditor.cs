@@ -139,19 +139,20 @@ public sealed class ListingEditor(
         if (pushInProgress) blockers.Add("A push for this listing is already queued or running.");
 
         var local = model.LocalState();
-        if (changes.Any(c => c.Key == "title") && ((string?)local["title"] ?? "").Trim() is var title)
-        {
-            if (title.Length == 0) blockers.Add("The title can't be empty.");
-            if (title.Length > MaxTitleLength) blockers.Add($"The title is {title.Length} characters; Etsy allows {MaxTitleLength}.");
-        }
+        if (changes.Any(c => c.Key == "title"))
+            blockers.AddRange(ListingTextRules.TitleProblems((string?)local["title"] ?? ""));
         if (changes.Any(c => c.Key == "tags") && local["tags"] is JsonArray tags)
         {
             if (tags.Count > MaxTags) blockers.Add($"{tags.Count} tags; Etsy allows {MaxTags}.");
             foreach (var tag in tags.Select(t => (string?)t ?? "").Where(t => t.Length > MaxTagLength))
                 blockers.Add($"The tag \"{tag}\" is longer than {MaxTagLength} characters.");
+            blockers.AddRange(ListingTextRules.TagProblems(tags.Select(t => (string?)t ?? "")));
         }
-        if (changes.Any(c => c.Key == "materials") && local["materials"] is JsonArray materials && materials.Count > MaxMaterials)
-            blockers.Add($"{materials.Count} materials; Etsy allows {MaxMaterials}.");
+        if (changes.Any(c => c.Key == "materials") && local["materials"] is JsonArray materials)
+        {
+            if (materials.Count > MaxMaterials) blockers.Add($"{materials.Count} materials; Etsy allows {MaxMaterials}.");
+            blockers.AddRange(ListingTextRules.MaterialProblems(materials.Select(m => (string?)m ?? "")));
+        }
         if (changes.Any(c => c.Key == ListingFields.Images) && local[ListingFields.Images] is JsonArray photos)
         {
             if (photos.Count == 0) blockers.Add("A listing needs at least one photo.");

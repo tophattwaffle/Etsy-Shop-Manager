@@ -194,7 +194,7 @@ public sealed class StockRefiller(
         {
             // Etsy refused the inventory (e.g. it no longer accepts the listing's current setup). Retrying the same
             // write won't help; show it on the listing so it isn't mistaken for "stock is fine".
-            settings.Problem = $"Etsy rejected the refill: {ex.Message}";
+            settings.Problem = $"The refill wasn't applied. {ex.Message}";
             settings.LastResult = settings.Problem;
             await db.SaveChangesAsync(CancellationToken.None);
             throw new JobPermanentFailureException(settings.Problem, ex);

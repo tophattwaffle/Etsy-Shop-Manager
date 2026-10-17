@@ -71,8 +71,9 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
         if (target.Token is null || target.Token.NeedsReauth || !target.IsActive)
             blockers.Add($"{target.Name} must be reconnected to Etsy first.");
         var title = choice.Title.Trim();
-        if (title.Length == 0) blockers.Add("The title can't be empty.");
-        if (title.Length > ListingEditor.MaxTitleLength) blockers.Add($"The title is {title.Length} characters; Etsy allows {ListingEditor.MaxTitleLength}.");
+        blockers.AddRange(ListingTextRules.TitleProblems(title));
+        blockers.AddRange(ListingTextRules.TagProblems((local["tags"]?.AsArray() ?? []).Select(t => (string?)t ?? "")));
+        blockers.AddRange(ListingTextRules.MaterialProblems((local["materials"]?.AsArray() ?? []).Select(m => (string?)m ?? "")));
         if (choice.ShippingProfileId is not { } ship || !targetLookups.ShippingProfiles.ContainsKey(ship))
             blockers.Add($"Choose a shipping profile of {target.Name}.");
         if (choice.ReadinessStateId is not { } ready || !targetLookups.ProcessingProfiles.ContainsKey(ready))

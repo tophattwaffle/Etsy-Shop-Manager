@@ -196,7 +196,7 @@ public class PhotoPushTests
         await using var db = shop.Db.CreateDbContext();
         var push = await db.ListingPushes.SingleAsync();
         Assert.Equal(ListingPushStatus.Failed, push.Status);
-        Assert.Contains("inconsistent order", push.Error);
+        Assert.Contains("two of this listing's photos at the same position", push.Error); // Etsy's "inconsistent order", reworded
         Assert.True((await db.Listings.SingleAsync()).HasDraft);
     }
 

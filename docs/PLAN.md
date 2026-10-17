@@ -205,6 +205,10 @@ The base URL can be changed later under Admin → Settings. When it changes, the
   - Checked offline against all 131 real listings: unedited, no listing plans an attribute or personalization call; every one of the 19 settable attribute values re-selects to exactly Etsy's form; all 19 personalized listings rebuild their questions with Etsy's ids.
 - **Testing:** no real Etsy writes in development or tests. `FakeEtsyShop` records every write; tests assert the exact `updateListing` form and `updateListingInventory` JSON. Offline checks against a sanitized copy of production: the migration applies, all 130 listings load without false drift, and the inventory body reproduces every real inventory exactly (48 with variations).
 
+## Etsy errors in plain words (2026-10-17)
+- Etsy's error replies (`{"error": "…"}`, or a list of field checks `{"path": "/title/0", "type": "all_caps", "message": "…"}`) are turned into one sentence: what Etsy refused, its reason (known checks and messages reworded, others cleaned up), and what to do ("Change the title and try again", "Reconnect the shop", "Try again in a few minutes" for Etsy's own errors). It is the message of every failed Etsy call, so job results, toasts, the editor's push history, the clone page and the refill panel all show it; the raw reply stays in the Etsy write log.
+- The push and clone reviews check Etsy's documented text rules before anything is sent: title characters (letters, numbers, punctuation, math symbols, spaces, ™ © ®), `% : & +` once each, at most 3 words starting with two capital letters (the rule behind the rejected clone "TEST LISTING!!! APP CLONE"), and the allowed characters in tags and materials. All 136 real listings pass.
+
 ## Etsy write journal
 - Every write the app sends to Etsy (each attempt, retries included) and Etsy's exact reply is kept for 90 days and shown to Admins under Etsy writes, with the job that sent it. Added after the reverted photo push (2026-10-17), whose only trace of Etsy's answers was the service log. Uploaded files are recorded by name and size only; OAuth calls and request headers are never recorded.
 
