@@ -45,27 +45,27 @@
                         <div class="small muted">@Describe(row)</div>
                     </div>
                     <AuthorizeView Roles="@Roles.Admin" Context="auth">
-                        <MudSelect T="string" Value="row.Mode" ValueChanged="m => OnModeChangedAsync(s, row, m)"
-                                   Label="Open orders in" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
-                            <MudSelectItem T="string" Value="@ModeDefault">This browser</MudSelectItem>
-                            <MudSelectItem T="string" Value="@ModeEdge">Microsoft Edge</MudSelectItem>
-                            <MudSelectItem T="string" Value="@ModeChrome">Google Chrome</MudSelectItem>
-                            <MudSelectItem T="string" Value="@ModeCustom">Custom URL</MudSelectItem>
-                        </MudSelect>
                         @if (row.Mode == ModeChrome)
                         {
                             <MudTextField T="string" @bind-Value="row.ChromeProfile" Label="Chrome profile directory"
                                           Placeholder="Default or Profile 1" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                          Class="esm-w-sm" />
+                                          Class="esm-shop-link-profile" />
                             <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveRowAsync(s, row)">Save</MudButton>
                         }
                         else if (row.Mode == ModeCustom)
                         {
                             <MudTextField T="string" @bind-Value="row.CustomTemplate" Label="Order link template"
                                           Placeholder="@ShopOrderLinkService.DefaultTemplate" Variant="Variant.Outlined"
-                                          Margin="Margin.Dense" Class="esm-w-md" Error="@(row.Error is not null)" ErrorText="@row.Error" />
+                                          Margin="Margin.Dense" Class="esm-shop-link-custom" Error="@(row.Error is not null)" ErrorText="@row.Error" />
                             <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveRowAsync(s, row)">Save</MudButton>
                         }
+                        <MudSelect T="string" Value="row.Mode" ValueChanged="m => OnModeChangedAsync(s, row, m)"
+                                   Label="Open orders in" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-shop-link-select">
+                            <MudSelectItem T="string" Value="@ModeDefault">This browser</MudSelectItem>
+                            <MudSelectItem T="string" Value="@ModeEdge">Microsoft Edge</MudSelectItem>
+                            <MudSelectItem T="string" Value="@ModeChrome">Google Chrome</MudSelectItem>
+                            <MudSelectItem T="string" Value="@ModeCustom">Custom URL</MudSelectItem>
+                        </MudSelect>
                     </AuthorizeView>
                 </div>
             }
