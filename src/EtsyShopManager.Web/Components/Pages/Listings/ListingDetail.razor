@@ -33,6 +33,7 @@ else
         </Summary>
         <Actions>
             <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+                <MudButton Variant="Variant.Outlined" Href="@($"listings/{l.Id}/clone")">Clone</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"listings/{l.Id}/edit")">Edit listing</MudButton>
             </AuthorizeView>
         </Actions>

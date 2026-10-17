@@ -40,6 +40,43 @@ public sealed partial class EtsyApiClient
         return new EtsyRaw<EtsyListing>(element.Deserialize<EtsyListing>(EtsyJson.Options)!, element.GetRawText());
     }
 
+    /// <summary>
+    /// createDraftListing (POST, form-encoded): a new listing in the draft state (not visible to buyers; Etsy charges its
+    /// listing fee only when it is published). Array fields are comma-separated, as for updateListing.
+    /// </summary>
+    public async Task<EtsyRaw<EtsyListing>> CreateDraftListingAsync(long etsyShopId, IReadOnlyList<KeyValuePair<string, string>> fields,
+        EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(() =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/application/shops/{etsyShopId}/listings")
+            {
+                Content = new FormUrlEncodedContent(fields),
+            };
+            request.Options.Set(Http.EtsyRetryHandler.NoRetry, true); // never create the same draft twice
+            return request;
+        }, auth, ct);
+        var element = await response.Content.ReadFromJsonAsync<JsonElement>(EtsyJson.Options, ct);
+        return new EtsyRaw<EtsyListing>(element.Deserialize<EtsyListing>(EtsyJson.Options)!, element.GetRawText());
+    }
+
+    /// <summary>updateListingProperty (PUT, form-encoded): sets one category attribute of a listing.</summary>
+    public async Task UpdateListingPropertyAsync(long etsyShopId, long listingId, long propertyId, IReadOnlyList<long> valueIds,
+        IReadOnlyList<string> values, long? scaleId, EtsyAuth auth, CancellationToken ct = default)
+    {
+        var fields = new List<KeyValuePair<string, string>>
+        {
+            new("value_ids", string.Join(",", valueIds)),
+            new("values", string.Join(",", values)),
+        };
+        if (scaleId is { } scale) fields.Add(new("scale_id", scale.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        using var _ = await SendAsync(() => new HttpRequestMessage(HttpMethod.Put,
+            $"/v3/application/shops/{etsyShopId}/listings/{listingId}/properties/{propertyId}")
+        {
+            Content = new FormUrlEncodedContent(fields),
+        }, auth, ct);
+    }
+
     /// <summary>updateListingInventory (PUT). Replaces the whole inventory; returns the new one.</summary>
     public async Task<EtsyInventory> UpdateListingInventoryAsync(long listingId, EtsyInventoryUpdate inventory, EtsyAuth auth,
         CancellationToken ct = default)
