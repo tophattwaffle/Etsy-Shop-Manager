@@ -719,6 +719,35 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ListingSnapshots");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingTextBlock", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AppliedText")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LinkedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TextBlockId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TextBlockId");
+
+                    b.HasIndex("ListingId", "TextBlockId")
+                        .IsUnique();
+
+                    b.ToTable("ListingTextBlocks");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
                 {
                     b.Property<int>("Id")
@@ -1339,6 +1368,38 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("TaxonomyProperties");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.TextBlock", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("TextBlocks");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Jobs.Job", b =>
                 {
                     b.Property<long>("Id")
@@ -1742,6 +1803,25 @@ namespace EtsyShopManager.Data.Migrations
                     b.Navigation("Listing");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingTextBlock", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithMany()
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EtsyShopManager.Core.Domain.TextBlock", "TextBlock")
+                        .WithMany("Listings")
+                        .HasForeignKey("TextBlockId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+
+                    b.Navigation("TextBlock");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
                 {
                     b.HasOne("EtsyShopManager.Core.Domain.Shop", "Shop")
@@ -1926,6 +2006,11 @@ namespace EtsyShopManager.Data.Migrations
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Shop", b =>
                 {
                     b.Navigation("Token");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.TextBlock", b =>
+                {
+                    b.Navigation("Listings");
                 });
 #pragma warning restore 612, 618
         }

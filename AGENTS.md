@@ -16,6 +16,8 @@ can't change them on an existing listing). Photo pushes follow what Etsy was mea
 just a number and Etsy never renumbers the others (ranks tie and have gaps), so a push sets every photo's rank 1..n
 explicitly, always with overwrite=false (overwrite=true drops the photo shown at that rank). `ListingCloner` copies a
 listing into a new Etsy draft (same shop or the other; profiles chosen per target shop), never published by the app.
+Phase 4 (templates) started: text blocks (`Modules/Templates`, `TextBlockService`) are found in descriptions by their
+exact text (no markers on Etsy); applying a block writes drafts, and pushing goes through the normal reviewed push.
 
 **Never write to the real Etsy shops while developing or testing.** Verify write paths with `FakeEtsyShop` (it records
 every PATCH/PUT body) and previews only. A sanitized copy of production data (tokens, keys and users removed) may be

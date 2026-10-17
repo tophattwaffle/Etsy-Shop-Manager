@@ -12,6 +12,7 @@
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 @inject ListingImportQueue ImportQueue
+@inject EtsyShopManager.Web.Modules.Templates.TextBlockService TextBlocks
 
 <PageTitle>Edit @(_snapshot?.Listing.Title ?? "listing") · Etsy Shop Manager</PageTitle>
 
@@ -135,6 +136,29 @@ else
                               Variant="Variant.Outlined" Class="mb-3" HelperText="@Pending("title")" />
                 <MudTextField T="string" Value="@Str("description")" ValueChanged="@(v => SetStr("description", v))" Label="Description"
                               Lines="12" Variant="Variant.Outlined" Immediate="true" HelperText="@Pending("description")" />
+                @if (_allBlocks.Count > 0)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-3" Wrap="Wrap.Wrap">
+                        <MudSelect T="int?" @bind-Value="_blockToInsert" Label="Text block" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                            @foreach (var b in _allBlocks) { <MudSelectItem T="int?" Value="b.Id">@b.Name</MudSelectItem> }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_blockToInsert is null)" OnClick="InsertBlockAsync">Insert text block</MudButton>
+                    </MudStack>
+                }
+                @if (_listingBlocks.Count > 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted mt-2">
+                        Uses:
+                        @foreach (var (block, status) in _listingBlocks)
+                        {
+                            <a href="@($"text-blocks/{block.Id}")" class="mr-2">@block.Name</a>
+                            @if (status != EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.UpToDate)
+                            {
+                                <span class="mr-2">(@BlockStatus(status))</span>
+                            }
+                        }
+                    </MudText>
+                }
             </MudPaper>
 
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
@@ -366,6 +390,9 @@ else
     private JsonObject? _form;
     private CategoryOption? _category;
     private PushPreview? _preview;
+    private IReadOnlyList<TextBlock> _allBlocks = [];
+    private IReadOnlyList<(TextBlock Block, EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus Status)> _listingBlocks = [];
+    private int? _blockToInsert;
     private IReadOnlyList<AttributeProperty>? _attributeProperties;
     private bool _unsaved, _pushing, _notFound;
     private IDisposable? _live;
@@ -404,11 +431,31 @@ else
         var categoryIds = new[] { model.Etsy["taxonomy_id"], model.Local("taxonomy_id") }
             .Where(v => v is not null).Select(v => (long)v!);
         _lookups = await EditorLookups.LoadAsync(db, _snapshot.Listing.ShopId, categoryIds, _snapshot.Listing.CurrencyCode);
+        _allBlocks = await TextBlocks.AllAsync();
+        _listingBlocks = await TextBlocks.ForListingAsync(Id);
         if (keepForm && _form is not null) return;
         _form = model.LocalState();
         _category = Long("taxonomy_id") is { } t ? new CategoryOption(t, _lookups.Categories.GetValueOrDefault(t, $"#{t}")) : null;
         _attributeProperties = await AttributeEditor.LoadAsync(db, Long("taxonomy_id"));
         _unsaved = false;
+    }
+
+    private static string BlockStatus(EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus s) => s switch
+    {
+        EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.WillChange => "has the block's old text",
+        EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.EditedByHand => "edited by hand, no longer updated",
+        _ => "changed on Etsy",
+    };
+
+    /// <summary>Adds the block to the end of the description (saving the page's edits first) and links it.</summary>
+    private async Task InsertBlockAsync()
+    {
+        if (_blockToInsert is not { } blockId) return;
+        if (_unsaved) await SaveAsync();
+        await TextBlocks.InsertAsync(Id, blockId, await User());
+        _blockToInsert = null;
+        await LoadAsync();
+        Snackbar.Add("Text block added to the end of the description (not pushed yet). Move it within the text if you like; the link follows the text.", Severity.Success);
     }
 
     private string AttributeName(long id) =>

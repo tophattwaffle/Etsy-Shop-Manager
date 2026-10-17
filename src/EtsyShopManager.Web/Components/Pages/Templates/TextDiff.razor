@@ -1,0 +1,28 @@
+@using EtsyShopManager.Web.Modules.Templates
+
+@* A description before and after a change: only the changed lines, with a line of context, marked - and +. *@
+<div class="esm-diff" role="group" aria-label="Changes to the description">
+    @foreach (var line in LineDiff.Compare(Before, After))
+    {
+        @switch (line.Kind)
+        {
+            case LineDiff.Kind.Removed:
+                <div class="esm-diff-line esm-diff-removed"><span class="sr-only">Removed: </span>- @line.Text</div>
+                break;
+            case LineDiff.Kind.Added:
+                <div class="esm-diff-line esm-diff-added"><span class="sr-only">Added: </span>+ @line.Text</div>
+                break;
+            case LineDiff.Kind.Gap:
+                <div class="esm-diff-line esm-diff-gap">…</div>
+                break;
+            default:
+                <div class="esm-diff-line">&nbsp; @line.Text</div>
+                break;
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Before { get; set; } = "";
+    [Parameter] public string After { get; set; } = "";
+}

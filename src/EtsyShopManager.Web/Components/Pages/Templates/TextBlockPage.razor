@@ -1,0 +1,370 @@
+@page "/text-blocks/new"
+@page "/text-blocks/{Id:int}"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Templates
+@inject TextBlockService Blocks
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>@(_saved?.Name ?? "New text block") · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="text-blocks" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> All text blocks
+</MudLink>
+
+@if (Id is not null && _saved is null && !_loaded)
+{
+    <PageHeader Title="Text block" />
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Id is not null && _saved is null)
+{
+    <PageHeader Title="Text block" />
+    <MudAlert Severity="Severity.Warning">This text block no longer exists.</MudAlert>
+}
+else
+{
+    <PageHeader Title="@(_saved?.Name ?? "New text block")">
+        <Summary>
+            @if (_saved is null)
+            {
+                <span>Name the block and paste its text. After saving, the app lists the listings whose description already contains it.</span>
+            }
+            else
+            {
+                <span>Used by @_uses.Count listing@(_uses.Count == 1 ? "" : "s"). Saving the block changes no listing until you apply it.</span>
+            }
+        </Summary>
+        <Actions>
+            @if (_saved is not null)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete block</MudButton>
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty)" OnClick="SaveAsync">Save block</MudButton>
+        </Actions>
+    </PageHeader>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">Block</MudText>
+        <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
+                      Counter="TextBlockService.MaxNameLength" MaxLength="TextBlockService.MaxNameLength" />
+        <MudTextField T="string" @bind-Value="_text" Label="Text" Lines="8" Variant="Variant.Outlined" Immediate="true"
+                      HelperText="Exactly as it should appear in descriptions. Trailing spaces and blank lines around it are dropped." />
+    </MudPaper>
+
+    @if (_saved is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+                <MudText Typo="Typo.h6">Listings using this block</MudText>
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Outlined" Disabled="@(WillChange == 0 || Dirty)" OnClick="ApplyAsync">
+                        Apply to @WillChange listing@(WillChange == 1 ? "" : "s")
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Pending == 0)" OnClick="ReviewAsync">
+                        Review and push @Pending listing@(Pending == 1 ? "" : "s")
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+            <MudText Typo="Typo.body2" Class="muted mb-2">
+                Applying puts the block's text into each listing's description as an unpushed edit; nothing is sent to Etsy until
+                you review and push. Listings whose copy of the block was edited by hand, or whose description changed on Etsy,
+                are left alone.
+            </MudText>
+            @if (_uses.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted">No listings yet. Link the ones below, or insert the block from a listing's editor.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_useSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_useSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                            <SortHeader Sort="_useSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in _useSort.Apply(_uses))
+                        {
+                            <tr>
+                                <td><a href="@($"listings/{u.ListingId}/edit")">@u.Title</a></td>
+                                <td>@u.ShopName</td>
+                                <td>
+                                    <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
+                                    @if (u.Status == TextBlockUseStatus.WillChange)
+                                    {
+                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Toggle(u.ListingId))">
+                                            @(_open.Contains(u.ListingId) ? "Hide changes" : "Show changes")
+                                        </MudButton>
+                                    }
+                                </td>
+                                <td class="text-right">
+                                    @if (u.Status == TextBlockUseStatus.EditedByHand)
+                                    {
+                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => RelinkAsync(u))">Link again</MudButton>
+                                    }
+                                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkAsync(u))">Unlink</MudButton>
+                                </td>
+                            </tr>
+                            @if (_open.Contains(u.ListingId))
+                            {
+                                <tr><td colspan="4"><TextDiff Before="@u.Before" After="@u.After" /></td></tr>
+                            }
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudPaper>
+
+        @if (_review is not null)
+        {
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+                    <MudText Typo="Typo.h6">Review the push</MudText>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _review = null)">Close</MudButton>
+                </MudStack>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Each listing is pushed on its own, with all of its unpushed edits (not only this block), exactly as from its
+                    editor. Listings with a problem are skipped; fix them in their editor.
+                </MudText>
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_reviewSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_reviewSort" Column="changes" Changed="StateHasChanged">Changes</SortHeader>
+                            <SortHeader Sort="_reviewSort" Column="ready" Changed="StateHasChanged">Ready</SortHeader>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _reviewSort.Apply(_review))
+                        {
+                            <tr>
+                                <td><a href="@($"listings/{item.ListingId}/edit")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
+                                <td>@string.Join(", ", item.Preview.Changes.Select(c => c.Label))</td>
+                                <td>
+                                    @if (item.Preview.CanPush)
+                                    {
+                                        <span><span class="esm-status-dot esm-dot-success"></span> Ready</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var b in item.Preview.Blockers) { <div class="small error-text">@b</div> }
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _pushing)" OnClick="PushAsync">
+                    Push @Ready listing@(Ready == 1 ? "" : "s") to Etsy
+                </MudButton>
+            </MudPaper>
+        }
+
+        @if (_candidates.Count > 0)
+        {
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Listings that already contain this text</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Their description has the block's text word for word. Link them so they get the block's changes too.
+                </MudText>
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <th class="esm-col-icon">
+                                <MudCheckBox T="bool" Value="@(_picked.Count == _candidates.Count)" ValueChanged="PickAll" aria-label="Select all" Dense="true" />
+                            </th>
+                            <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_candidateSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in _candidateSort.Apply(_candidates))
+                        {
+                            <tr>
+                                <td><MudCheckBox T="bool" Value="@_picked.Contains(c.ListingId)" ValueChanged="@(on => Pick(c.ListingId, on))" aria-label="@($"Link {c.Title}")" Dense="true" /></td>
+                                <td><a href="@($"listings/{c.ListingId}")">@c.Title</a></td>
+                                <td>@c.ShopName</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
+                    Link @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
+                </MudButton>
+            </MudPaper>
+        }
+    }
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private TextBlock? _saved;
+    private bool _loaded, _pushing;
+    private string _name = "", _text = "";
+    private IReadOnlyList<TextBlockUse> _uses = [];
+    private IReadOnlyList<TextBlockCandidate> _candidates = [];
+    private IReadOnlyList<TextBlockPushItem>? _review;
+    private readonly HashSet<int> _picked = [];
+    private readonly HashSet<int> _open = [];
+
+    private bool Dirty => _saved is null
+        ? _name.Trim().Length > 0 || _text.Trim().Length > 0
+        : _name.Trim() != _saved.Name || TextBlockService.Normalize(_text) != _saved.Text;
+    private int WillChange => _uses.Count(u => u.Status == TextBlockUseStatus.WillChange);
+    private int Pending => _uses.Count(u => u.DescriptionPending);
+    private int Ready => _review?.Count(r => r.Preview.CanPush) ?? 0;
+
+    private readonly TableSort<TextBlockUse> _useSort = new()
+    {
+        ["listing"] = u => u.Title,
+        ["shop"] = u => u.ShopName,
+        ["status"] = u => StatusText(u),
+    };
+    private readonly TableSort<TextBlockCandidate> _candidateSort = new()
+    {
+        ["listing"] = c => c.Title,
+        ["shop"] = c => c.ShopName,
+    };
+    private readonly TableSort<TextBlockPushItem> _reviewSort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["changes"] = r => string.Join(", ", r.Preview.Changes.Select(c => c.Label)),
+        ["ready"] = r => r.Preview.CanPush,
+    };
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (Id is { } id)
+        {
+            _saved = await Blocks.GetAsync(id);
+            if (_saved is not null)
+            {
+                (_name, _text) = (_saved.Name, _saved.Text);
+                _uses = await Blocks.UsesAsync(id);
+                _candidates = await Blocks.CandidatesAsync(id);
+                _picked.Clear();
+                _picked.UnionWith(_candidates.Select(c => c.ListingId));
+            }
+        }
+        _loaded = true;
+    }
+
+    private async Task<string?> User() => (await AuthState).User.Identity?.Name;
+
+    private static string StatusText(TextBlockUse u) => u.Status switch
+    {
+        TextBlockUseStatus.UpToDate => u.DescriptionPending ? "Up to date, not pushed yet" : "Up to date",
+        TextBlockUseStatus.WillChange => "Has the old text",
+        TextBlockUseStatus.EditedByHand => "Edited by hand: the block's text isn't in the description any more",
+        _ => "Changed on Etsy: resolve it in the listing's editor first",
+    };
+
+    private static string StatusClass(TextBlockUseStatus s) => s switch
+    {
+        TextBlockUseStatus.UpToDate => "esm-dot-success",
+        TextBlockUseStatus.WillChange => "esm-dot-info",
+        _ => "esm-dot-warning",
+    };
+
+    private void Toggle(int listingId)
+    {
+        if (!_open.Remove(listingId)) _open.Add(listingId);
+    }
+
+    private void Pick(int listingId, bool on)
+    {
+        if (on) _picked.Add(listingId); else _picked.Remove(listingId);
+    }
+
+    private void PickAll(bool on)
+    {
+        _picked.Clear();
+        if (on) _picked.UnionWith(_candidates.Select(c => c.ListingId));
+    }
+
+    private async Task SaveAsync()
+    {
+        var (id, error) = await Blocks.SaveAsync(_saved?.Id, _name, _text, await User());
+        if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
+        if (_saved is null) { Nav.NavigateTo($"text-blocks/{id}"); return; }
+        await LoadAsync();
+        Snackbar.Add(WillChange > 0
+            ? $"Block saved. {WillChange} listing{(WillChange == 1 ? " has" : "s have")} the old text; apply it when you're ready."
+            : "Block saved.", Severity.Success);
+    }
+
+    private async Task DeleteAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Delete text block",
+            $"Delete \"{_saved!.Name}\"? Listings keep their text; they're only no longer linked to the block.",
+            yesText: "Delete block", cancelText: "Cancel");
+        if (ok != true) return;
+        await Blocks.DeleteAsync(_saved.Id, await User());
+        Nav.NavigateTo("text-blocks");
+    }
+
+    private async Task ApplyAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Apply the block",
+            $"Put the new text into {WillChange} listing description{(WillChange == 1 ? "" : "s")}? They become unpushed edits; " +
+            "nothing is sent to Etsy until you review and push.", yesText: "Apply", cancelText: "Cancel");
+        if (ok != true) return;
+        var count = await Blocks.ApplyAsync(_saved!.Id, await User());
+        await LoadAsync();
+        _review = null;
+        Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} updated as unpushed edits.", Severity.Success);
+    }
+
+    private async Task ReviewAsync() => _review = await Blocks.ReviewAsync(_saved!.Id);
+
+    private async Task PushAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Push to Etsy",
+            $"Push {Ready} listing{(Ready == 1 ? "" : "s")} to Etsy? Each one is a normal push with a snapshot you can restore.",
+            yesText: "Push to Etsy", cancelText: "Cancel");
+        if (ok != true) return;
+        _pushing = true;
+        try
+        {
+            var results = await Blocks.PushAsync(_saved!.Id, await User());
+            var queued = results.Count(r => r.PushId is not null);
+            var skipped = results.Where(r => r.PushId is null).ToList();
+            Snackbar.Add($"{queued} push{(queued == 1 ? "" : "es")} queued; results appear on each listing and on the Jobs page.", Severity.Info);
+            foreach (var s in skipped) Snackbar.Add($"{s.Title}: {string.Join(" ", s.Blockers)}", Severity.Warning);
+            _review = null;
+            await LoadAsync();
+        }
+        finally { _pushing = false; }
+    }
+
+    private async Task LinkAsync()
+    {
+        var count = await Blocks.LinkAsync(_saved!.Id, _picked, await User());
+        await LoadAsync();
+        Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} linked.", Severity.Success);
+    }
+
+    private async Task RelinkAsync(TextBlockUse u)
+    {
+        var count = await Blocks.LinkAsync(_saved!.Id, [u.ListingId], await User());
+        await LoadAsync();
+        Snackbar.Add(count == 1 ? "Linked again." : "The description doesn't contain the block's text; edit it in the listing first, or unlink it.",
+            count == 1 ? Severity.Success : Severity.Warning);
+    }
+
+    private async Task UnlinkAsync(TextBlockUse u)
+    {
+        await Blocks.UnlinkAsync(_saved!.Id, u.ListingId, await User());
+        await LoadAsync();
+    }
+}
