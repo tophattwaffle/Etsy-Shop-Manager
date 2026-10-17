@@ -50,6 +50,9 @@ public sealed record EditorLookups(
             "tags" or "materials" => value.AsArray().Count == 0 ? "—" : string.Join(", ", value.AsArray().Select(v => (string?)v)),
             "who_made" or "when_made" or ListingFields.State => ListingFormat.Humanize((string?)value),
             ListingFields.Inventory => DescribeInventory(value),
+            ListingFields.Images => string.Join(", ", value.AsArray().Select((p, i) =>
+                $"{i + 1}. {((long?)p!["etsy_image_id"] is > 0 and long id ? $"#{id}" : "new photo")}" +
+                ((string?)p["alt_text"] is { Length: > 0 } alt ? $" ({(alt.Length > 40 ? alt[..40] + "…" : alt)})" : ""))) is { Length: > 0 } photos ? photos : "No photos",
             "description" => (string?)value is { Length: > 160 } d ? d[..160] + "…" : (string?)value ?? "—",
             _ => value.GetValueKind() switch
             {

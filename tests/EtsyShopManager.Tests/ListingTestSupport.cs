@@ -299,9 +299,7 @@ internal sealed class FakeEtsyShop : IDisposable
             }]);
         }
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/images"))
-            return Page((Listings.FirstOrDefault(l => (long)l["listing_id"]! == long.Parse(parts[3]))?["images"]?.AsArray() ?? Images(long.Parse(parts[3])))
-                .OrderBy(n => (int)n!["rank"]!) // stable: photos sharing a rank keep their stored order
-                .Select(n => (JsonObject)n!.DeepClone()));
+            return Page(ShownImages(long.Parse(parts[3])).Select(n => (JsonObject)n!.DeepClone()));
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/inventory"))
             return Json(Inventory(long.Parse(parts[3]), 5));
 
@@ -378,6 +376,11 @@ internal sealed class FakeEtsyShop : IDisposable
     public JsonObject ListingJson(long id) => Listings.Single(l => (long)l["listing_id"]! == id);
 
     private long _nextEtsyId = 900_000;
+
+    // The photos as Etsy returns them: by rank; photos sharing a rank (Etsy allows that) keep their stored order.
+    private IEnumerable<JsonNode?> ShownImages(long listingId) =>
+        (Listings.FirstOrDefault(l => (long)l["listing_id"]! == listingId)?["images"]?.AsArray() ?? Images(listingId))
+        .OrderBy(n => (int)n!["rank"]!);
     private readonly Dictionary<(long PropertyId, string Value), long> _valueIds = [];
 
     /// <summary>getListing, inventory with the listing, updateListing and updateListingInventory, applied like Etsy would.</summary>
@@ -389,29 +392,58 @@ internal sealed class FakeEtsyShop : IDisposable
         {
             var listing = (JsonObject)ListingJson(getId).DeepClone();
             listing.Remove("inventory");
+            listing["images"] = new JsonArray([.. ShownImages(getId).Select(n => n!.DeepClone())]);
             return Json(listing);
         }
-        // POST /v3/application/shops/42/listings/{id}/images with listing_image_id and rank, as measured on Etsy
-        // (2026-10-17, three photo order test runs): the photo gets the rank asked for and no other photo is renumbered,
-        // so two photos can share a rank (Etsy then shows them in no fixed order; the fake keeps the stored order).
-        // With overwrite=true the photo takes the rank's slot: the photo shown at that rank drops off the listing (just one).
+        // POST /v3/application/shops/42/listings/{id}/images (uploadListingImage), as measured on Etsy (2026-10-17, three
+        // photo order test runs): with listing_image_id and a rank the photo gets that rank and no other photo is
+        // renumbered, so two photos can share a rank (Etsy then shows them in no fixed order; the fake keeps the stored
+        // order). With overwrite=true the photo takes the rank's slot: the photo shown at that rank drops off the listing.
+        // A new image file gets the rank given, again without renumbering.
         if (req.Method == HttpMethod.Post && parts.Length == 7 && path.StartsWith($"{shop}/listings/") && parts[6] == "images")
         {
-            var fields = ((MultipartFormDataContent)req.Content!).ToDictionary(
+            var multipart = (MultipartFormDataContent)req.Content!;
+            var file = multipart.FirstOrDefault(p => p.Headers.ContentDisposition?.FileName is not null);
+            var fields = multipart.Where(p => p != file).ToDictionary(
                 p => p.Headers.ContentDisposition!.Name!.Trim('"'), p => p.ReadAsStringAsync().Result);
-            Writes.Add(("POST", path, string.Join("&", fields.Select(f => $"{f.Key}={f.Value}"))));
+            var described = fields.Select(f => $"{f.Key}={f.Value}").ToList();
+            if (file is not null)
+                described.Insert(0, $"image=<file {file.Headers.ContentDisposition!.FileName!.Trim('"')}, {file.ReadAsByteArrayAsync().Result.Length} bytes>");
+            Writes.Add(("POST", path, string.Join("&", described)));
             if (FailImageMovesWith is { } message)
                 return ScriptedHandler.Json(HttpStatusCode.BadRequest, new JsonObject { ["error"] = message }.ToJsonString());
-            var listing = ListingJson(long.Parse(parts[5]));
+
+            var listingId = long.Parse(parts[5]);
+            var listing = ListingJson(listingId);
             var images = listing["images"]!.AsArray().Select(i => i!.DeepClone().AsObject()).ToList();
-            var photo = images.Single(i => (long)i["listing_image_id"]! == long.Parse(fields["listing_image_id"]));
             var rank = int.Parse(fields["rank"]);
-            if (fields.GetValueOrDefault("overwrite") == "true")
-                images.Remove(images.FirstOrDefault(i => i != photo && (int)i["rank"]! == rank)!); // the one shown in that slot
+            JsonObject photo;
+            if (file is not null)
+            {
+                photo = Image(listingId, ++_nextEtsyId, rank);
+                images.Add(photo);
+            }
+            else
+            {
+                photo = images.Single(i => (long)i["listing_image_id"]! == long.Parse(fields["listing_image_id"]));
+                if (fields.GetValueOrDefault("overwrite") == "true")
+                    images.Remove(images.FirstOrDefault(i => i != photo && (int)i["rank"]! == rank)!); // the one shown in that slot
+            }
             photo["rank"] = rank;
             if (fields.TryGetValue("alt_text", out var alt)) photo["alt_text"] = alt;
             listing["images"] = new JsonArray([.. images]);
             return ScriptedHandler.Json(HttpStatusCode.Created, photo.ToJsonString());
+        }
+        // DELETE /v3/application/shops/42/listings/{id}/images/{imageId}
+        if (req.Method == HttpMethod.Delete && parts.Length == 8 && path.StartsWith($"{shop}/listings/") && parts[6] == "images")
+        {
+            Writes.Add(("DELETE", path, ""));
+            var listingId = long.Parse(parts[5]);
+            var listing = ListingJson(listingId);
+            var images = listing["images"]!.AsArray().Select(i => i!.DeepClone().AsObject())
+                .Where(i => (long)i["listing_image_id"]! != long.Parse(parts[7])).ToList(); // the others keep their ranks (gaps)
+            listing["images"] = new JsonArray([.. images]);
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
         }
         // PATCH /v3/application/shops/42/listings/{id}
         if (req.Method == HttpMethod.Patch && path.StartsWith($"{shop}/listings/"))

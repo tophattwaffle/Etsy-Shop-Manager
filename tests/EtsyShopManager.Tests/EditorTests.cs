@@ -39,7 +39,7 @@ public class ListingEditModelTests
         Assert.Equal(["title"], m.PendingFields);
         m.Set("title", "Vase");
         Assert.False(m.HasDraft);
-        Assert.Throws<ArgumentException>(() => m.Set("images", new JsonArray()));
+        Assert.Throws<ArgumentException>(() => m.Set("attributes", new JsonArray())); // not editable in the app
     }
 
     [Fact]
@@ -64,10 +64,17 @@ public class ListingEditModelTests
     [Fact]
     public void Untracked_fields_follow_Etsy_without_drift()
     {
-        var m = new ListingEditModel(State(state: "expired", images: 3), State(), null);
+        var m = new ListingEditModel(State(state: "expired"), State(), null);
         Assert.Empty(m.DriftFields);
         Assert.Equal("expired", (string?)m.Base["state"]);
-        Assert.Equal(3, m.Base["images"]!.AsArray().Count);
+    }
+
+    [Fact]
+    public void Photos_changed_on_Etsy_are_drift()
+    {
+        // Photos are edited in the app (since 2026-10-17), so a change on etsy.com is flagged rather than followed.
+        var m = new ListingEditModel(State(images: 3), State(), null);
+        Assert.Equal(["images"], m.DriftFields);
     }
 
     [Fact]

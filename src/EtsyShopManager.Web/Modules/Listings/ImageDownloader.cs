@@ -98,6 +98,10 @@ public sealed class ImageDownloader(
         var names = await db.ListingImages.Select(i => new { i.FileName, i.ThumbFileName }).ToListAsync(ct);
         var referenced = names.SelectMany(n => new[] { n.FileName, n.ThumbFileName })
             .OfType<string>().ToHashSet(StringComparer.Ordinal);
+        // Photos added in the editor and not pushed yet live only in drafts.
+        foreach (var draft in await db.Listings.Where(l => l.DraftJson != null).Select(l => l.DraftJson!).ToListAsync(ct))
+            referenced.UnionWith(EtsyShopManager.Web.Modules.Editor.PhotoEditor.PendingFiles(
+                System.Text.Json.Nodes.JsonNode.Parse(draft)?[EtsyShopManager.Core.Listings.ListingFields.Images]));
         var deleted = store.DeleteUnreferenced(referenced, OrphanMinAge, time.GetUtcNow().UtcDateTime);
         if (deleted > 0) logger.LogInformation("Deleted {Count} unreferenced image file(s)", deleted);
         return deleted;

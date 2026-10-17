@@ -52,6 +52,42 @@ public sealed partial class EtsyApiClient
                ?? throw new JsonException($"Empty inventory response for listing {listingId}");
     }
 
+    /// <summary>uploadListingImage (POST, multipart) with a new photo file, at <paramref name="rank"/> (the app sends the end).</summary>
+    public async Task<EtsyListingImage> UploadListingImageAsync(long etsyShopId, long listingId, byte[] image, string fileName, int rank,
+        string? altText, EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(() =>
+        {
+            var file = new ByteArrayContent(image);
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(Path.GetExtension(fileName).ToLowerInvariant() switch
+            {
+                ".png" => "image/png",
+                ".gif" => "image/gif",
+                ".webp" => "image/webp",
+                _ => "image/jpeg",
+            });
+            var form = new MultipartFormDataContent
+            {
+                { file, "image", fileName },
+                { new StringContent(rank.ToString(System.Globalization.CultureInfo.InvariantCulture)), "rank" },
+                { new StringContent("false"), "overwrite" },
+            };
+            if (!string.IsNullOrEmpty(altText)) form.Add(new StringContent(altText), "alt_text");
+            var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/application/shops/{etsyShopId}/listings/{listingId}/images") { Content = form };
+            request.Options.Set(Http.EtsyRetryHandler.NoRetry, true); // never upload a photo twice
+            return request;
+        }, auth, ct);
+        return await response.Content.ReadFromJsonAsync<EtsyListingImage>(EtsyJson.Options, ct)
+               ?? throw new JsonException($"Empty image response for listing {listingId}");
+    }
+
+    /// <summary>deleteListingImage (DELETE): takes the photo off the listing (Etsy keeps it, so it can be re-attached by id).</summary>
+    public async Task DeleteListingImageAsync(long etsyShopId, long listingId, long listingImageId, EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var _ = await SendAsync(() => new HttpRequestMessage(HttpMethod.Delete,
+            $"/v3/application/shops/{etsyShopId}/listings/{listingId}/images/{listingImageId}"), auth, ct);
+    }
+
     /// <summary>
     /// uploadListingImage (POST, multipart) with an existing <paramref name="listingImageId"/> and a rank: Etsy's way to
     /// put a photo the listing already has at a position. How Etsy moves the other photos is not documented; it is used only
