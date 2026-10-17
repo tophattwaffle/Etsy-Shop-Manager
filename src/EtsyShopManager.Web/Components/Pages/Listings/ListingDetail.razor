@@ -183,27 +183,31 @@ else
             <MudSimpleTable Dense="true" Hover="true">
                 <thead>
                     <tr>
-                        @foreach (var p in _propertyColumns) { <th>@p.Name</th> }
-                        <th>SKU</th><th class="text-right">Price</th><th class="text-right">Qty</th><th>Enabled</th><th>Processing</th>
+                        @foreach (var p in _propertyColumns)
+                        {
+                            <SortHeader Sort="_variantSort" Column="@PropertyColumn(p.Id)" Changed="StateHasChanged">@p.Name</SortHeader>
+                        }
+                        <SortHeader Sort="_variantSort" Column="sku" Changed="StateHasChanged">SKU</SortHeader>
+                        <SortHeader Sort="_variantSort" Column="price" Changed="StateHasChanged" Class="text-right">Price</SortHeader>
+                        <SortHeader Sort="_variantSort" Column="qty" Changed="StateHasChanged" Class="text-right">Qty</SortHeader>
+                        <SortHeader Sort="_variantSort" Column="enabled" Changed="StateHasChanged">Enabled</SortHeader>
+                        <SortHeader Sort="_variantSort" Column="processing" Changed="StateHasChanged">Processing</SortHeader>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var product in _products)
+                    @foreach (var (product, o) in _variantSort.Apply(_products.SelectMany(p => p.Offerings.Where(o => !o.IsDeleted).Select(o => (p, o)))))
                     {
-                        foreach (var o in product.Offerings.Where(o => !o.IsDeleted))
-                        {
-                            <tr class="@(o.IsEnabled ? "" : "muted")">
-                                @foreach (var col in _propertyColumns)
-                                {
-                                    <td>@string.Join(", ", product.PropertyValues.FirstOrDefault(v => v.PropertyId == col.Id)?.Values ?? [])</td>
-                                }
-                                <td>@(product.Sku ?? "—")</td>
-                                <td class="text-right">@ListingFormat.Price(o.PriceAmount, o.PriceDivisor, o.CurrencyCode)</td>
-                                <td class="text-right">@o.Quantity</td>
-                                <td>@(o.IsEnabled ? "Yes" : "No")</td>
-                                <td>@(o.ReadinessStateId is { } rs ? names.ProcessingLabels.GetValueOrDefault(rs, $"#{rs}") : "—")</td>
-                            </tr>
-                        }
+                        <tr class="@(o.IsEnabled ? "" : "muted")">
+                            @foreach (var col in _propertyColumns)
+                            {
+                                <td>@string.Join(", ", product.PropertyValues.FirstOrDefault(v => v.PropertyId == col.Id)?.Values ?? [])</td>
+                            }
+                            <td>@(product.Sku ?? "—")</td>
+                            <td class="text-right">@ListingFormat.Price(o.PriceAmount, o.PriceDivisor, o.CurrencyCode)</td>
+                            <td class="text-right">@o.Quantity</td>
+                            <td>@(o.IsEnabled ? "Yes" : "No")</td>
+                            <td>@(o.ReadinessStateId is { } rs ? names.ProcessingLabels.GetValueOrDefault(rs, $"#{rs}") : "—")</td>
+                        </tr>
                     }
                 </tbody>
             </MudSimpleTable>
@@ -252,6 +256,17 @@ else
     private ListingLookupNames? _names;
     private List<ListingProduct> _products = [];
     private List<(long Id, string Name)> _propertyColumns = [];
+
+    // Inventory rows (one per offering); the variation columns depend on the listing, so keys are added on load.
+    private readonly TableSort<(ListingProduct Product, ListingOffering Offering)> _variantSort = new()
+    {
+        ["sku"] = r => r.Product.Sku,
+        ["price"] = r => r.Offering.PriceDivisor > 0 ? (decimal)r.Offering.PriceAmount / r.Offering.PriceDivisor : r.Offering.PriceAmount,
+        ["qty"] = r => r.Offering.Quantity,
+        ["enabled"] = r => r.Offering.IsEnabled,
+    };
+
+    private static string PropertyColumn(long propertyId) => $"property:{propertyId}";
     private List<Question> _questions = [];
 
     private sealed record Question(string Text, string? Instructions, bool Required, int? MaxChars);
@@ -259,10 +274,11 @@ else
     private IDisposable? _live;
 
     protected override void OnInitialized() =>
-        // Re-read the listing when an import or photo download for its shop finishes.
+        // Re-read the listing when an import, photo download, refill or push for its shop finishes.
         _live = JobEvents.Subscribe(
             c => c.IsFinal && c.ShopId == _listing?.ShopId
-                 && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type or ImportShopLookupsJob.Type,
+                 && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type or ImportShopLookupsJob.Type
+                     or EtsyShopManager.Web.Modules.Stock.RefillListingJob.Type or EtsyShopManager.Web.Modules.Editor.PushListingJob.Type,
             _ => InvokeAsync(async () => { await LoadAsync(showSpinner: false); StateHasChanged(); }));
 
     public void Dispose() => _live?.Dispose();
@@ -282,6 +298,11 @@ else
                 .GroupBy(v => v.PropertyId)
                 .Select(g => (g.Key, g.First().PropertyName ?? $"Property {g.Key}"))
                 .ToList();
+            foreach (var (propertyId, _) in _propertyColumns)
+                _variantSort[PropertyColumn(propertyId)] = r =>
+                    string.Join(", ", r.Product.PropertyValues.FirstOrDefault(v => v.PropertyId == propertyId)?.Values ?? []);
+            var processing = _names.ProcessingLabels;
+            _variantSort["processing"] = r => r.Offering.ReadinessStateId is { } rs ? processing.GetValueOrDefault(rs, $"#{rs}") : null;
             _questions = ParseQuestions(_listing.PersonalizationJson);
         }
         _loading = false;

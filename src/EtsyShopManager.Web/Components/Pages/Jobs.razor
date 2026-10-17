@@ -20,10 +20,16 @@
     <MudText Typo="Typo.h6" GutterBottom="true">Recurring</MudText>
     <MudSimpleTable Dense="true">
         <thead>
-            <tr><th>Name</th><th>Job type</th><th>Every</th><th>Last queued</th><th></th></tr>
+            <tr>
+                <SortHeader Sort="_recurringSort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                <SortHeader Sort="_recurringSort" Column="type" Changed="StateHasChanged">Job type</SortHeader>
+                <SortHeader Sort="_recurringSort" Column="every" Changed="StateHasChanged">Every</SortHeader>
+                <SortHeader Sort="_recurringSort" Column="last" Changed="StateHasChanged">Last queued</SortHeader>
+                <th></th>
+            </tr>
         </thead>
         <tbody>
-            @foreach (var def in RecurringDefinitions.OrderBy(d => d.Name))
+            @foreach (var def in _recurringSort.Apply(RecurringDefinitions.OrderBy(d => d.Name)))
             {
                 _recurringState.TryGetValue(def.Name, out var last);
                 <tr>
@@ -58,12 +64,20 @@
     <MudSimpleTable Dense="true" Hover="true" Class="job-table">
         <thead>
             <tr>
-                <th class="esm-col-icon"></th><th>#</th><th>Job</th><th>Status</th><th>Shop</th><th>Attempts</th>
-                <th>Created</th><th>Finished</th><th>Result / error</th><th></th>
+                <th class="esm-col-icon"></th>
+                <SortHeader Sort="_jobSort" Column="id" Changed="StateHasChanged">#</SortHeader>
+                <SortHeader Sort="_jobSort" Column="job" Changed="StateHasChanged">Job</SortHeader>
+                <SortHeader Sort="_jobSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                <SortHeader Sort="_jobSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                <SortHeader Sort="_jobSort" Column="attempts" Changed="StateHasChanged">Attempts</SortHeader>
+                <SortHeader Sort="_jobSort" Column="created" Changed="StateHasChanged">Created</SortHeader>
+                <SortHeader Sort="_jobSort" Column="finished" Changed="StateHasChanged">Finished</SortHeader>
+                <SortHeader Sort="_jobSort" Column="result" Changed="StateHasChanged">Result / error</SortHeader>
+                <th></th>
             </tr>
         </thead>
         <tbody>
-            @foreach (var stack in _stacks)
+            @foreach (var stack in _jobSort.Apply(_stacks))
             {
                 var expanded = stack.Count == 1 || _expanded.Contains(stack.Key);
                 @if (stack.Count > 1)
@@ -139,8 +153,31 @@
     private string _filter = "all";
     private bool _autoRefresh = true;
 
+    private TableSort<RecurringJobDefinition> _recurringSort = new();
+
+    // Sorts the rows the queue shows (the newest 500 jobs, grouped); a stack sorts by its latest job.
+    private TableSort<JobStack> _jobSort = new();
+
     protected override async Task OnInitializedAsync()
     {
+        _recurringSort = new()
+        {
+            ["name"] = d => d.Name,
+            ["type"] = d => d.JobType,
+            ["every"] = d => _intervals.GetValueOrDefault(d.Name, d.Interval),
+            ["last"] = d => _recurringState.GetValueOrDefault(d.Name),
+        };
+        _jobSort = new()
+        {
+            ["id"] = s => s.Latest.Id,
+            ["job"] = s => Catalog.DisplayName(s.JobType),
+            ["status"] = s => s.Latest.Status,
+            ["shop"] = s => ShopName(s.Latest.ShopId),
+            ["attempts"] = s => s.Latest.Attempts,
+            ["created"] = s => s.Latest.CreatedAtUtc,
+            ["finished"] = s => s.Latest.CompletedAtUtc,
+            ["result"] = s => s.Latest.Status == JobStatus.Succeeded ? s.Latest.Result : s.Latest.LastError ?? s.Latest.Result,
+        };
         await LoadAsync();
         // Re-render when any job is queued, starts, finishes or is retried (bursts are coalesced).
         _live = JobEvents.Subscribe(_ => _autoRefresh, _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));

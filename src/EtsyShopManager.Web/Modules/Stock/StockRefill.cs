@@ -204,8 +204,12 @@ public sealed class StockRefiller(
         var tracked = await db.Listings.Include(l => l.Products).ThenInclude(p => p.Offerings)
             .FirstAsync(l => l.Id == listingId, ct);
         ListingMapper.SyncInventory(tracked, updated);
+        tracked.Quantity = ListingMapper.ListingQuantity(updated); // the stock the tiles, list and listing page show
 
-        var changes = plan.Values.Select(p => $"{p.Label}: {p.From} → {settings.RefillTo}").ToList();
+        // Shared stock is one number (Etsy just repeats it on every variation), so it's reported once.
+        var changes = (inventory.QuantityOnProperty ?? []).Count == 0
+            ? [$"stock: {plan.Values.Min(p => p.From)} → {settings.RefillTo}"]
+            : plan.Values.Select(p => $"{p.Label}: {p.From} → {settings.RefillTo}").ToList();
         settings.Problem = null;
         settings.LastRefilledAtUtc = now;
         settings.LastResult = string.Join(", ", changes);

@@ -135,6 +135,20 @@ public static class ListingMapper
     /// Brings the local inventory in line with Etsy's, matching products and offerings by Etsy id (Etsy issues new
     /// ids whenever the inventory is written, so a write replaces all rows; a plain re-import changes nothing).
     /// </summary>
+    /// <summary>
+    /// The listing-level stock Etsy reports for an inventory: with one shared quantity (it doesn't vary by a property)
+    /// every variation holds the same number and Etsy reports that number; otherwise the sum over enabled variations.
+    /// Used after our own inventory writes, which return the inventory but not the listing.
+    /// </summary>
+    public static int ListingQuantity(EtsyInventory source)
+    {
+        var enabled = source.Products.Where(p => !p.IsDeleted)
+            .SelectMany(p => p.Offerings.Where(o => !o.IsDeleted && o.IsEnabled))
+            .Select(o => o.Quantity).ToList();
+        if (enabled.Count == 0) return 0;
+        return (source.QuantityOnProperty ?? []).Count == 0 ? enabled.Max() : enabled.Sum();
+    }
+
     public static void SyncInventory(Listing target, EtsyInventory source)
     {
         target.PriceOnProperty = source.PriceOnProperty ?? [];

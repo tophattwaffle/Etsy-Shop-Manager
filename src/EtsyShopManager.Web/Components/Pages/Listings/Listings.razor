@@ -34,13 +34,11 @@
                               Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
                               Class="lp-search" aria-label="Search listings" />
                 <MudSelect T="ListingSort" Value="_sort" ValueChanged="OnSortChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
-                           Class="lp-sort" aria-label="Sort listings">
-                    <MudSelectItem T="ListingSort" Value="ListingSort.UpdatedDesc">Recently updated</MudSelectItem>
-                    <MudSelectItem T="ListingSort" Value="ListingSort.CreatedDesc">Newest</MudSelectItem>
-                    <MudSelectItem T="ListingSort" Value="ListingSort.TitleAsc">Title A–Z</MudSelectItem>
-                    <MudSelectItem T="ListingSort" Value="ListingSort.PriceAsc">Lowest price</MudSelectItem>
-                    <MudSelectItem T="ListingSort" Value="ListingSort.PriceDesc">Highest price</MudSelectItem>
-                    <MudSelectItem T="ListingSort" Value="ListingSort.QuantityAsc">Lowest stock</MudSelectItem>
+                           ToStringFunc="@(s => SortLabel(s))" Class="lp-sort" aria-label="Sort listings">
+                    @foreach (var option in MenuSorts.Contains(_sort) ? MenuSorts : [.. MenuSorts, _sort])
+                    {
+                        <MudSelectItem T="ListingSort" Value="option">@SortLabel(option)</MudSelectItem>
+                    }
                 </MudSelect>
                 <div class="lp-viewtoggle" role="group" aria-label="View">
                     <button type="button" aria-pressed="@(_view == GridView ? "true" : "false")" title="Gallery view"
@@ -149,6 +147,13 @@
                                     <span class="lp-stock">@StockLabel(row.Quantity)</span>
                                     <span class="lp-price">@ListingFormat.PriceWithSymbol(row.PriceAmount, row.PriceDivisor, row.CurrencyCode)</span>
                                 </span>
+                                @if (row.Refill is { Enabled: true } refill)
+                                {
+                                    <span class="lp-refill" title="@($"Auto-refill is on: when stock drops below {refill.Threshold}, it's set back to {refill.RefillTo}")">
+                                        <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" aria-hidden="true" />
+                                        Auto-refill below @refill.Threshold → @refill.RefillTo
+                                    </span>
+                                }
                             </div>
                         </a>
                     }
@@ -168,13 +173,13 @@
                                     </th>
                                 }
                                 <th scope="col"><span class="visually-hidden">Photo</span></th>
-                                <th scope="col">Listing</th>
-                                <th scope="col">Status</th>
-                                <th scope="col" class="num">Stock</th>
-                                <th scope="col" class="num">Price</th>
-                                <th scope="col">SKU</th>
-                                <th scope="col">Auto-refill</th>
-                                <th scope="col">Updated on Etsy</th>
+                                <SortHeader Sort="_columnSort" Column="title" Changed="OnColumnSortAsync">Listing</SortHeader>
+                                <SortHeader Sort="_columnSort" Column="status" Changed="OnColumnSortAsync">Status</SortHeader>
+                                <SortHeader Sort="_columnSort" Column="stock" Changed="OnColumnSortAsync" Class="num">Stock</SortHeader>
+                                <SortHeader Sort="_columnSort" Column="price" Changed="OnColumnSortAsync" Class="num">Price</SortHeader>
+                                <SortHeader Sort="_columnSort" Column="sku" Changed="OnColumnSortAsync">SKU</SortHeader>
+                                <SortHeader Sort="_columnSort" Column="refill" Changed="OnColumnSortAsync">Auto-refill</SortHeader>
+                                <SortHeader Sort="_columnSort" Column="updated" Changed="OnColumnSortAsync">Updated on Etsy</SortHeader>
                             </tr>
                         </thead>
                         <tbody>
@@ -304,7 +309,7 @@
 
     private static readonly HashSet<string> ListingJobTypes =
     [
-        ImportShopListingsJob.Type, DownloadListingImagesJob.Type, ImportShopLookupsJob.Type,
+        ImportShopListingsJob.Type, DownloadListingImagesJob.Type, ImportShopLookupsJob.Type, RefillListingJob.Type, EtsyShopManager.Web.Modules.Editor.PushListingJob.Type,
         EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type, EtsyShopManager.Web.Modules.Shops.TokenKeepAliveJob.Type,
     ];
 
@@ -341,6 +346,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        SyncColumnSort();
         _shops = await Queries.GetImportStatusAsync();
         // Colors picked on the Shops page; the others are read from each shop's profile image after render.
         foreach (var (id, color) in await ShopAccents.GetOverridesAsync(_shops.Select(s => s.ShopId))) _accents[id] = color;
@@ -349,7 +355,8 @@
         _live = JobEvents.Subscribe(c => ListingJobTypes.Contains(c.JobType), changes => InvokeAsync(async () =>
         {
             _shops = await Queries.GetImportStatusAsync();
-            if (changes.Any(c => c.IsFinal && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type))
+            if (changes.Any(c => c.IsFinal && c.JobType is ImportShopListingsJob.Type or DownloadListingImagesJob.Type
+                    or RefillListingJob.Type or EtsyShopManager.Web.Modules.Editor.PushListingJob.Type))
                 await LoadAsync();
             StateHasChanged();
         }));
@@ -418,7 +425,62 @@
     private Task OnTextChanged(string? value) { _text = value; return ReloadFromFirstPageAsync(); }
     private Task OnShopChanged(int? value) { _shopId = value; return ReloadFromFirstPageAsync(); }
     private Task OnStatusChanged(string value) { _status = value; return ReloadFromFirstPageAsync(); }
-    private Task OnSortChanged(ListingSort value) { _sort = value; return ReloadFromFirstPageAsync(); }
+    private Task OnSortChanged(ListingSort value)
+    {
+        _sort = value;
+        SyncColumnSort();
+        return ReloadFromFirstPageAsync();
+    }
+
+    // List view headers and the sort dropdown are one setting; the server sorts, so the order spans every page.
+    private static readonly (string Column, ListingSort Asc, ListingSort Desc)[] ColumnSorts =
+    [
+        ("title", ListingSort.TitleAsc, ListingSort.TitleDesc),
+        ("status", ListingSort.StateAsc, ListingSort.StateDesc),
+        ("stock", ListingSort.QuantityAsc, ListingSort.QuantityDesc),
+        ("price", ListingSort.PriceAsc, ListingSort.PriceDesc),
+        ("sku", ListingSort.SkuAsc, ListingSort.SkuDesc),
+        ("refill", ListingSort.RefillAsc, ListingSort.RefillDesc),
+        ("updated", ListingSort.UpdatedAsc, ListingSort.UpdatedDesc),
+    ];
+
+    private readonly ColumnSort _columnSort = new([.. ColumnSorts.Select(c => c.Column)]);
+
+    private static readonly ListingSort[] MenuSorts =
+        [ListingSort.UpdatedDesc, ListingSort.CreatedDesc, ListingSort.TitleAsc, ListingSort.PriceAsc, ListingSort.PriceDesc, ListingSort.QuantityAsc];
+
+    private Task OnColumnSortAsync()
+    {
+        var c = ColumnSorts.First(c => c.Column == _columnSort.Column);
+        _sort = _columnSort.Descending ? c.Desc : c.Asc;
+        return ReloadFromFirstPageAsync();
+    }
+
+    private void SyncColumnSort()
+    {
+        var match = ColumnSorts.FirstOrDefault(c => c.Asc == _sort || c.Desc == _sort);
+        _columnSort.Set(match.Column, descending: match.Column is not null && match.Desc == _sort);
+    }
+
+    private static string SortLabel(ListingSort sort) => sort switch
+    {
+        ListingSort.UpdatedDesc => "Recently updated",
+        ListingSort.UpdatedAsc => "Least recently updated",
+        ListingSort.CreatedDesc => "Newest",
+        ListingSort.TitleAsc => "Title A–Z",
+        ListingSort.TitleDesc => "Title Z–A",
+        ListingSort.PriceAsc => "Lowest price",
+        ListingSort.PriceDesc => "Highest price",
+        ListingSort.QuantityAsc => "Lowest stock",
+        ListingSort.QuantityDesc => "Highest stock",
+        ListingSort.StateAsc => "Status A–Z",
+        ListingSort.StateDesc => "Status Z–A",
+        ListingSort.SkuAsc => "SKU A–Z",
+        ListingSort.SkuDesc => "SKU Z–A",
+        ListingSort.RefillAsc => "Auto-refill off first",
+        ListingSort.RefillDesc => "Auto-refill on first",
+        _ => sort.ToString(),
+    };
     private Task OnPageChanged(int page) { _page = page - 1; return LoadAsync(); }
 
     private Task ClearFiltersAsync()

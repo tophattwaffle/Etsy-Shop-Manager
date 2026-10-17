@@ -43,9 +43,19 @@
 <MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4">
     <MudTabPanel Text="@($"Shipping ({_shipping.Count})")">
         <MudSimpleTable Dense="true" Hover="true">
-            <thead><tr><th>Title</th><th>Etsy id</th><th>Origin</th><th>Type</th><th>Destinations</th><th>Upgrades</th><th>Listings</th></tr></thead>
+            <thead>
+                <tr>
+                    <SortHeader Sort="_shippingSort" Column="title" Changed="StateHasChanged">Title</SortHeader>
+                    <SortHeader Sort="_shippingSort" Column="id" Changed="StateHasChanged">Etsy id</SortHeader>
+                    <SortHeader Sort="_shippingSort" Column="origin" Changed="StateHasChanged">Origin</SortHeader>
+                    <SortHeader Sort="_shippingSort" Column="type" Changed="StateHasChanged">Type</SortHeader>
+                    <SortHeader Sort="_shippingSort" Column="destinations" Changed="StateHasChanged">Destinations</SortHeader>
+                    <SortHeader Sort="_shippingSort" Column="upgrades" Changed="StateHasChanged">Upgrades</SortHeader>
+                    <SortHeader Sort="_shippingSort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                </tr>
+            </thead>
             <tbody>
-                @foreach (var p in _shipping)
+                @foreach (var p in _shippingSort.Apply(_shipping))
                 {
                     <tr>
                         <td>@p.Title</td><td>@p.EtsyShippingProfileId</td>
@@ -61,9 +71,17 @@
 
     <MudTabPanel Text="@($"Processing ({_processing.Count})")">
         <MudSimpleTable Dense="true" Hover="true">
-            <thead><tr><th>Label</th><th>Readiness state id</th><th>Type</th><th>Days</th><th>Listings</th></tr></thead>
+            <thead>
+                <tr>
+                    <SortHeader Sort="_processingSort" Column="label" Changed="StateHasChanged">Label</SortHeader>
+                    <SortHeader Sort="_processingSort" Column="id" Changed="StateHasChanged">Readiness state id</SortHeader>
+                    <SortHeader Sort="_processingSort" Column="type" Changed="StateHasChanged">Type</SortHeader>
+                    <SortHeader Sort="_processingSort" Column="days" Changed="StateHasChanged">Days</SortHeader>
+                    <SortHeader Sort="_processingSort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                </tr>
+            </thead>
             <tbody>
-                @foreach (var p in _processing)
+                @foreach (var p in _processingSort.Apply(_processing))
                 {
                     <tr>
                         <td>@(p.DisplayLabel ?? "—")</td><td>@p.ReadinessStateId</td>
@@ -78,9 +96,15 @@
 
     <MudTabPanel Text="@($"Returns ({_returns.Count})")">
         <MudSimpleTable Dense="true" Hover="true">
-            <thead><tr><th>Policy</th><th>Etsy id</th><th>Listings</th></tr></thead>
+            <thead>
+                <tr>
+                    <SortHeader Sort="_returnsSort" Column="policy" Changed="StateHasChanged">Policy</SortHeader>
+                    <SortHeader Sort="_returnsSort" Column="id" Changed="StateHasChanged">Etsy id</SortHeader>
+                    <SortHeader Sort="_returnsSort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                </tr>
+            </thead>
             <tbody>
-                @foreach (var p in _returns)
+                @foreach (var p in _returnsSort.Apply(_returns))
                 {
                     <tr>
                         <td>@ListingQueries.ReturnPolicySummary(p)</td><td>@p.EtsyReturnPolicyId</td>
@@ -94,9 +118,17 @@
 
     <MudTabPanel Text="@($"Sections ({_sections.Count})")">
         <MudSimpleTable Dense="true" Hover="true">
-            <thead><tr><th>Rank</th><th>Title</th><th>Etsy id</th><th>Active (Etsy)</th><th>Listings here</th></tr></thead>
+            <thead>
+                <tr>
+                    <SortHeader Sort="_sectionsSort" Column="rank" Changed="StateHasChanged">Rank</SortHeader>
+                    <SortHeader Sort="_sectionsSort" Column="title" Changed="StateHasChanged">Title</SortHeader>
+                    <SortHeader Sort="_sectionsSort" Column="id" Changed="StateHasChanged">Etsy id</SortHeader>
+                    <SortHeader Sort="_sectionsSort" Column="active" Changed="StateHasChanged">Active (Etsy)</SortHeader>
+                    <SortHeader Sort="_sectionsSort" Column="listings" Changed="StateHasChanged">Listings here</SortHeader>
+                </tr>
+            </thead>
             <tbody>
-                @foreach (var s in _sections)
+                @foreach (var s in _sectionsSort.Apply(_sections))
                 {
                     <tr>
                         <td>@s.Rank</td><td>@s.Title</td><td>@s.EtsySectionId</td><td>@s.ActiveListingCount</td>
@@ -110,9 +142,15 @@
 
     <MudTabPanel Text="@($"Production partners ({_partners.Count})")">
         <MudSimpleTable Dense="true" Hover="true">
-            <thead><tr><th>Name</th><th>Location</th><th>Etsy id</th></tr></thead>
+            <thead>
+                <tr>
+                    <SortHeader Sort="_partnersSort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                    <SortHeader Sort="_partnersSort" Column="location" Changed="StateHasChanged">Location</SortHeader>
+                    <SortHeader Sort="_partnersSort" Column="id" Changed="StateHasChanged">Etsy id</SortHeader>
+                </tr>
+            </thead>
             <tbody>
-                @foreach (var p in _partners)
+                @foreach (var p in _partnersSort.Apply(_partners))
                 {
                     <tr><td>@p.Name</td><td>@p.Location</td><td>@p.EtsyPartnerId</td></tr>
                 }
@@ -156,9 +194,16 @@
                 else
                 {
                     <MudSimpleTable Dense="true">
-                        <thead><tr><th>Property</th><th>Id</th><th>Use</th><th>Values</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <SortHeader Sort="_propertiesSort" Column="property" Changed="StateHasChanged">Property</SortHeader>
+                                <SortHeader Sort="_propertiesSort" Column="id" Changed="StateHasChanged">Id</SortHeader>
+                                <SortHeader Sort="_propertiesSort" Column="use" Changed="StateHasChanged">Use</SortHeader>
+                                <SortHeader Sort="_propertiesSort" Column="values" Changed="StateHasChanged">Values</SortHeader>
+                            </tr>
+                        </thead>
                         <tbody>
-                            @foreach (var p in _properties)
+                            @foreach (var p in _propertiesSort.Apply(_properties))
                             {
                                 <tr>
                                     <td>@(p.DisplayName ?? p.Name) @(p.IsRequired ? "*" : "")</td>
@@ -202,12 +247,68 @@
     private long _selectedTaxonomy;
     private List<TaxonomyProperty> _properties = [];
 
+    // Header-click sorting per tab; the "Listings" columns read the usage counts, so these are set up on init.
+    private TableSort<ShippingProfile> _shippingSort = new();
+    private TableSort<ProcessingProfile> _processingSort = new();
+    private TableSort<ReturnPolicy> _returnsSort = new();
+    private TableSort<ShopSection> _sectionsSort = new();
+    private readonly TableSort<ProductionPartner> _partnersSort = new()
+    {
+        ["name"] = p => p.Name,
+        ["location"] = p => p.Location,
+        ["id"] = p => p.EtsyPartnerId,
+    };
+    private readonly TableSort<TaxonomyProperty> _propertiesSort = new()
+    {
+        ["property"] = p => p.DisplayName ?? p.Name,
+        ["id"] = p => p.PropertyId,
+        ["use"] = p => (p.SupportsAttributes ? 2 : 0) + (p.SupportsVariations ? 1 : 0),
+        ["values"] = p => p.PossibleValueCount,
+    };
+
+    private void SetUpSorts()
+    {
+        _shippingSort = new()
+        {
+            ["title"] = p => p.Title,
+            ["id"] = p => p.EtsyShippingProfileId,
+            ["origin"] = p => $"{p.OriginCountryIso} {p.OriginPostalCode}",
+            ["type"] = p => p.ProfileType,
+            ["destinations"] = p => p.DestinationCount,
+            ["upgrades"] = p => p.UpgradeCount,
+            ["listings"] = p => _usage.Shipping.GetValueOrDefault(p.EtsyShippingProfileId),
+        };
+        _processingSort = new()
+        {
+            ["label"] = p => p.DisplayLabel,
+            ["id"] = p => p.ReadinessStateId,
+            ["type"] = p => p.ReadinessState,
+            ["days"] = p => p.MinProcessingDays * 1000 + p.MaxProcessingDays,
+            ["listings"] = p => _usage.Processing.GetValueOrDefault(p.ReadinessStateId),
+        };
+        _returnsSort = new()
+        {
+            ["policy"] = p => ListingQueries.ReturnPolicySummary(p),
+            ["id"] = p => p.EtsyReturnPolicyId,
+            ["listings"] = p => _usage.Returns.GetValueOrDefault(p.EtsyReturnPolicyId),
+        };
+        _sectionsSort = new()
+        {
+            ["rank"] = s => s.Rank,
+            ["title"] = s => s.Title,
+            ["id"] = s => s.EtsySectionId,
+            ["active"] = s => s.ActiveListingCount,
+            ["listings"] = s => _usage.Sections.GetValueOrDefault(s.EtsySectionId),
+        };
+    }
+
     private IDisposable? _live;
 
     public void Dispose() => _live?.Dispose();
 
     protected override async Task OnInitializedAsync()
     {
+        SetUpSorts();
         // Lookups, taxonomy and usage counts change when these jobs finish.
         _live = JobEvents.Subscribe(
             c => c.IsFinal && c.JobType is ImportShopLookupsJob.Type or ImportShopListingsJob.Type or RefreshTaxonomyJob.Type,

@@ -1,0 +1,33 @@
+@* A table column header that sorts by its column when clicked; clicking again flips the direction (docs/DESIGN.md,
+   "Tables"). The arrow shows the current direction; screen readers get it through aria-sort. *@
+
+<th scope="col" class="@Class" aria-sort="@AriaSort">
+    <button type="button" class="esm-sort @(Active ? "is-active" : "")" @onclick="ToggleAsync"
+            title="@(Active && !Sort.Descending ? "Sort descending" : "Sort ascending")">
+        <span>@ChildContent</span>
+        <MudIcon Icon="@Arrow" Size="Size.Small" Class="esm-sort-arrow" aria-hidden="true" />
+    </button>
+</th>
+
+@code {
+    [Parameter, EditorRequired] public ITableSort Sort { get; set; } = default!;
+    [Parameter, EditorRequired] public string Column { get; set; } = "";
+
+    /// <summary>Re-renders (or reloads) the table: <c>Changed="StateHasChanged"</c> for loaded rows.</summary>
+    [Parameter, EditorRequired] public EventCallback Changed { get; set; }
+
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool Active => Sort.Column == Column;
+
+    private string AriaSort => !Active ? "none" : Sort.Descending ? "descending" : "ascending";
+
+    private string Arrow => Active && Sort.Descending ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward;
+
+    private async Task ToggleAsync()
+    {
+        Sort.Toggle(Column);
+        await Changed.InvokeAsync();
+    }
+}

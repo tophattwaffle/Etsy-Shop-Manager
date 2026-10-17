@@ -26,8 +26,15 @@ public sealed class OrderQueries(IDbContextFactory<AppDbContext> dbFactory, Time
             .ToList();
     }
 
+    /// <summary>Order history columns the table can sort by (server-side, so the order covers every page).</summary>
+    public static class HistorySort
+    {
+        public const string Date = "date", Receipt = "receipt", Buyer = "buyer", Items = "items", Total = "total",
+            Status = "status", Shop = "shop";
+    }
+
     public async Task<(List<Order> Orders, int Total)> GetHistoryAsync(int? shopId, string? text, int skip, int take,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string? sortBy = null, bool descending = true)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         IQueryable<Order> q = db.Orders.AsNoTracking();
@@ -42,7 +49,24 @@ public sealed class OrderQueries(IDbContextFactory<AppDbContext> dbFactory, Time
                                || o.Items.Any(i => EF.Functions.Like(i.Title, pattern, "\\") || EF.Functions.Like(i.Sku, pattern, "\\")));
         }
         var total = await q.CountAsync(ct);
-        var orders = await q.OrderByDescending(o => o.EtsyCreatedAtUtc).ThenByDescending(o => o.Id)
+        var d = descending;
+        var ordered = sortBy switch
+        {
+            HistorySort.Receipt => d ? q.OrderByDescending(o => o.EtsyReceiptId) : q.OrderBy(o => o.EtsyReceiptId),
+            HistorySort.Buyer => d ? q.OrderByDescending(o => EF.Functions.Collate(o.BuyerName!, "NOCASE")) : q.OrderBy(o => EF.Functions.Collate(o.BuyerName!, "NOCASE")),
+            HistorySort.Items => d
+                ? q.OrderByDescending(o => EF.Functions.Collate(o.Items.OrderBy(i => i.Id).Select(i => i.Title).FirstOrDefault()!, "NOCASE"))
+                : q.OrderBy(o => EF.Functions.Collate(o.Items.OrderBy(i => i.Id).Select(i => i.Title).FirstOrDefault()!, "NOCASE")),
+            HistorySort.Total => d
+                ? q.OrderByDescending(o => (double?)o.Grandtotal / o.Divisor)
+                : q.OrderBy(o => (double?)o.Grandtotal / o.Divisor),
+            HistorySort.Status => d
+                ? q.OrderByDescending(o => o.IsShipped).ThenByDescending(o => o.Status)
+                : q.OrderBy(o => o.IsShipped).ThenBy(o => o.Status),
+            HistorySort.Shop => d ? q.OrderByDescending(o => EF.Functions.Collate(o.Shop.Name, "NOCASE")) : q.OrderBy(o => EF.Functions.Collate(o.Shop.Name, "NOCASE")),
+            _ => d ? q.OrderByDescending(o => o.EtsyCreatedAtUtc) : q.OrderBy(o => o.EtsyCreatedAtUtc),
+        };
+        var orders = await ordered.ThenByDescending(o => o.EtsyCreatedAtUtc).ThenByDescending(o => o.Id)
             .Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200))
             .Include(o => o.Items).Include(o => o.Shop).AsSplitQuery()
             .ToListAsync(ct);
