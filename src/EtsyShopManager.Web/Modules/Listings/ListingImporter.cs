@@ -252,6 +252,22 @@ public sealed class ListingImporter(
         await UpsertPageAsync(shopId, etsyShopId, [raw], runId, force: true, ct, raiseDriftEvents);
     }
 
+    /// <summary>Imports one listing the app just created on Etsy (e.g. a clone) and returns its local id.</summary>
+    public async Task<int> ImportNewListingAsync(int shopId, long etsyListingId, CancellationToken ct)
+    {
+        long etsyShopId;
+        string runId;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            etsyShopId = await db.Shops.Where(s => s.Id == shopId).Select(s => s.EtsyShopId).FirstAsync(ct);
+            runId = await db.ShopSyncStates.Where(s => s.ShopId == shopId).Select(s => s.RunId).FirstOrDefaultAsync(ct) ?? "";
+        }
+        var raw = await etsy.GetListingAsync(etsyListingId, EtsyAuth.ForShop(shopId), ct);
+        await UpsertPageAsync(shopId, etsyShopId, [raw], runId, force: true, ct, raiseDriftEvents: false);
+        await using var check = await dbFactory.CreateDbContextAsync(ct);
+        return await check.Listings.Where(l => l.EtsyListingId == etsyListingId).Select(l => l.Id).FirstAsync(ct);
+    }
+
     /// <summary>Replaces the shop's cached shipping, processing and return profiles, sections and partners.</summary>
     public async Task ImportLookupsAsync(int shopId, long etsyShopId, CancellationToken ct)
     {

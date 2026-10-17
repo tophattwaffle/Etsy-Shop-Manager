@@ -376,6 +376,59 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("Listings");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingClone", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("JobId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Log")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("NewEtsyListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("NewListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SettingsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SourceListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TargetShopId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceListingId");
+
+                    b.HasIndex("TargetShopId");
+
+                    b.ToTable("ListingClones");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingEtsyState", b =>
                 {
                     b.Property<int>("ListingId")
@@ -1584,6 +1637,25 @@ namespace EtsyShopManager.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Shop");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingClone", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "SourceListing")
+                        .WithMany()
+                        .HasForeignKey("SourceListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EtsyShopManager.Core.Domain.Shop", "TargetShop")
+                        .WithMany()
+                        .HasForeignKey("TargetShopId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SourceListing");
+
+                    b.Navigation("TargetShop");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingEtsyState", b =>

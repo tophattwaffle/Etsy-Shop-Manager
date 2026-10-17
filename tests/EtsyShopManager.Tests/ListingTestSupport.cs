@@ -139,6 +139,9 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddTransient<EtsyShopManager.Web.Modules.Editor.PushListingJob>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Editor.PhotoOrderTester>();
         services.AddTransient<EtsyShopManager.Web.Modules.Editor.PhotoOrderTestJob>();
+        services.AddSingleton<EtsyShopManager.Core.Services.ISettingsStore, InMemorySettings>();
+        services.AddSingleton<EtsyShopManager.Web.Modules.Editor.ListingCloner>();
+        services.AddTransient<EtsyShopManager.Web.Modules.Editor.ListingCloneJob>();
         Provider = services.BuildServiceProvider();
 
         using var db = Db.CreateDbContext();
@@ -287,9 +290,10 @@ internal sealed class FakeEtsyShop : IDisposable
         }
 
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (path.StartsWith($"{shop}/listings/") && path.EndsWith("/properties"))
+        if (parts.Length == 7 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "properties" && req.Method == HttpMethod.Get)
         {
             if (ListingsWithoutProperties.Contains(long.Parse(parts[5]))) return new HttpResponseMessage(HttpStatusCode.NotFound);
+            if (Listings.FirstOrDefault(l => (long)l["listing_id"]! == long.Parse(parts[5]))?["_properties"] is JsonArray set) return Page(set.Select(p => (JsonObject)p!.DeepClone()));
             return Page([new JsonObject
             {
                 ["property_id"] = 200,
@@ -383,6 +387,19 @@ internal sealed class FakeEtsyShop : IDisposable
         .OrderBy(n => (int)n!["rank"]!);
     private readonly Dictionary<(long PropertyId, string Value), long> _valueIds = [];
 
+    /// <summary>A form field (updateListing / createDraftListing) as Etsy stores it on the listing.</summary>
+    private static JsonNode? FormValue(string key, string value) => key switch
+    {
+        "tags" or "materials" or "styles" => new JsonArray(value.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(v => (JsonNode)v).ToArray()),
+        "production_partner_ids" => new JsonArray(),
+        "is_supply" or "is_taxable" or "should_auto_renew" => value == "true",
+        "taxonomy_id" or "shipping_profile_id" or "return_policy_id" or "shop_section_id" => long.Parse(value),
+        "item_weight" or "item_length" or "item_width" or "item_height" => decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture),
+        // Etsy stores the text and returns it HTML-encoded.
+        "title" or "description" => value.Replace("'", "&#39;").Replace("\"", "&quot;"),
+        _ => value,
+    };
+
     /// <summary>getListing, inventory with the listing, updateListing and updateListingInventory, applied like Etsy would.</summary>
     private HttpResponseMessage? RespondEdit(HttpRequestMessage req, string path, System.Collections.Specialized.NameValueCollection query, string shop)
     {
@@ -400,7 +417,7 @@ internal sealed class FakeEtsyShop : IDisposable
         // renumbered, so two photos can share a rank (Etsy then shows them in no fixed order; the fake keeps the stored
         // order). With overwrite=true the photo takes the rank's slot: the photo shown at that rank drops off the listing.
         // A new image file gets the rank given, again without renumbering.
-        if (req.Method == HttpMethod.Post && parts.Length == 7 && path.StartsWith($"{shop}/listings/") && parts[6] == "images")
+        if (req.Method == HttpMethod.Post && parts.Length == 7 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "images")
         {
             var multipart = (MultipartFormDataContent)req.Content!;
             var file = multipart.FirstOrDefault(p => p.Headers.ContentDisposition?.FileName is not null);
@@ -435,7 +452,7 @@ internal sealed class FakeEtsyShop : IDisposable
             return ScriptedHandler.Json(HttpStatusCode.Created, photo.ToJsonString());
         }
         // DELETE /v3/application/shops/42/listings/{id}/images/{imageId}
-        if (req.Method == HttpMethod.Delete && parts.Length == 8 && path.StartsWith($"{shop}/listings/") && parts[6] == "images")
+        if (req.Method == HttpMethod.Delete && parts.Length == 8 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "images")
         {
             Writes.Add(("DELETE", path, ""));
             var listingId = long.Parse(parts[5]);
@@ -446,6 +463,58 @@ internal sealed class FakeEtsyShop : IDisposable
             return new HttpResponseMessage(HttpStatusCode.NoContent);
         }
         // PATCH /v3/application/shops/42/listings/{id}
+        // POST /v3/application/shops/{shopId}/listings (createDraftListing): a new draft with one product.
+        if (req.Method == HttpMethod.Post && parts.Length == 5 && parts[2] == "shops" && parts[4] == "listings")
+        {
+            var body = req.Content!.ReadAsStringAsync().Result;
+            Writes.Add(("POST", path, body));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            var form = System.Web.HttpUtility.ParseQueryString(body);
+            var id = ++_nextEtsyId;
+            var price = (long)Math.Round(decimal.Parse(form["price"]!, System.Globalization.CultureInfo.InvariantCulture) * 100);
+            var draft = Listing(id, form["title"]!, state: "draft", quantity: int.Parse(form["quantity"]!), withImages: false, withInventory: false);
+            draft["shop_id"] = long.Parse(parts[3]);
+            draft["images"] = new JsonArray();
+            draft["price"] = Money(price);
+            draft["inventory"] = new JsonObject
+            {
+                ["products"] = new JsonArray(new JsonObject
+                {
+                    ["product_id"] = ++_nextEtsyId, ["sku"] = "", ["is_deleted"] = false, ["property_values"] = new JsonArray(),
+                    ["offerings"] = new JsonArray(new JsonObject
+                    {
+                        ["offering_id"] = ++_nextEtsyId, ["quantity"] = int.Parse(form["quantity"]!), ["is_enabled"] = true,
+                        ["is_deleted"] = false, ["price"] = Money(price),
+                        ["readiness_state_id"] = form["readiness_state_id"] is { } r ? long.Parse(r) : null,
+                    }),
+                }),
+                ["price_on_property"] = new JsonArray(), ["quantity_on_property"] = new JsonArray(),
+                ["sku_on_property"] = new JsonArray(), ["readiness_state_on_property"] = new JsonArray(),
+            };
+            foreach (var key in form.AllKeys.Where(k => k is not ("price" or "quantity" or "readiness_state_id" or "type")))
+                draft[key!] = FormValue(key!, form[key]!);
+            Listings.Add(draft);
+            return ScriptedHandler.Json(HttpStatusCode.Created, draft.ToJsonString());
+        }
+        // PUT /v3/application/shops/{shopId}/listings/{id}/properties/{propertyId} (updateListingProperty)
+        if (req.Method == HttpMethod.Put && parts.Length == 8 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "properties")
+        {
+            var body = req.Content!.ReadAsStringAsync().Result;
+            Writes.Add(("PUT", path, body));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            var form = System.Web.HttpUtility.ParseQueryString(body);
+            var listing = ListingJson(long.Parse(parts[5]));
+            var set = listing["_properties"] as JsonArray ?? [];
+            foreach (var old in set.Where(p => (long)p!["property_id"]! == long.Parse(parts[7])).ToList()) set.Remove(old);
+            set.Add(new JsonObject
+            {
+                ["property_id"] = long.Parse(parts[7]),
+                ["value_ids"] = new JsonArray([.. (form["value_ids"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(v => (JsonNode)long.Parse(v))]),
+                ["values"] = new JsonArray([.. (form["values"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(v => (JsonNode)v)]),
+            });
+            listing["_properties"] = set;
+            return Json(new JsonObject());
+        }
         if (req.Method == HttpMethod.Patch && path.StartsWith($"{shop}/listings/"))
         {
             var body = req.Content!.ReadAsStringAsync().Result;
@@ -455,17 +524,7 @@ internal sealed class FakeEtsyShop : IDisposable
             foreach (var (key, value) in System.Web.HttpUtility.ParseQueryString(body) is var form
                          ? form.AllKeys.Select(k => (k!, form[k]!)) : [])
             {
-                listing[key] = key switch
-                {
-                    "tags" or "materials" => new JsonArray(value.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(v => (JsonNode)v).ToArray()),
-                    "production_partner_ids" => new JsonArray(),
-                    "is_supply" or "is_taxable" or "should_auto_renew" => value == "true",
-                    "taxonomy_id" or "shipping_profile_id" or "return_policy_id" or "shop_section_id" => long.Parse(value),
-                    "item_weight" or "item_length" or "item_width" or "item_height" => decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture),
-                    // Etsy stores the text and returns it HTML-encoded.
-                    "title" or "description" => value.Replace("'", "&#39;").Replace("\"", "&quot;"),
-                    _ => value,
-                };
+                listing[key] = FormValue(key, value);
             }
             listing["last_modified_timestamp"] = (long)listing["last_modified_timestamp"]! + 10;
             return Json(listing.DeepClone());

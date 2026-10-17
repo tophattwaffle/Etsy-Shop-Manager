@@ -13,7 +13,8 @@ code is C# wherever possible and the UI is web-based. Full design and phase plan
 editor (listing fields, photos, variations, prices and processing; preview → push with snapshots; drift; auto-refill)
 is in. Photo pushes follow what Etsy was measured to do (`PhotoEditor`, docs/PLAN.md "Photos"): a photo's rank is
 just a number and Etsy never renumbers the others (ranks tie and have gaps), so a push sets every photo's rank 1..n
-explicitly, always with overwrite=false (overwrite=true drops the photo shown at that rank).
+explicitly, always with overwrite=false (overwrite=true drops the photo shown at that rank). `ListingCloner` copies a
+listing into a new Etsy draft (same shop or the other; profiles chosen per target shop), never published by the app.
 
 **Never write to the real Etsy shops while developing or testing.** Verify write paths with `FakeEtsyShop` (it records
 every PATCH/PUT body) and previews only. A sanitized copy of production data (tokens, keys and users removed) may be

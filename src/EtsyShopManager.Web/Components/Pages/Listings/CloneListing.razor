@@ -1,0 +1,220 @@
+@page "/listings/{Id:int}/clone"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ListingCloner Cloner
+@inject IJobEvents JobEvents
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>Clone listing · Etsy Shop Manager</PageTitle>
+
+@if (_source is null || _choice is null || _lookups is null)
+{
+    <PageHeader Title="Clone listing" />
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <PageHeader Title="Clone listing">
+        <Summary>Copies "@_source.Title" into a new draft on Etsy, in this shop or the other one.</Summary>
+        <Actions>
+            <MudButton Variant="Variant.Text" Href="@($"listings/{_source.Id}")">Back to the listing</MudButton>
+        </Actions>
+    </PageHeader>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">The copy</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            The copy takes this listing as it is in the app (including edits not pushed yet): text, tags, materials, category
+            attributes, variations with prices and stock, and photos in order. It's created as a draft, which buyers can't see
+            and Etsy only charges for when you publish it.
+        </MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="4">
+                <MudSelect T="int" Value="_choice.TargetShopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var s in _shops)
+                    {
+                        <MudSelectItem T="int" Value="@s.Id">@s.Name@(s.Id == _source.ShopId ? " (this listing's shop)" : "")</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="8">
+                <MudTextField T="string" Value="_choice.Title" ValueChanged="@(v => Change(_choice! with { Title = v ?? "" }))" Label="Title"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Counter="@ListingEditor.MaxTitleLength" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="long?" Value="_choice.ShippingProfileId" ValueChanged="@(v => Change(_choice! with { ShippingProfileId = v }))"
+                           Label="Shipping profile" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var (id, name) in _lookups.ShippingProfiles)
+                    {
+                        <MudSelectItem T="long?" Value="@id">@name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="long?" Value="_choice.ReadinessStateId" ValueChanged="@(v => Change(_choice! with { ReadinessStateId = v }))"
+                           Label="Processing profile" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var (id, name) in _lookups.ProcessingProfiles)
+                    {
+                        <MudSelectItem T="long?" Value="@id">@name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="long?" Value="_choice.ReturnPolicyId" ValueChanged="@(v => Change(_choice! with { ReturnPolicyId = v }))"
+                           Label="Return policy" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="long?" Value="@((long?)null)">None</MudSelectItem>
+                    @foreach (var (id, name) in _lookups.ReturnPolicies)
+                    {
+                        <MudSelectItem T="long?" Value="@id">@name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="long?" Value="_choice.ShopSectionId" ValueChanged="@(v => Change(_choice! with { ShopSectionId = v }))"
+                           Label="Section" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="long?" Value="@((long?)null)">None</MudSelectItem>
+                    @foreach (var (id, name) in _lookups.Sections)
+                    {
+                        <MudSelectItem T="long?" Value="@id">@name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (_plan is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" Class="mb-2">What will be sent</MudText>
+            @foreach (var b in _plan.Blockers)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@b</MudAlert>
+            }
+            @foreach (var w in _plan.Warnings)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@w</MudAlert>
+            }
+            <pre class="json-block">@string.Join("\n", _plan.Calls)</pre>
+            <MudText Typo="Typo.body2" Class="muted mt-2">
+                One call at a time; the first one Etsy rejects stops the copy, and the result below says what the draft has.
+            </MudText>
+            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!_plan.CanClone || _requesting)" OnClick="RequestAsync">
+                Create the draft on Etsy
+            </MudButton>
+        </MudPaper>
+    }
+
+    <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">Copies of this listing</MudText>
+        @if (_clones.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">None yet.</MudText>
+        }
+        @foreach (var c in _clones)
+        {
+            <div class="mb-3">
+                <div>
+                    <b>@c.Status</b> · @ListingFormat.Local(c.RequestedAtUtc) · @c.TargetShop.Name
+                    @if (c.NewListingId is { } newId)
+                    {
+                        <span> · </span><a href="@($"listings/{newId}")">Open the copy</a>
+                    }
+                    @if (c.NewEtsyListingId is { } etsyId)
+                    {
+                        <span class="muted"> · Etsy draft #@etsyId</span>
+                    }
+                </div>
+                @if (c.Error is not null)
+                {
+                    <MudText Typo="Typo.body2" Class="error-text">@c.Error</MudText>
+                }
+                @if (!string.IsNullOrEmpty(c.Log))
+                {
+                    <pre class="json-block">@c.Log</pre>
+                }
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private Listing? _source;
+    private List<Shop> _shops = [];
+    private CloneSettings? _choice;
+    private EditorLookups? _lookups;
+    private ClonePlan? _plan;
+    private List<ListingClone> _clones = [];
+    private bool _requesting;
+    private IDisposable? _live;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            _source = await db.Listings.AsNoTracking().FirstOrDefaultAsync(l => l.Id == Id);
+            _shops = await db.Shops.AsNoTracking().Where(s => s.IsActive).OrderBy(s => s.Name).ToListAsync();
+        }
+        if (_source is null) return;
+        await OnShopChanged(_source.ShopId);
+        await LoadClonesAsync();
+        _live = JobEvents.Subscribe(c => c.JobType == ListingCloneJob.Type,
+            _ => InvokeAsync(async () => { await LoadClonesAsync(); StateHasChanged(); }));
+    }
+
+    private async Task OnShopChanged(int shopId)
+    {
+        var title = _choice?.Title;
+        _choice = await Cloner.DefaultsAsync(Id, shopId);
+        if (!string.IsNullOrWhiteSpace(title)) _choice = _choice with { Title = title };
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _lookups = await EditorLookups.LoadAsync(db, shopId, [], null);
+        await PlanAsync();
+    }
+
+    private async Task Change(CloneSettings choice)
+    {
+        _choice = choice;
+        await PlanAsync();
+    }
+
+    private async Task PlanAsync() => _plan = await Cloner.PlanAsync(Id, _choice!);
+
+    private async Task LoadClonesAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _clones = await db.ListingClones.AsNoTracking().Include(c => c.TargetShop).Where(c => c.SourceListingId == Id)
+            .OrderByDescending(c => c.Id).Take(20).ToListAsync();
+    }
+
+    private async Task RequestAsync()
+    {
+        var shop = _shops.First(s => s.Id == _choice!.TargetShopId).Name;
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Create the draft on Etsy",
+            $"Create a new draft \"{_choice!.Title.Trim()}\" in {shop}? It stays a draft until you publish it on Etsy.",
+            yesText: "Create the draft", cancelText: "Cancel");
+        if (confirmed != true) return;
+        _requesting = true;
+        try
+        {
+            var (cloneId, blockers) = await Cloner.RequestAsync(Id, _choice, (await AuthState).User.Identity?.Name);
+            if (cloneId is null) Snackbar.Add(string.Join(" ", blockers), Severity.Warning);
+            else Snackbar.Add("Copy queued; the result appears below.", Severity.Info);
+            await LoadClonesAsync();
+        }
+        finally
+        {
+            _requesting = false;
+        }
+    }
+
+    public void Dispose() => _live?.Dispose();
+}

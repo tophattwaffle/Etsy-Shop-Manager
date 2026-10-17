@@ -374,6 +374,8 @@ public sealed class EditorModule : IModule
         services.AddJobHandler<PushListingJob>();
         services.AddSingleton<PhotoOrderTester>();
         services.AddJobHandler<PhotoOrderTestJob>();
+        services.AddSingleton<ListingCloner>();
+        services.AddJobHandler<ListingCloneJob>();
         services.AddJobHandler<RefillListingJob>();
         services.AddJobHandler<RefillSweepJob>();
         services.AddScoped<IDomainEventHandler<OrderReceived>, RefillOnOrderReceived>();

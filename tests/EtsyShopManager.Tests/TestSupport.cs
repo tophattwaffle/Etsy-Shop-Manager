@@ -107,3 +107,18 @@ internal sealed class RecordingJobQueue : EtsyShopManager.Core.Jobs.IJobQueue
     public Task<bool> RetryAsync(long jobId, CancellationToken ct = default) => Task.FromResult(false);
     public Task<bool> CancelAsync(long jobId, CancellationToken ct = default) => Task.FromResult(false);
 }
+
+/// <summary>App settings kept in memory.</summary>
+internal sealed class InMemorySettings : EtsyShopManager.Core.Services.ISettingsStore
+{
+    public Dictionary<string, string?> Values { get; } = [];
+    public Task<string?> GetAsync(string key, CancellationToken ct = default) => Task.FromResult(Values.GetValueOrDefault(key));
+
+    public Task SetAsync(string key, string? value, bool encrypt = false, string? updatedBy = null, CancellationToken ct = default)
+    {
+        Values[key] = value;
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> HasValueAsync(string key, CancellationToken ct = default) => Task.FromResult(Values.ContainsKey(key));
+}
