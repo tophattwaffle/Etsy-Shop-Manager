@@ -114,6 +114,7 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddSingleton<IDomainEventPublisher>(Events);
         services.AddSingleton<IAuditLog, NullAuditLog>();
         services.AddSingleton<IDbContextFactory<AppDbContext>>(Db);
+        services.AddSingleton<IEtsyWriteJournal, EtsyShopManager.Web.Infrastructure.EtsyWriteJournal>(); // every write lands in EtsyWriteLogs
         services.AddSingleton(Storage.Options);
         services.AddEtsy(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {

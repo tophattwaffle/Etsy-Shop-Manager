@@ -128,7 +128,8 @@ public sealed class JobProcessor(
         logger.LogInformation("Running job {JobId} {JobType} (attempt {Attempt}/{Max})", job.Id, job.JobType, job.Attempts, job.MaxAttempts);
         try
         {
-            await handler.HandleAsync(context, timeout.Token);
+            using (EtsyCallContext.Begin($"job {job.Id} {job.JobType}")) // names the job in the Etsy write journal
+                await handler.HandleAsync(context, timeout.Token);
             await FinishAsync(job, JobStatus.Succeeded, null, context.Result);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

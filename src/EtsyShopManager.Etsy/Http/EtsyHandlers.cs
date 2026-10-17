@@ -105,3 +105,100 @@ internal sealed class EtsyRateLimitHandler(EtsyRateLimiter limiter, EtsyQuotaTra
         return response;
     }
 }
+
+/// <summary>
+/// Records every write sent to Etsy's application API (each attempt, retries included) with Etsy's reply, through
+/// <see cref="IEtsyWriteJournal"/>. Sits innermost, so what it records is exactly what went over the wire. OAuth
+/// token calls are never recorded (their bodies hold refresh tokens), and headers (API key, bearer token) never are.
+/// </summary>
+internal sealed class EtsyWriteJournalHandler(IEtsyWriteJournal journal, TimeProvider time, ILogger<EtsyWriteJournalHandler> logger)
+    : DelegatingHandler
+{
+    internal const int MaxBodyChars = 8_000;
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (!IsJournaled(request)) return await base.SendAsync(request, ct);
+
+        var started = time.GetTimestamp();
+        var at = time.GetUtcNow().UtcDateTime;
+        var requestBody = await DescribeAsync(request.Content, ct);
+        try
+        {
+            var response = await base.SendAsync(request, ct);
+            string? responseBody = null;
+            try
+            {
+                await response.Content.LoadIntoBufferAsync(ct); // so the caller can still read it
+                responseBody = Cut(await response.Content.ReadAsStringAsync(ct));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                responseBody = $"<unreadable: {ex.Message}>";
+            }
+            await RecordAsync(Record(request, at, started, requestBody) with { StatusCode = (int)response.StatusCode, ResponseBody = responseBody });
+            return response;
+        }
+        catch (Exception ex)
+        {
+            await RecordAsync(Record(request, at, started, requestBody) with { Error = ex.Message });
+            throw;
+        }
+    }
+
+    internal static bool IsJournaled(HttpRequestMessage request) =>
+        request.Method != HttpMethod.Get && request.Method != HttpMethod.Head && request.Method != HttpMethod.Options
+        && request.RequestUri?.AbsolutePath is { } path
+        && path.StartsWith("/v3/application", StringComparison.OrdinalIgnoreCase);
+
+    private EtsyWriteRecord Record(HttpRequestMessage request, DateTime at, long started, string? body) => new()
+    {
+        AtUtc = at,
+        Method = request.Method.Method,
+        Path = request.RequestUri!.PathAndQuery,
+        RequestBody = body,
+        DurationMs = (long)time.GetElapsedTime(started).TotalMilliseconds,
+        Source = EtsyCallContext.Source,
+    };
+
+    private async Task RecordAsync(EtsyWriteRecord record)
+    {
+        try
+        {
+            await journal.RecordAsync(record, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not record Etsy write {Method} {Path}", record.Method, record.Path);
+        }
+    }
+
+    /// <summary>The body as sent: text as is, multipart part by part with files summarised (name and size only).</summary>
+    internal static async Task<string?> DescribeAsync(HttpContent? content, CancellationToken ct)
+    {
+        if (content is null) return null;
+        if (content is MultipartContent multipart)
+        {
+            var parts = new List<string>();
+            foreach (var part in multipart)
+            {
+                var name = part.Headers.ContentDisposition?.Name?.Trim('"') ?? "?";
+                var fileName = part.Headers.ContentDisposition?.FileName?.Trim('"');
+                if (fileName is not null || part is ByteArrayContent and not StringContent || part is StreamContent)
+                {
+                    await part.LoadIntoBufferAsync(ct);
+                    parts.Add($"{name}=<file {fileName ?? "unnamed"}, {part.Headers.ContentLength ?? 0} bytes>");
+                }
+                else
+                {
+                    parts.Add($"{name}={await part.ReadAsStringAsync(ct)}");
+                }
+            }
+            return Cut(string.Join("&", parts));
+        }
+        await content.LoadIntoBufferAsync(ct); // the send reuses the buffer
+        return Cut(await content.ReadAsStringAsync(ct));
+    }
+
+    private static string Cut(string s) => s.Length <= MaxBodyChars ? s : s[..MaxBodyChars] + "…";
+}

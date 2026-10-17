@@ -113,6 +113,48 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("AuditEntries");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.EtsyWriteLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestBody")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResponseBody")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("StatusCode")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AtUtc");
+
+                    b.ToTable("EtsyWriteLogs");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Listing", b =>
                 {
                     b.Property<int>("Id")

@@ -36,3 +36,25 @@ public class AuditEntry
     public string? EntityId { get; set; }
     public string? Details { get; set; }
 }
+
+/// <summary>
+/// A write the app sent to Etsy and Etsy's reply (Admin → Etsy writes). Kept so a failed or surprising push can be
+/// traced to the exact request; file uploads are summarised, never stored. Old rows are removed by the jobs cleanup.
+/// </summary>
+public class EtsyWriteLog
+{
+    public long Id { get; set; }
+    public DateTime AtUtc { get; set; }
+    public string Method { get; set; } = "";
+    public string Path { get; set; } = "";
+    public string? RequestBody { get; set; }
+
+    /// <summary>Null when no response arrived (network error, timeout); see <see cref="Error"/>.</summary>
+    public int? StatusCode { get; set; }
+    public string? ResponseBody { get; set; }
+    public string? Error { get; set; }
+    public long DurationMs { get; set; }
+
+    /// <summary>What made the call, e.g. "job 229 etsy.listing.push".</summary>
+    public string? Source { get; set; }
+}

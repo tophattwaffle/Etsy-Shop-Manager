@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ShopToken> ShopTokens => Set<ShopToken>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<EtsyWriteLog> EtsyWriteLogs => Set<EtsyWriteLog>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<RecurringJobState> RecurringJobs => Set<RecurringJobState>();
 
@@ -60,6 +61,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         });
 
         b.Entity<AuditEntry>(e => e.HasIndex(x => x.AtUtc));
+        b.Entity<EtsyWriteLog>(e => e.HasIndex(x => x.AtUtc));
 
         b.Entity<Job>(e =>
         {

@@ -23,6 +23,9 @@ public sealed class JobOptions
     /// </summary>
     public int ScheduledSucceededRetentionHours { get; set; } = 24;
     public int FailedRetentionDays { get; set; } = 90;
+
+    /// <summary>How long the Etsy write journal (Admin → Etsy writes) keeps each request.</summary>
+    public int EtsyWriteRetentionDays { get; set; } = 90;
 }
 
 public sealed class JobSignal : IJobSignal
