@@ -430,21 +430,9 @@ a.lp-status-error:hover { text-decoration: underline; }
     .esm-reconnect-mark { animation: esm-breathe 2s ease-in-out infinite; }
     @keyframes esm-breathe { 50% { opacity: 0.5; } }
 }
-/* ---- Listing editor: drift resolution rows and photo editor ---- */
+/* ---- Listing editor: drift resolution rows ---- */
 .esm-drift { border-left: 3px solid var(--esm-warning); }
 .esm-drift-row { display: grid; grid-template-columns: 160px 1fr 1fr auto; gap: 16px; align-items: start; padding: 10px 0; border-top: 1px solid var(--esm-line); }
 .esm-drift-label { font-weight: 600; }
 .esm-drift-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 760px) { .esm-drift-row { grid-template-columns: 1fr; gap: 6px; } }
-
-.esm-photo-editor { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
-.esm-photo-item {
-    display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--esm-line);
-    border-radius: var(--esm-radius); background: var(--esm-paper);
-}
-.esm-photo-thumb { position: relative; aspect-ratio: 1 / 1; border-radius: var(--esm-radius-sm); overflow: hidden; background: var(--esm-sunk); }
-.esm-photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.esm-photo-thumb .photo-pending { height: 100%; margin: 0; }
-.esm-photo-badge { position: absolute; top: 8px; left: 8px; }
-.esm-photo-actions { display: flex; align-items: center; gap: 2px; }
-

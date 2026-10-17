@@ -7,7 +7,6 @@
 @using Microsoft.EntityFrameworkCore
 @implements IDisposable
 @inject ListingEditor Editor
-@inject ImageStore ImageStore
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
 @inject IDialogService Dialogs
@@ -136,74 +135,6 @@ else
                               Variant="Variant.Outlined" Class="mb-3" HelperText="@Pending("title")" />
                 <MudTextField T="string" Value="@Str("description")" ValueChanged="@(v => SetStr("description", v))" Label="Description"
                               Lines="12" Variant="Variant.Outlined" Immediate="true" HelperText="@Pending("description")" />
-            </MudPaper>
-
-            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
-                    <div>
-                        <MudText Typo="Typo.h6">Photos</MudText>
-                        <MudText Typo="Typo.body2" Class="muted">
-                            @Images.Count of @ListingEditor.MaxImages · Photo #1 is the primary thumbnail. @Pending(ListingFields.Images)
-                        </MudText>
-                    </div>
-                    <MudFileUpload T="IReadOnlyList<IBrowserFile>" FilesChanged="UploadPhotosAsync"
-                                   Accept=".jpg,.jpeg,.png,.gif,.webp" MaximumFileCount="ListingEditor.MaxImages"
-                                   Disabled="@(Images.Count >= ListingEditor.MaxImages)">
-                        <CustomContent Context="upload">
-                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.AddPhotoAlternate"
-                                       OnClick="@upload.OpenFilePickerAsync"
-                                       Disabled="@(Images.Count >= ListingEditor.MaxImages)">Add photos</MudButton>
-                        </CustomContent>
-                    </MudFileUpload>
-                </MudStack>
-                @if (Images.Count == 0)
-                {
-                    <MudAlert Severity="Severity.Warning" Dense="true">A listing needs at least one photo.</MudAlert>
-                }
-                else
-                {
-                    <div class="esm-photo-editor">
-                        @foreach (var (img, index) in Images.Select((n, i) => (n!.AsObject(), i)))
-                        {
-                            <div class="esm-photo-item">
-                                <div class="esm-photo-thumb">
-                                    @if (PhotoUrl(img) is { } url)
-                                    {
-                                        <img src="@url" alt="@((string?)img["alt_text"] ?? "")" loading="lazy" />
-                                    }
-                                    else
-                                    {
-                                        <div class="photo-pending">#@(index + 1)</div>
-                                    }
-                                    <span class="lp-badge esm-photo-badge">
-                                        @(index == 0 ? "#1 · Primary" : $"#{index + 1}")@(((long?)img["etsy_image_id"] ?? 0) <= 0 ? " · New" : "")
-                                    </span>
-                                </div>
-                                <div class="esm-photo-actions">
-                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small"
-                                                   Disabled="@(index == 0)" OnClick="() => MovePhoto(index, -1)"
-                                                   aria-label="Move photo earlier" title="Move earlier" />
-                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small"
-                                                   Disabled="@(index == Images.Count - 1)" OnClick="() => MovePhoto(index, 1)"
-                                                   aria-label="Move photo later" title="Move later" />
-                                    @if (index > 0)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => MovePhotoTo(index, 0)">Make #1</MudButton>
-                                    }
-                                    <span class="esm-grow"></span>
-                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error"
-                                                   Disabled="@(Images.Count <= 1)" OnClick="() => RemovePhoto(index)"
-                                                   aria-label="Remove photo" title="Remove photo" />
-                                </div>
-                                <MudTextField T="string" Value="@((string?)img["alt_text"] ?? "")"
-                                              ValueChanged="@(v => SetPhotoAltText(index, v))" Label="Alt text"
-                                              Variant="Variant.Outlined" Margin="Margin.Dense"
-                                              MaxLength="ListingEditor.MaxAltTextLength" Immediate="true" />
-                            </div>
-                        }
-                    </div>
-                }
             </MudPaper>
 
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
@@ -470,86 +401,6 @@ else
         var pattern = "%" + (text ?? "").Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
         return await db.TaxonomyNodes.Where(n => !n.HasChildren && EF.Functions.Like(n.FullPath, pattern, "\\"))
             .OrderBy(n => n.FullPath).Take(50).Select(n => new CategoryOption(n.Id, n.FullPath)).ToListAsync(ct);
-    }
-
-    // Photos: ordered by rank (1..N). Newly uploaded photos have etsy_image_id = 0 and file_name in ImageStore.
-    private const long MaxPhotoBytes = 20 * 1024 * 1024;
-    private JsonArray Images => _form![ListingFields.Images]?.AsArray() ?? [];
-
-    private string? PhotoUrl(JsonObject img)
-    {
-        if ((string?)img["file_name"] is { } file && ImageStore.UrlFor(file) is { } draftUrl) return draftUrl;
-        var etsyId = (long?)img["etsy_image_id"] ?? 0;
-        if (etsyId <= 0 || _snapshot?.Listing.Images.FirstOrDefault(i => i.EtsyImageId == etsyId) is not { } row) return null;
-        return ImageStore.UrlFor(row.ThumbFileName) ?? ImageStore.UrlFor(row.FileName) ?? row.SourceThumbUrl ?? row.SourceUrl;
-    }
-
-    private void MovePhoto(int index, int delta) => MovePhotoTo(index, index + delta);
-
-    private void MovePhotoTo(int from, int to)
-    {
-        var list = Images.DeepClone().AsArray();
-        if (from < 0 || from >= list.Count || to < 0 || to >= list.Count || from == to) return;
-        var item = list[from]!.DeepClone();
-        list.RemoveAt(from);
-        list.Insert(to, item);
-        SetImages(list);
-    }
-
-    private void RemovePhoto(int index)
-    {
-        var list = Images.DeepClone().AsArray();
-        if (index < 0 || index >= list.Count || list.Count <= 1) return;
-        list.RemoveAt(index);
-        SetImages(list);
-    }
-
-    private void SetPhotoAltText(int index, string? text)
-    {
-        var list = Images.DeepClone().AsArray();
-        if (index < 0 || index >= list.Count) return;
-        list[index]!["alt_text"] = text ?? "";
-        SetImages(list);
-    }
-
-    private async Task UploadPhotosAsync(IReadOnlyList<IBrowserFile>? files)
-    {
-        if (files is null || files.Count == 0) return;
-        var list = Images.DeepClone().AsArray();
-        foreach (var file in files)
-        {
-            if (list.Count >= ListingEditor.MaxImages)
-            {
-                Snackbar.Add($"Etsy allows at most {ListingEditor.MaxImages} photos per listing.", Severity.Warning);
-                break;
-            }
-            try
-            {
-                await using var stream = file.OpenReadStream(MaxPhotoBytes);
-                using var ms = new MemoryStream();
-                await stream.CopyToAsync(ms);
-                var ext = ImageStore.ExtensionFor(file.ContentType, file.Name);
-                var fileName = await ImageStore.SaveAsync(ms.ToArray(), ext);
-                list.Add(new JsonObject
-                {
-                    ["etsy_image_id"] = 0L,
-                    ["rank"] = list.Count + 1,
-                    ["alt_text"] = "",
-                    ["file_name"] = fileName,
-                });
-            }
-            catch (IOException ex)
-            {
-                Snackbar.Add($"{file.Name}: {ex.Message}", Severity.Error);
-            }
-        }
-        SetImages(list);
-    }
-
-    private void SetImages(JsonArray list)
-    {
-        for (var i = 0; i < list.Count; i++) list[i]!["rank"] = i + 1;
-        Set(ListingFields.Images, list);
     }
 
     // Prices and processing: products of the local inventory, in managed-state order.

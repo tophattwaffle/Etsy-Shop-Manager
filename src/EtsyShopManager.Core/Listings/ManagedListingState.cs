@@ -155,8 +155,4 @@ public sealed record ManagedProduct(string Sku, List<ManagedProperty> PropertyVa
 /// <summary>An offering without its quantity.</summary>
 public sealed record ManagedOffering(long PriceAmount, int PriceDivisor, bool IsEnabled, long? ReadinessStateId);
 
-public sealed record ManagedImage(
-    long EtsyImageId,
-    int Rank,
-    string AltText,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? FileName = null);
+public sealed record ManagedImage(long EtsyImageId, int Rank, string AltText);

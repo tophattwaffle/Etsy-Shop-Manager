@@ -124,7 +124,7 @@ public static class ListingMapper
             }
 
             img.Rank = src.Rank;
-            img.AltText = src.AltText is null ? null : Text(src.AltText);
+            img.AltText = src.AltText;
             img.FullWidth = src.FullWidth;
             img.FullHeight = src.FullHeight;
             img.HexCode = src.HexCode;
