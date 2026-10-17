@@ -29,6 +29,7 @@ public sealed record EditorSnapshot(Listing Listing, ListingEditModel Model, IRe
 /// </summary>
 public sealed class ListingEditor(
     IDbContextFactory<AppDbContext> dbFactory,
+    ImageStore images,
     IJobQueue jobs,
     IAuditLog audit,
     TimeProvider time)
@@ -110,11 +111,12 @@ public sealed class ListingEditor(
         var busy = await db.ListingPushes.AnyAsync(p => p.ListingId == listingId
             && (p.Status == ListingPushStatus.Pending || p.Status == ListingPushStatus.Running)
             && db.Jobs.Any(j => j.Id == p.JobId && (j.Status == JobStatus.Pending || j.Status == JobStatus.Running)), ct);
-        return Preview(listing, Model(listing), busy);
+        return Preview(listing, Model(listing), busy, images.Exists);
     }
 
     /// <summary>The preview for a model (pure, for tests and the UI).</summary>
-    public static PushPreview Preview(Listing listing, ListingEditModel model, bool pushInProgress)
+    /// <param name="fileExists">Whether a photo added in the app is still in the image store (unchecked when null).</param>
+    public static PushPreview Preview(Listing listing, ListingEditModel model, bool pushInProgress, Func<string, bool>? fileExists = null)
     {
         var changes = model.PendingFields
             .Select(k => new FieldChange(k, Label(k), model.Etsy[k]?.DeepClone(), model.Local(k)?.DeepClone()))
@@ -146,6 +148,29 @@ public sealed class ListingEditor(
         }
         if (changes.Any(c => c.Key == "materials") && local["materials"] is JsonArray materials && materials.Count > MaxMaterials)
             blockers.Add($"{materials.Count} materials; Etsy allows {MaxMaterials}.");
+        if (changes.Any(c => c.Key == ListingFields.Images) && local[ListingFields.Images] is JsonArray photos)
+        {
+            if (photos.Count == 0) blockers.Add("A listing needs at least one photo.");
+            if (photos.Count > PhotoEditor.MaxPhotos) blockers.Add($"{photos.Count} photos; Etsy allows {PhotoEditor.MaxPhotos}.");
+            foreach (var (p, i) in photos.Select((p, i) => (p!, i + 1)))
+            {
+                if (((string?)p["alt_text"] ?? "").Length > PhotoEditor.MaxAltTextLength)
+                    blockers.Add($"Photo {i}'s alt text is longer than {PhotoEditor.MaxAltTextLength} characters.");
+                if ((string?)p["file_name"] is { } file && fileExists is not null && !fileExists(file))
+                    blockers.Add($"Photo {i} was added here but its file is gone; remove it and add it again.");
+            }
+            if (photos.Select(p => (long?)p!["etsy_image_id"] ?? 0).Where(id => id > 0).GroupBy(id => id).Any(g => g.Count() > 1))
+                blockers.Add("The same photo appears twice.");
+            // The exact calls, so the person sees what goes to Etsy.
+            var etsyPhotos = PhotoEditor.FromManaged(model.Etsy[ListingFields.Images]);
+            foreach (var (rank, ids) in PhotoEditor.Ties(etsyPhotos))
+                warnings.Add($"On Etsy, photos {string.Join(" and ", ids.Select(id => $"#{id}"))} share position {rank}, so Etsy shows them " +
+                             "in no fixed order; this push gives every photo its own position.");
+            var calls = PhotoEditor.Plan(etsyPhotos, photos);
+            warnings.Add($"Photos: {calls.Count} call{(calls.Count == 1 ? "" : "s")} to Etsy, one at a time, stopping at the first one Etsy rejects. " +
+                         "Etsy doesn't renumber the other photos when one moves, so every photo not already in place gets its position.");
+            warnings.AddRange(calls.Select(c => c.Describe(listing.Shop?.EtsyShopId ?? 0, listing.EtsyListingId)));
+        }
         if (changes.Any(c => c.Key == ListingFields.Inventory) && local[ListingFields.Inventory] is { } inventory)
         {
             blockers.AddRange(InventoryProblems(inventory, InventoryRules.Names(listing)));

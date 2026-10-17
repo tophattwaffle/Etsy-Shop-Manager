@@ -1,0 +1,108 @@
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@inject ImageStore Store
+
+@* The photos of a listing being edited: order, alt text, removing and adding. Changes go back to the editor as the new
+   local "images" list; nothing reaches Etsy until a reviewed push. *@
+
+<div class="esm-photo-strip">
+    @foreach (var (photo, i) in Images.Select((p, i) => (p!, i)))
+    {
+        <div class="esm-photo-edit">
+            <div class="esm-photo-thumb">
+                @if (Thumb(photo) is { } src)
+                {
+                    <img src="@src" alt="" loading="lazy" />
+                }
+                <span class="esm-photo-rank">@(i + 1)@(IsNew(photo) ? " · new" : "")</span>
+            </div>
+            <MudTextField T="string" Value="@((string?)photo["alt_text"])" ValueChanged="@(v => Change(PhotoEditor.SetAltText(Images, i, v)))"
+                          Placeholder="Alt text" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="@PhotoEditor.MaxAltTextLength"
+                          aria-label="@($"Alt text of photo {i + 1}")" />
+            <div class="esm-photo-actions">
+                <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" Disabled="@(i == 0)"
+                               OnClick="@(() => Change(PhotoEditor.Move(Images, i, i - 1)))" aria-label="@($"Move photo {i + 1} left")" />
+                <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Disabled="@(i == Images.Count - 1)"
+                               OnClick="@(() => Change(PhotoEditor.Move(Images, i, i + 1)))" aria-label="@($"Move photo {i + 1} right")" />
+                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
+                           OnClick="@(() => Change(PhotoEditor.Remove(Images, i)))">Remove</MudButton>
+            </div>
+        </div>
+    }
+</div>
+
+<div class="esm-variation-add mt-3">
+    <MudFileUpload T="IBrowserFile" FilesChanged="AddAsync" Accept=".jpg,.jpeg,.png,.gif,.webp" Disabled="@(Images.Count >= PhotoEditor.MaxPhotos || _adding)">
+        <CustomContent>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" Disabled="@(Images.Count >= PhotoEditor.MaxPhotos || _adding)"
+                       OnClick="@(() => context.OpenFilePickerAsync())">
+                Add a photo
+            </MudButton>
+        </CustomContent>
+    </MudFileUpload>
+    <span class="small muted">@Images.Count of @PhotoEditor.MaxPhotos photos. The first one is the listing's main photo.</span>
+</div>
+@if (_error is not null)
+{
+    <MudText Typo="Typo.body2" Class="error-text mt-2">@_error</MudText>
+}
+
+@code {
+    /// <summary>JPEG, PNG, GIF or WebP up to this size.</summary>
+    private const long MaxBytes = 10 * 1024 * 1024;
+
+    [Parameter, EditorRequired] public JsonArray Images { get; set; } = [];
+
+    /// <summary>The listing's imported photos, for thumbnails.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<ListingImage> Imported { get; set; } = [];
+
+    [Parameter, EditorRequired] public EventCallback<JsonArray> ImagesChanged { get; set; }
+
+    private bool _adding;
+    private string? _error;
+
+    private static bool IsNew(JsonNode photo) => (long?)photo["etsy_image_id"] is not > 0;
+
+    private string? Thumb(JsonNode photo)
+    {
+        if ((string?)photo["file_name"] is { } file) return ImageStore.UrlFor(file);
+        var id = (long?)photo["etsy_image_id"];
+        return Imported.FirstOrDefault(i => i.EtsyImageId == id) is { } img
+            ? ImageStore.UrlFor(img.ThumbFileName ?? img.FileName) ?? img.SourceThumbUrl ?? img.SourceUrl
+            : null;
+    }
+
+    private async Task Change(JsonArray images)
+    {
+        _error = null;
+        await ImagesChanged.InvokeAsync(images);
+    }
+
+    private async Task AddAsync(IBrowserFile? file)
+    {
+        if (file is null) return;
+        _error = null;
+        if (file.Size > MaxBytes)
+        {
+            _error = $"{file.Name} is larger than {MaxBytes / 1024 / 1024} MB.";
+            return;
+        }
+        _adding = true;
+        try
+        {
+            using var buffer = new MemoryStream();
+            await file.OpenReadStream(MaxBytes).CopyToAsync(buffer);
+            var name = await Store.SaveAsync(buffer.ToArray(), ImageStore.ExtensionFor(file.ContentType, file.Name));
+            await ImagesChanged.InvokeAsync(PhotoEditor.Add(Images, name));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            _error = $"Couldn't add {file.Name}: {ex.Message}";
+        }
+        finally
+        {
+            _adding = false;
+        }
+    }
+}

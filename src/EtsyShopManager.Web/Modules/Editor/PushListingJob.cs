@@ -25,6 +25,7 @@ namespace EtsyShopManager.Web.Modules.Editor;
 public sealed class PushListingJob(
     IDbContextFactory<AppDbContext> dbFactory,
     ListingImporter importer,
+    ImageStore images,
     EtsyApiClient etsy,
     IDomainEventPublisher events,
     IAuditLog audit,
@@ -78,7 +79,7 @@ public sealed class PushListingJob(
             model = ListingEditModel.Parse(listing.EtsyState!.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         }
 
-        var preview = ListingEditor.Preview(listing, model, pushInProgress: false);
+        var preview = ListingEditor.Preview(listing, model, pushInProgress: false, images.Exists);
         if (preview.Blockers.Count > 0)
         {
             var reason = string.Join(" ", preview.Blockers);
@@ -93,7 +94,8 @@ public sealed class PushListingJob(
 
         var auth = EtsyAuth.ForShop(listing.ShopId);
         var local = model.LocalState();
-        var listingFields = preview.Changes.Where(c => c.Key != ListingFields.Inventory).Select(c => c.Key).ToList();
+        var listingFields = preview.Changes.Where(c => c.Key is not (ListingFields.Inventory or ListingFields.Images)).Select(c => c.Key).ToList();
+        var photosChanged = preview.Changes.Any(c => c.Key == ListingFields.Images);
         var inventoryChanged = preview.Changes.Any(c => c.Key == ListingFields.Inventory);
 
         // 2. Snapshot what Etsy holds right now.
@@ -103,6 +105,7 @@ public sealed class PushListingJob(
         // 3. Write. Once something is written, a later failure must still reconcile; otherwise the next import would
         // report the fields this push changed as drift (changed on Etsy) and block further pushes.
         var wrote = false;
+        var uploaded = new Dictionary<string, long>(); // file name -> Etsy's new image id
         try
         {
             if (listingFields.Count > 0)
@@ -112,6 +115,8 @@ public sealed class PushListingJob(
                 await etsy.UpdateListingAsync(listing.Shop.EtsyShopId, listing.EtsyListingId, form, auth, ct);
                 wrote = true;
             }
+            if (photosChanged)
+                await PushPhotosAsync(listing, local[ListingFields.Images]!.AsArray(), auth, uploaded, () => wrote = true, ct);
             if (inventoryChanged)
             {
                 var body = InventoryWriter.FromLocal(inventory, local[ListingFields.Inventory]!);
@@ -122,7 +127,7 @@ public sealed class PushListingJob(
         catch (Exception ex) when (wrote && ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Push {PushId} failed after a partial write; reconciling listing {ListingId}", pushId, listing.EtsyListingId);
-            var rest = await ReconcileAsync(pushId, listingId, snapshotId, ct);
+            var rest = await ReconcileAsync(pushId, listingId, snapshotId, uploaded, ct);
             var applied = preview.Changes.Select(c => c.Key).Except(rest).Select(ListingEditor.Label);
             var message = $"{ex.Message} Applied before the error: {string.Join(", ", applied)}; the rest is still in your edits.";
             await FinishAsync(pushId, ListingPushStatus.PartlyApplied, message);
@@ -131,7 +136,7 @@ public sealed class PushListingJob(
         }
 
         // 4. Re-read and reconcile: Etsy's new state is agreed; what Etsy didn't take stays in the draft.
-        var notApplied = await ReconcileAsync(pushId, listingId, snapshotId, ct);
+        var notApplied = await ReconcileAsync(pushId, listingId, snapshotId, uploaded, ct);
 
         var pushed = preview.Changes.Select(c => c.Key).Except(notApplied).ToList();
         var labels = string.Join(", ", pushed.Select(ListingEditor.Label));
@@ -151,13 +156,17 @@ public sealed class PushListingJob(
     }
 
     /// <summary>Re-reads the listing: Etsy's new state becomes agreed. Returns the draft fields Etsy doesn't hold.</summary>
-    private async Task<IReadOnlyList<string>> ReconcileAsync(int pushId, int listingId, int snapshotId, CancellationToken ct)
+    private async Task<IReadOnlyList<string>> ReconcileAsync(int pushId, int listingId, int snapshotId,
+        IReadOnlyDictionary<string, long> uploaded, CancellationToken ct)
     {
         await importer.RefreshListingAsync(listingId, ct, raiseDriftEvents: false);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var row = await db.Listings.Include(l => l.EtsyState).FirstAsync(l => l.Id == listingId, ct);
         var newEtsy = JsonNode.Parse(row.EtsyState!.ManagedJson)!.AsObject();
         var after = ListingEditModel.Parse(row.EtsyState.ManagedJson, row.EtsyState.BaseJson, row.DraftJson);
+        // Photos uploaded just now have their Etsy id; the draft still refers to them by file.
+        if (uploaded.Count > 0 && after.Draft[ListingFields.Images] is JsonArray draftImages)
+            after.Draft[ListingFields.Images] = PhotoEditor.AdoptUploads(draftImages, uploaded);
         // New variation values got their ids from Etsy just now; the draft has none for them yet.
         if (after.Draft[ListingFields.Inventory] is JsonObject draftInventory && newEtsy[ListingFields.Inventory] is { } etsyInventory)
             after.Draft[ListingFields.Inventory] = VariationEditor.AdoptValueIds(draftInventory, etsyInventory);
@@ -167,6 +176,44 @@ public sealed class PushListingJob(
         push.SnapshotId = snapshotId;
         await db.SaveChangesAsync(ct);
         return notApplied;
+    }
+
+    /// <summary>
+    /// Sends the photo calls (see <see cref="PhotoEditor.Plan"/>), one at a time, planned from a fresh read of Etsy's photos.
+    /// A rejection throws, so nothing after it is sent. Moves never use overwrite (it replaces the photo at that position).
+    /// </summary>
+    private async Task PushPhotosAsync(Listing listing, JsonArray local, EtsyAuth auth, Dictionary<string, long> uploaded,
+        Action markWrote, CancellationToken ct)
+    {
+        var current = (await etsy.GetListingImagesAsync(listing.EtsyListingId, auth, ct)).OrderBy(i => i.Rank)
+            .Select(i => (i.ListingImageId, i.Rank, ListingMapper.Text(i.AltText))).ToList();
+        var shopId = listing.Shop.EtsyShopId;
+        var newIds = new Dictionary<long, long>(); // the plan's placeholder id of a new photo -> Etsy's id
+        long Id(long planned) => planned > 0 ? planned : newIds[planned];
+        string? Alt(string? alt) => string.IsNullOrEmpty(alt) ? null : alt;
+
+        foreach (var call in PhotoEditor.Plan(current, local))
+        {
+            logger.LogInformation("Photos for listing {ListingId}: {Call}", listing.EtsyListingId, call.Describe(shopId, listing.EtsyListingId));
+            switch (call.Kind)
+            {
+                case PhotoCallKind.Delete:
+                    await etsy.DeleteListingImageAsync(shopId, listing.EtsyListingId, call.ImageId, auth, ct);
+                    break;
+                case PhotoCallKind.Upload:
+                    var bytes = await File.ReadAllBytesAsync(images.PathFor(call.FileName!), ct);
+                    var created = await etsy.UploadListingImageAsync(shopId, listing.EtsyListingId, bytes, call.FileName!, call.Rank,
+                        Alt(call.AltText), auth, ct);
+                    newIds[call.ImageId] = created.ListingImageId;
+                    uploaded[call.FileName!] = created.ListingImageId;
+                    break;
+                default: // Rank and AltText: give the photo its rank, overwrite=false (overwrite would drop the photo in that slot)
+                    await etsy.RepositionListingImageAsync(shopId, listing.EtsyListingId, Id(call.ImageId), call.Rank, overwrite: false,
+                        Alt(call.AltText), auth, ct);
+                    break;
+            }
+            markWrote();
+        }
     }
 
     private async Task<int> SnapshotAsync(Listing listing, Etsy.Models.EtsyInventory inventory, string reason, CancellationToken ct)

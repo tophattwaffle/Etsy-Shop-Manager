@@ -13,12 +13,14 @@ public sealed record ListingField(string Key, string Label, bool Editable, bool 
 public static class ListingFields
 {
     public const string Inventory = "inventory";
+    public const string Images = "images";
     public const string State = "state";
 
     public static readonly IReadOnlyList<ListingField> All =
     [
         new("title", "Title", true, true),
         new("description", "Description", true, true),
+        new(Images, "Photos", true, true),
         new(Inventory, "Variations, prices and processing", true, true),
         new("tags", "Tags", true, true),
         new("materials", "Materials", true, true),

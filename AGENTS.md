@@ -10,8 +10,10 @@ code is C# wherever possible and the UI is web-based. Full design and phase plan
 
 **This app is the system of record for listings.** Edits happen here; changes made on Etsy.com are detected and flagged
 (drift), never silently overwritten. Phases 0–2 (foundation, import, orders + Home Assistant) are done; Phase 3's
-editor (listing fields, variations, prices and processing; preview → push with snapshots; drift; auto-refill) is in;
-photo editing comes next (reordering only once proven on a non-public listing, see docs/PLAN.md).
+editor (listing fields, photos, variations, prices and processing; preview → push with snapshots; drift; auto-refill)
+is in. Photo pushes follow what Etsy was measured to do (`PhotoEditor`, docs/PLAN.md "Photos"): a photo's rank is
+just a number and Etsy never renumbers the others (ranks tie and have gaps), so a push sets every photo's rank 1..n
+explicitly, always with overwrite=false (overwrite=true drops the photo shown at that rank).
 
 **Never write to the real Etsy shops while developing or testing.** Verify write paths with `FakeEtsyShop` (it records
 every PATCH/PUT body) and previews only. A sanitized copy of production data (tokens, keys and users removed) may be

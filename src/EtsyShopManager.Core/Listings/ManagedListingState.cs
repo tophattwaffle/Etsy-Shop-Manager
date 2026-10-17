@@ -20,8 +20,8 @@ public sealed record ManagedListingState
 {
     /// <summary>Bump when the field set or normalisation changes, so old hashes are not compared with new ones.</summary>
     /// <remarks>2: title, description, tags, materials and styles are HTML-decoded. 3: properties keep their name (variation
-    /// names such as "Bulk Pricing", needed to add or rename variations).</remarks>
-    public const int CurrentVersion = 3;
+    /// names such as "Bulk Pricing", needed to add or rename variations). 4: photo alt text is HTML-decoded too.</remarks>
+    public const int CurrentVersion = 4;
 
     public string State { get; init; } = "";
     public string Title { get; init; } = "";
