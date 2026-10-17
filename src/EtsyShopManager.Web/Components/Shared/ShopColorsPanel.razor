@@ -45,13 +45,13 @@
                         <div class="small muted">@(overridden ? $"Custom, {custom}" : color is null ? "Automatic" : $"Automatic, {color}")</div>
                     </div>
                     <AuthorizeView Roles="@Roles.Admin" Context="auth">
-                        <input type="color" class="esm-color-input" value="@(color ?? ShopAccentService.PickerDefault)"
-                               aria-label="@($"Color for {s.Name}")" title="Pick a color"
-                               @onchange="e => SetAsync(s, e.Value?.ToString())" />
                         @if (overridden)
                         {
                             <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetAsync(s, null)">Use automatic</MudButton>
                         }
+                        <input type="color" class="esm-color-input" value="@(color ?? ShopAccentService.PickerDefault)"
+                               aria-label="@($"Color for {s.Name}")" title="Pick a color"
+                               @onchange="e => SetAsync(s, e.Value?.ToString())" />
                     </AuthorizeView>
                 </div>
             }
