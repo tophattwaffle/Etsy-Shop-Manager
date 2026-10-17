@@ -137,6 +137,8 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddSingleton<EtsyShopManager.Web.Modules.Stock.StockRefiller>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Stock.RefillQueue>();
         services.AddTransient<EtsyShopManager.Web.Modules.Editor.PushListingJob>();
+        services.AddSingleton<EtsyShopManager.Web.Modules.Editor.PhotoOrderTester>();
+        services.AddTransient<EtsyShopManager.Web.Modules.Editor.PhotoOrderTestJob>();
         Provider = services.BuildServiceProvider();
 
         using var db = Db.CreateDbContext();
@@ -297,7 +299,8 @@ internal sealed class FakeEtsyShop : IDisposable
             }]);
         }
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/images"))
-            return Page(Images(long.Parse(parts[3])).Select(n => (JsonObject)n!.DeepClone()));
+            return Page((Listings.FirstOrDefault(l => (long)l["listing_id"]! == long.Parse(parts[3]))?["images"]?.AsArray() ?? Images(long.Parse(parts[3])))
+                .Select(n => (JsonObject)n!.DeepClone()));
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/inventory"))
             return Json(Inventory(long.Parse(parts[3]), 5));
 
@@ -368,6 +371,9 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>Fails only updateListingInventory (PUT) with this status: a push that is half written.</summary>
     public HttpStatusCode? FailInventoryWritesWith { get; set; }
 
+    /// <summary>Rejects photo moves (POST …/images) with this Etsy error message, like the real "inconsistent order".</summary>
+    public string? FailImageMovesWith { get; set; }
+
     public JsonObject ListingJson(long id) => Listings.Single(l => (long)l["listing_id"]! == id);
 
     private long _nextEtsyId = 900_000;
@@ -383,6 +389,24 @@ internal sealed class FakeEtsyShop : IDisposable
             var listing = (JsonObject)ListingJson(getId).DeepClone();
             listing.Remove("inventory");
             return Json(listing);
+        }
+        // POST /v3/application/shops/42/listings/{id}/images with listing_image_id and rank: put a photo at a position.
+        // The fake takes it out and inserts it there (the obvious reading; Etsy's real behaviour is what the test tool finds out).
+        if (req.Method == HttpMethod.Post && parts.Length == 7 && path.StartsWith($"{shop}/listings/") && parts[6] == "images")
+        {
+            var fields = ((MultipartFormDataContent)req.Content!).ToDictionary(
+                p => p.Headers.ContentDisposition!.Name!.Trim('"'), p => p.ReadAsStringAsync().Result);
+            Writes.Add(("POST", path, string.Join("&", fields.Select(f => $"{f.Key}={f.Value}"))));
+            if (FailImageMovesWith is { } message)
+                return ScriptedHandler.Json(HttpStatusCode.BadRequest, new JsonObject { ["error"] = message }.ToJsonString());
+            var listing = ListingJson(long.Parse(parts[5]));
+            var images = listing["images"]!.AsArray().Select(i => i!.DeepClone().AsObject()).ToList();
+            var moved = images.Single(i => (long)i["listing_image_id"]! == long.Parse(fields["listing_image_id"]));
+            images.Remove(moved);
+            images.Insert(Math.Clamp(int.Parse(fields["rank"]) - 1, 0, images.Count), moved);
+            for (var i = 0; i < images.Count; i++) images[i]["rank"] = i + 1;
+            listing["images"] = new JsonArray([.. images]);
+            return Json(moved.DeepClone());
         }
         // PATCH /v3/application/shops/42/listings/{id}
         if (req.Method == HttpMethod.Patch && path.StartsWith($"{shop}/listings/"))

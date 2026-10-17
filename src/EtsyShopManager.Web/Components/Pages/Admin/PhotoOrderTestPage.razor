@@ -1,0 +1,266 @@
+@page "/admin/photo-order-test"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using System.Text.Json
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Etsy.Models
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject PhotoOrderTester Tester
+@inject IJobEvents JobEvents
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>Photo order test · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Photo order test">
+    <Summary>Finds out how Etsy reorders photos, on a listing that isn't public, before the editor relies on it.</Summary>
+</PageHeader>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" Class="mb-2">1. Pick a listing</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Only draft or inactive listings are offered, and the run checks again on Etsy right before it changes anything.
+        Use a copy you don't mind rearranging: the run changes its photo order on Etsy.
+    </MudText>
+    <div class="esm-variation-add">
+        <MudSelect T="int?" Value="_listingId" ValueChanged="OnListingChanged" Label="Listing (draft or inactive)" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Class="esm-grow">
+            @foreach (var l in _eligible)
+            {
+                <MudSelectItem T="int?" Value="@l.Id">@l.Title (@l.Shop.Name, @l.State)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudButton Variant="Variant.Outlined" Disabled="@(_listingId is null || _reading)" OnClick="ReadAsync">Read photos from Etsy</MudButton>
+    </div>
+    @if (_eligible.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted mt-2">No draft or inactive listings yet. Copy a listing on Etsy, leave the copy inactive, then click Import now.</MudText>
+    }
+</MudPaper>
+
+@if (_photos is { Count: > 0 })
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">2. Photos on Etsy now</MudText>
+        <div class="esm-photo-strip">
+            @foreach (var p in _photos)
+            {
+                <figure class="esm-photo-tile">
+                    <img src="@(p.Url170x135 ?? p.Url570xN)" alt="" loading="lazy" />
+                    <figcaption>@p.Rank · #@p.ListingImageId</figcaption>
+                </figure>
+            }
+        </div>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">3. Steps</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Each step asks Etsy to put one photo at a position. After each one the app reads the order right away and again
+            after @PhotoOrderTester.StepWaitSeconds s, and once more @PhotoOrderTester.FinalWaitSeconds s after the last.
+        </MudText>
+        <MudStack Row="true" Class="mb-2" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="MoveLastToFront">Move the last photo to the front</MudButton>
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SwapFirstTwo">Swap the first two</MudButton>
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="AddStep">Add a step</MudButton>
+        </MudStack>
+        <MudSimpleTable Dense="true">
+            @* An editing grid: steps run in this order. *@
+            <thead class="esm-fixed-order"><tr><th>#</th><th>Photo</th><th>Put at position</th><th>Overwrite</th><th>Send its alt text</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var (s, i) in _steps.Select((s, i) => (s, i)))
+                {
+                    <tr>
+                        <td>@(i + 1)</td>
+                        <td>
+                            <MudSelect T="long" Value="s.ListingImageId" ValueChanged="@(v => _steps[i] = s with { ListingImageId = v })" Dense="true" Class="esm-minw-sm">
+                                @foreach (var p in _photos)
+                                {
+                                    <MudSelectItem T="long" Value="@p.ListingImageId">@p.Rank · #@p.ListingImageId</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </td>
+                        <td>
+                            <MudNumericField T="int" Value="s.Rank" ValueChanged="@(v => _steps[i] = s with { Rank = v })" Min="1" Max="@_photos.Count"
+                                             Margin="Margin.Dense" Class="esm-minw-price" />
+                        </td>
+                        <td><MudSwitch T="bool" Value="s.Overwrite" ValueChanged="@(v => _steps[i] = s with { Overwrite = v })" Color="Color.Primary" aria-label="Overwrite" /></td>
+                        <td><MudSwitch T="bool" Value="s.SendAltText" ValueChanged="@(v => _steps[i] = s with { SendAltText = v })" Color="Color.Primary" aria-label="Send its alt text" /></td>
+                        <td class="text-right"><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _steps.RemoveAt(i))">Remove</MudButton></td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">4. What will be sent</MudText>
+        <pre class="json-block">@string.Join("\n", Calls())</pre>
+        @if (_problem is not null)
+        {
+            <MudText Typo="Typo.body2" Class="error-text mt-2">@_problem</MudText>
+        }
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Error" Disabled="@(_steps.Count == 0)" OnClick="RunAsync">Run on Etsy</MudButton>
+    </MudPaper>
+}
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" Class="mb-2">Runs</MudText>
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr>
+                <SortHeader Sort="_sort" Column="when" Changed="StateHasChanged">When</SortHeader>
+                <SortHeader Sort="_sort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                <SortHeader Sort="_sort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                <SortHeader Sort="_sort" Column="outcome" Changed="StateHasChanged">Outcome</SortHeader>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var r in _sort.Apply(_runs))
+            {
+                <tr class="esm-clickable" @onclick="() => ToggleRun(r.Id)">
+                    <td>@ListingFormat.Local(r.RequestedAtUtc)@(r.RequestedBy is null ? "" : $" · {r.RequestedBy}")</td>
+                    <td>@r.Listing.Title</td>
+                    <td>@r.Status</td>
+                    <td>@r.Outcome</td>
+                </tr>
+                @if (_openRuns.Contains(r.Id))
+                {
+                    <tr><td colspan="4"><pre class="json-block">@Pretty(r.ResultJson)</pre></td></tr>
+                }
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (_runs.Count == 0) { <MudText Class="mt-2 muted">No runs yet.</MudText> }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<Listing> _eligible = [];
+    private int? _listingId;
+    private List<EtsyListingImage>? _photos;
+    private readonly List<PhotoOrderStep> _steps = [];
+    private bool _reading;
+    private string? _problem;
+    private List<PhotoOrderTest> _runs = [];
+    private readonly HashSet<int> _openRuns = [];
+    private IDisposable? _live;
+
+    private readonly TableSort<PhotoOrderTest> _sort = new()
+    {
+        ["when"] = r => r.RequestedAtUtc,
+        ["listing"] = r => r.Listing.Title,
+        ["status"] = r => r.Status.ToString(),
+        ["outcome"] = r => r.Outcome,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _eligible = await db.Listings.AsNoTracking().Include(l => l.Shop)
+            .Where(l => PhotoOrderTester.AllowedStates.Contains(l.State) && !l.IsMissingOnEtsy)
+            .OrderBy(l => l.Title).ToListAsync();
+        _sort.Set("when", descending: true);
+        await LoadRunsAsync();
+        _live = JobEvents.Subscribe(c => c.JobType == PhotoOrderTestJob.Type,
+            _ => InvokeAsync(async () => { await LoadRunsAsync(); StateHasChanged(); }));
+    }
+
+    private async Task LoadRunsAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _runs = await db.PhotoOrderTests.AsNoTracking().Include(t => t.Listing).OrderByDescending(t => t.Id).Take(50).ToListAsync();
+    }
+
+    private void OnListingChanged(int? id)
+    {
+        _listingId = id;
+        (_photos, _problem) = (null, null);
+        _steps.Clear();
+    }
+
+    private async Task ReadAsync()
+    {
+        _reading = true;
+        _problem = null;
+        try
+        {
+            _photos = await Tester.ReadPhotosAsync(_listingId!.Value);
+            _steps.Clear();
+            if (_photos.Count >= 2) MoveLastToFront();
+            else _problem = "The listing needs at least two photos to test reordering.";
+        }
+        catch (Exception ex)
+        {
+            _problem = $"Couldn't read the photos from Etsy: {ex.Message}";
+        }
+        finally
+        {
+            _reading = false;
+        }
+    }
+
+    private void MoveLastToFront()
+    {
+        if (_photos is not { Count: >= 2 }) return;
+        _steps.Clear();
+        _steps.Add(new PhotoOrderStep(_photos[^1].ListingImageId, 1, Overwrite: false, SendAltText: true));
+    }
+
+    private void SwapFirstTwo()
+    {
+        if (_photos is not { Count: >= 2 }) return;
+        _steps.Clear();
+        _steps.Add(new PhotoOrderStep(_photos[1].ListingImageId, 1, Overwrite: false, SendAltText: true));
+    }
+
+    private void AddStep()
+    {
+        if (_photos is not { Count: > 0 }) return;
+        _steps.Add(new PhotoOrderStep(_photos[0].ListingImageId, _photos.Count, Overwrite: false, SendAltText: true));
+    }
+
+    private IReadOnlyList<string> Calls()
+    {
+        var listing = _eligible.FirstOrDefault(l => l.Id == _listingId);
+        if (listing is null || _photos is null) return [];
+        return PhotoOrderTester.Calls(listing.Shop.EtsyShopId, listing.EtsyListingId, _steps,
+            _photos.ToDictionary(p => p.ListingImageId, p => p.AltText));
+    }
+
+    private async Task RunAsync()
+    {
+        var listing = _eligible.First(l => l.Id == _listingId);
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Run the photo order test",
+            $"Change the photo order of \"{listing.Title}\" ({listing.State}) on Etsy with {_steps.Count} call(s)? " +
+            "It stops at the first call Etsy rejects. The order before is kept as a snapshot; put it back on etsy.com if needed.",
+            yesText: "Run on Etsy", cancelText: "Cancel");
+        if (confirmed != true) return;
+
+        var (testId, problem) = await Tester.RequestAsync(listing.Id, [.. _steps], (await AuthState).User.Identity?.Name);
+        _problem = problem;
+        if (testId is not null)
+        {
+            Snackbar.Add($"Photo order test {testId} queued; results appear under Runs.", Severity.Info);
+            await LoadRunsAsync();
+        }
+    }
+
+    private void ToggleRun(int id)
+    {
+        if (!_openRuns.Remove(id)) _openRuns.Add(id);
+    }
+
+    private static string Pretty(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "(nothing yet)";
+        try { return JsonSerializer.Serialize(JsonDocument.Parse(json).RootElement, new JsonSerializerOptions { WriteIndented = true }); }
+        catch (JsonException) { return json; }
+    }
+
+    public void Dispose() => _live?.Dispose();
+}

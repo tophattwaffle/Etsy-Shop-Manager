@@ -73,6 +73,7 @@ public sealed class AdminModule : IModule
         new("Users", "admin/users", Icons.Material.Filled.People, Order: 910, Roles: Roles.Admin),
         new("Audit log", "admin/audit", Icons.Material.Filled.History, Order: 920, Roles: Roles.Admin),
         new("Etsy writes", "admin/etsy-writes", Icons.Material.Filled.CloudUpload, Order: 925, Roles: Roles.Admin),
+        new("Photo order test", "admin/photo-order-test", Icons.Material.Filled.PhotoLibrary, Order: 926, Roles: Roles.Admin),
         new("Settings", "admin/settings", Icons.Material.Filled.Settings, Order: 930, Roles: Roles.Admin),
     ];
 }
