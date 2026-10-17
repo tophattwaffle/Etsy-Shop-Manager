@@ -1,0 +1,106 @@
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Components.Pages.Orders
+@using EtsyShopManager.Web.Modules.Orders
+@using EtsyShopManager.Web.Modules.Shops
+@implements IDisposable
+@inject OrderQueries Queries
+@inject OrderColorService Colors
+@inject ShopAccentService ShopAccents
+@inject ShopOrderLinkService ShopOrderLinks
+@inject IJobEvents JobEvents
+@inject IJSRuntime Js
+@inject TimeProvider Time
+
+@* Open orders, most urgent first, each opening on Etsy in its shop's browser. Variations and personalization are
+   colored like the Orders page and the Home Assistant card. *@
+@if (_open is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_open.Count == 0)
+{
+    <MudText Class="muted">No open orders. 🎉</MudText>
+}
+else
+{
+    <div class="esm-orders esm-dash-list">
+        @foreach (var o in _open)
+        {
+            var due = OrderDue.For(o.ShipByUtc, Time.GetUtcNow().UtcDateTime);
+            var url = ShopOrderLinkService.FormatUrl(_orderLinks.GetValueOrDefault(o.ShopId), o.EtsyReceiptId);
+            <a class="esm-dash-order @(due.Urgent ? "urgent" : "")" href="@url" target="@(ShopOrderLinkService.OpensInNewTab(url) ? "_blank" : null)"
+               style="@($"--shop: {Accent(o.ShopId)}")">
+                <span class="esm-dash-order-head">
+                    <span class="esm-grow">
+                        <span class="esm-dash-buyer">@(o.BuyerName ?? $"#{o.EtsyReceiptId}")</span>
+                        <span class="small muted">@o.Shop.Name</span>
+                    </span>
+                    <MudChip T="string" Size="Size.Small" Color="@due.Color">@due.Text</MudChip>
+                </span>
+                @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
+                {
+                    var (variations, personalization) = OrderDue.Split(i);
+                    <span class="esm-dash-item">@(i.Quantity > 1 ? $"×{i.Quantity} " : "")@OrderDue.ShortTitle(i.Title)</span>
+                    @if (variations.Count > 0)
+                    {
+                        <span class="order-vars">
+                            @foreach (var (v, vi) in variations.Select((v, n) => (v, n)))
+                            {
+                                <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                            }
+                        </span>
+                    }
+                    @if (personalization is not null)
+                    {
+                        <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
+                    }
+                }
+            </a>
+        }
+    </div>
+}
+
+@code {
+    // Used when a shop has no color yet (--esm-shop-fallback-N in app.css), as on the Orders page.
+    private const int FallbackAccentCount = 4;
+
+    private List<Order>? _open;
+    private List<int> _shopIds = [];
+    private Dictionary<int, string> _accents = [];
+    private Dictionary<int, string> _orderLinks = [];
+    private JsonObject? _colorConfig;
+    private IDisposable? _live;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _colorConfig = (await Colors.GetAsync()).ToCardJson();
+        await LoadAsync();
+        _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,
+            _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        // Ship-by countdowns are relative to now.
+        _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadAsync()
+    {
+        var open = await Queries.GetOpenOrdersAsync(null);
+        _shopIds = open.Select(o => o.ShopId).Distinct().Order().ToList();
+        _accents = await ShopAccents.GetEffectiveAsync(_shopIds);
+        _orderLinks = await ShopOrderLinks.GetOverridesAsync(_shopIds);
+        _open = open.OrderBy(o => o.ShipByUtc ?? DateTime.MaxValue).ToList();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) => await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
+
+    private string Accent(int shopId) => _accents.TryGetValue(shopId, out var color)
+        ? color
+        : $"var(--esm-shop-fallback-{Math.Max(0, _shopIds.IndexOf(shopId)) % FallbackAccentCount})";
+
+    public void Dispose()
+    {
+        _live?.Dispose();
+        _timer?.Dispose();
+    }
+}

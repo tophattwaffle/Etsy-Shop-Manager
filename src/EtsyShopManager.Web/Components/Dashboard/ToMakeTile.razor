@@ -1,0 +1,80 @@
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Components.Pages.Orders
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Orders
+@implements IDisposable
+@inject OrderQueries Queries
+@inject OrderColorService Colors
+@inject IJobEvents JobEvents
+@inject IJSRuntime Js
+
+@* What has to be made for the open orders: identical items (same listing, variations and personalization) added up,
+   soonest ship-by first. The same list as Orders → To make and the Home Assistant card's "To make" line. *@
+@if (_rows is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_rows.Count == 0)
+{
+    <MudText Class="muted">Nothing to make.</MudText>
+}
+else
+{
+    <div class="esm-orders esm-dash-list">
+        <div class="small muted">@_total item@(_total == 1 ? "" : "s") for the open orders</div>
+        @foreach (var row in _rows)
+        {
+            <div class="esm-dash-make">
+                <span class="esm-dash-qty">×@((int)row["quantity"]!)</span>
+                <div class="esm-grow">
+                    <div>@OrderDue.ShortTitle((string?)row["title"])</div>
+                    <div class="order-vars">
+                        @foreach (var v in row["variations"]?.AsArray().Select(n => n!.AsObject()) ?? [])
+                        {
+                            if ((string?)v["value"] is { Length: > 0 } value)
+                            {
+                                <ColorBox Text="@value" Title="@((string?)v["property"])" Seed="@($"make|{(string?)row["listing_id"]}|{value}")" />
+                            }
+                        }
+                    </div>
+                    @if ((string?)row["personalization"] is { Length: > 0 } note)
+                    {
+                        <ColorBox Text="@note" Kind="@ColorBox.Note" Seed="@($"make|{note}")" />
+                    }
+                </div>
+                @if (row["ship_by_ts"] is { } ts)
+                {
+                    <span class="small muted esm-dash-shipby">Ship by @ListingFormat.Local(DateTime.UnixEpoch.AddSeconds((long)ts), "ddd MMM d")</span>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<JsonObject>? _rows;
+    private int _total;
+    private JsonObject? _colorConfig;
+    private IDisposable? _live;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _colorConfig = (await Colors.GetAsync()).ToCardJson();
+        await LoadAsync();
+        _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,
+            _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+    }
+
+    private async Task LoadAsync()
+    {
+        var payload = HaPayloadBuilder.OpenOrders(await Queries.GetOpenOrdersAsync(null), TimeZoneInfo.Local);
+        _rows = payload["items_needed"]!.AsArray().Select(n => n!.AsObject())
+            .OrderBy(r => (long?)r["ship_by_ts"] ?? long.MaxValue).ToList();
+        _total = (int)payload["total_items_needed"]!;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) => await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
+
+    public void Dispose() => _live?.Dispose();
+}

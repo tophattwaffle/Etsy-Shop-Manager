@@ -1,0 +1,64 @@
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Modules.Shops
+@implements IDisposable
+@inject ShopService Shops
+@inject IJobEvents JobEvents
+@inject EtsyShopManager.Web.Modules.Orders.OrderQueries Orders
+
+@if (_shops is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_shops.Count == 0)
+{
+    <MudText>No shops connected. <MudLink Href="shops">Connect a shop</MudLink></MudText>
+}
+else
+{
+    @foreach (var s in _shops)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="py-1">
+            <MudText>
+                <b>@s.Name</b>
+                @if (_openOrders.TryGetValue(s.Id, out var open))
+                {
+                    <MudLink Href="orders" Typo="Typo.body2" Class="ml-2">@open open order@(open == 1 ? "" : "s")</MudLink>
+                }
+            </MudText>
+            @if (s.IsHealthy)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Success">Connected</MudChip>
+            }
+            else if (s.IsActive)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Error">Reconnect needed</MudChip>
+            }
+            else
+            {
+                <MudChip T="string" Size="Size.Small">Disconnected</MudChip>
+            }
+        </MudStack>
+    }
+}
+
+@code {
+    private List<ShopSummary>? _shops;
+    private Dictionary<int, int> _openOrders = [];
+    private IDisposable? _live;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // Shop health and open orders change when jobs run (token refreshes, order checks).
+        _live = JobEvents.Subscribe(_ => true, _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }),
+            TimeSpan.FromSeconds(1));
+    }
+
+    private async Task LoadAsync()
+    {
+        _shops = await Shops.ListAsync();
+        _openOrders = (await Orders.GetShopStatusAsync()).ToDictionary(o => o.ShopId, o => o.OpenOrders);
+    }
+
+    public void Dispose() => _live?.Dispose();
+}

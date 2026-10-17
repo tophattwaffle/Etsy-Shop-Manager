@@ -1,0 +1,36 @@
+@using EtsyShopManager.Core.Jobs
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject TimeProvider Time
+@inject IJobEvents JobEvents
+
+<MudText>Pending: <b>@_pending</b></MudText>
+<MudText>Running: <b>@_running</b></MudText>
+<MudText Color="@(_failed24h > 0 ? Color.Error : Color.Default)">Failed (24 h): <b>@_failed24h</b></MudText>
+<AuthorizeView Roles="@Roles.Admin">
+    <MudLink Href="jobs" Class="mt-2 d-block">Open job queue</MudLink>
+</AuthorizeView>
+
+@code {
+    private int _pending, _running, _failed24h;
+    private IDisposable? _live;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _live = JobEvents.Subscribe(_ => true, _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }),
+            TimeSpan.FromSeconds(1));
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var since = Time.GetUtcNow().UtcDateTime.AddHours(-24);
+        _pending = await db.Jobs.CountAsync(j => j.Status == JobStatus.Pending);
+        _running = await db.Jobs.CountAsync(j => j.Status == JobStatus.Running);
+        _failed24h = await db.Jobs.CountAsync(j => j.Status == JobStatus.Failed && j.CompletedAtUtc >= since);
+    }
+
+    public void Dispose() => _live?.Dispose();
+}
