@@ -125,6 +125,7 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddHttpClient(EtsyServiceCollectionExtensions.EtsyImageClientName).ConfigurePrimaryHttpMessageHandler(() => Cdn);
         services.AddSingleton<ImageStore>();
         services.AddSingleton<ListingImporter>();
+        services.AddSingleton<ListingImportQueue>();
         services.AddSingleton<TaxonomyImporter>();
         services.AddSingleton<ImageDownloader>();
         services.AddSingleton<ListingQueries>();

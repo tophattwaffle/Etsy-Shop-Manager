@@ -194,7 +194,8 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
 
 /// <summary>Runs a clone (see <see cref="ListingCloner"/>): one call at a time, stopping at the first one Etsy rejects.</summary>
 public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, ListingCloner cloner, ListingImporter importer,
-    ImageStore images, EtsyApiClient etsy, IAuditLog audit, TimeProvider time, ILogger<ListingCloneJob> logger) : IJobHandler
+    ListingImportQueue importQueue, ImageStore images, EtsyApiClient etsy, IAuditLog audit, TimeProvider time,
+    ILogger<ListingCloneJob> logger) : IJobHandler
 {
     public const string Type = "etsy.listing.clone";
     public string JobType => Type;
@@ -310,6 +311,8 @@ public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, L
             // 5. Into the app.
             var newId = await importer.ImportNewListingAsync(target.Id, newEtsyId.Value, ct);
             log.Add("Imported the new draft into the app.");
+            // The draft's photos are new image rows: fetch their files now (as an import does), so the Listings page shows them.
+            await importQueue.DownloadImagesAsync(target.Id, "clone", $"job:{context.JobId}", ct);
             await SaveAsync(cloneId, log, newEtsyId, newId, ListingCloneStatus.Succeeded);
             await audit.WriteAsync("listing.cloned", nameof(Listing), source.EtsyListingId.ToString(CultureInfo.InvariantCulture),
                 $"to draft {newEtsyId} in shop {target.Name}", "system", ct);
