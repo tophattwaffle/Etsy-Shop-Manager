@@ -1,6 +1,6 @@
 # Etsy Shop Manager — Project Plan
 
-_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented; Phase 3 editor (all writable fields, photos, variations, push, drift, clone, auto-refill) implemented; Phase 4 started with text blocks, shared variation lists next. Last updated 2026-10-17._
+_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented; Phase 3 editor (all writable fields, photos, variations, push, drift, clone, auto-refill) implemented; Phase 4: text blocks and shared variation lists implemented, photo templates next. Last updated 2026-10-17._
 
 ## Goals
 
@@ -212,6 +212,11 @@ The base URL can be changed later under Admin → Settings. When it changes, the
   - **Linking:** a new block lists the listings whose description already contains it word for word (on the real data, a choking-hazard paragraph was in 54 listings), to link in one go. The editor's "Insert text block" adds a block to the end of the description (a draft) and links it; the text can then be moved anywhere in the description.
   - **Editing a block** changes nothing by itself. Each linked listing shows a status: up to date; has the old text (with a line diff of the description); edited by hand (the applied text isn't in the description any more: skipped, never overwritten; "Link again" once it contains the block's text); changed on Etsy (description drift: resolve in the editor first). "Apply" writes the new descriptions as drafts; "Review and push" shows each listing's normal push preview (all of its unpushed edits, blockers included) and queues the normal push for those that can go. Deleting a block only unlinks; listings keep their text.
   - Not yet: placeholders (`{{shop.name}}`).
+- **Shared variation lists (2026-10-17):** named option lists such as "PLA Colors" (Variation lists page; `VariationListService`). Each option has a stable id (so a rename is a rename) and is on or off.
+  - **Linking:** a list offers the listing variations whose values are mostly in it (at least 2, and at least half; on the real data a 15-colour list matches 39 variations, 15 of them completely). A link remembers the listing's variation (property) and the options as last applied to it (`ListingVariationList.AppliedOptions`), starting from what the listing has (available or not).
+  - **Changes are worked out against what was last applied:** an option new to the listing and on is added (combinations available, price copied from what the price varies by, as the editor's "add value" does; stock from the listing's current stock when pushed; at the end of Etsy's dropdown); switched off makes its combinations unavailable (never deleted); switched back on makes them available; renamed renames the value. Removing an option from the list leaves listings alone. A listing's own values (not in the list) are never touched; an option removed from a listing by hand isn't put back (shown as a note); a listing whose variations changed on Etsy waits until resolved; a listing without the linked variation is flagged.
+  - Apply writes drafts; "Review and push" runs each listing's normal push preview and push, as for text blocks.
+  - Not yet: reordering existing values, SKU patterns, adding a variation to a listing from a list.
 
 ## Etsy errors in plain words (2026-10-17)
 - Etsy's error replies (`{"error": "…"}`, or a list of field checks `{"path": "/title/0", "type": "all_caps", "message": "…"}`) are turned into one sentence: what Etsy refused, its reason (known checks and messages reworded, others cleaned up), and what to do ("Change the title and try again", "Reconnect the shop", "Try again in a few minutes" for Etsy's own errors). It is the message of every failed Etsy call, so job results, toasts, the editor's push history, the clone page and the refill panel all show it; the raw reply stays in the Etsy write log.

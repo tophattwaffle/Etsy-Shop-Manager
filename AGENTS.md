@@ -18,6 +18,8 @@ explicitly, always with overwrite=false (overwrite=true drops the photo shown at
 listing into a new Etsy draft (same shop or the other; profiles chosen per target shop), never published by the app.
 Phase 4 (templates) started: text blocks (`Modules/Templates`, `TextBlockService`) are found in descriptions by their
 exact text (no markers on Etsy); applying a block writes drafts, and pushing goes through the normal reviewed push.
+Shared variation lists (`VariationListService`) drive a listing variation each; changes are worked out against the options
+last applied to that listing, so a listing's own values and hand edits are left alone.
 
 **Never write to the real Etsy shops while developing or testing.** Verify write paths with `FakeEtsyShop` (it records
 every PATCH/PUT body) and previews only. A sanitized copy of production data (tokens, keys and users removed) may be

@@ -312,16 +312,20 @@ public static class LineDiff
     }
 }
 
-/// <summary>Phase 4: templates. Text blocks first.</summary>
+/// <summary>Phase 4: templates (text blocks, shared variation lists).</summary>
 public sealed class TemplatesModule : IModule
 {
     public string Name => "Templates";
 
-    public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
+    public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+    {
         services.AddSingleton<TextBlockService>();
+        services.AddSingleton<VariationListService>();
+    }
 
     public IEnumerable<NavItem> NavItems =>
     [
         new("Text blocks", "text-blocks", Icons.Material.Filled.ShortText, Order: 25, Roles: "Admin,Editor"),
+        new("Variation lists", "variation-lists", Icons.Material.Filled.Palette, Order: 26, Roles: "Admin,Editor"),
     ];
 }

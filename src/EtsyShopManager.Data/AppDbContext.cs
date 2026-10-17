@@ -29,6 +29,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ListingClone> ListingClones => Set<ListingClone>();
     public DbSet<TextBlock> TextBlocks => Set<TextBlock>();
     public DbSet<ListingTextBlock> ListingTextBlocks => Set<ListingTextBlock>();
+    public DbSet<VariationList> VariationLists => Set<VariationList>();
+    public DbSet<ListingVariationList> ListingVariationLists => Set<ListingVariationList>();
 
     public DbSet<ShippingProfile> ShippingProfiles => Set<ShippingProfile>();
     public DbSet<ProcessingProfile> ProcessingProfiles => Set<ProcessingProfile>();
@@ -192,6 +194,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         {
             e.HasIndex(x => x.Name).IsUnique();
             e.Property(x => x.Name).UseCollation("NOCASE");
+        });
+
+        b.Entity<VariationList>(e =>
+        {
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).UseCollation("NOCASE");
+            e.Property(x => x.Options).HasJsonConversion();
+        });
+
+        b.Entity<ListingVariationList>(e =>
+        {
+            e.HasIndex(x => new { x.ListingId, x.PropertyId }).IsUnique();
+            e.HasIndex(x => x.VariationListId);
+            e.Property(x => x.AppliedOptions).HasJsonConversion();
+            e.HasOne(x => x.Listing).WithMany().HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.VariationList).WithMany(x => x.Listings).HasForeignKey(x => x.VariationListId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<ListingTextBlock>(e =>
