@@ -11,7 +11,8 @@ code is C# wherever possible and the UI is web-based. Full design and phase plan
 **This app is the system of record for listings.** Edits happen here; changes made on Etsy.com are detected and flagged
 (drift), never silently overwritten. Phases 0–2 (foundation, import, orders + Home Assistant) are done; Phase 3's
 editor (listing fields, photos, variations, prices and processing; preview → push with snapshots; drift; auto-refill)
-is in. Photo pushes follow what Etsy was measured to do (`PhotoEditor`, docs/PLAN.md "Photos"): a photo's rank is
+is in, including category attributes and personalization (styles and featured rank stay read-only: Etsy's API
+can't change them on an existing listing). Photo pushes follow what Etsy was measured to do (`PhotoEditor`, docs/PLAN.md "Photos"): a photo's rank is
 just a number and Etsy never renumbers the others (ranks tie and have gaps), so a push sets every photo's rank 1..n
 explicitly, always with overwrite=false (overwrite=true drops the photo shown at that rank). `ListingCloner` copies a
 listing into a new Etsy draft (same shop or the other; profiles chosen per target shop), never published by the app.
@@ -100,7 +101,8 @@ pushed). Etsy returns title/description/tags HTML-encoded; the mapper decodes th
 `ListingEditModel` (Core) holds three versions as managed JSON: **Etsy** (last read), **base** (last agreed) and
 **draft** (local edits). Drift = a tracked field where Etsy ≠ base; pending = local ≠ Etsy. `ListingEditor` saves drafts,
 resolves drift and builds the preview (blockers stop a push); `PushListingJob` re-reads, refuses on drift, snapshots,
-then `updateListing` (form) and `updateListingInventory`, re-reads and reconciles. Etsy replaces the whole inventory
+then `updateListing` (form), attributes (`AttributeEditor`, one call each), personalization (`PersonalizationEditor`, one
+call replacing all questions), photos and `updateListingInventory`, re-reads and reconciles. Etsy replaces the whole inventory
 on every write, so `InventoryWriter` always rebuilds it from a fresh read and changes only what it means to (the edited
 variations, prices, processing and availability for pushes, keeping Etsy's stock, product order and variation order;
 quantities for refills). `VariationEditor` edits the variation structure in managed-state JSON (always the full grid of

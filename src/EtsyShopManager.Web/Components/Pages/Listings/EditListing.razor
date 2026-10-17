@@ -208,6 +208,26 @@ else
                 <MudTextField T="string" Value="@List("materials")" ValueChanged="@(v => SetList("materials", v))" Label="Materials (separate with commas)"
                               Variant="Variant.Outlined" HelperText="@($"{Count("materials")} of {ListingEditor.MaxMaterials}. {Pending("materials")}")" />
             </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Category attributes</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    The details Etsy asks for in this listing's category (@(_category?.Path ?? "no category")). A push sends one call per
+                    attribute changed. @Pending(ListingFields.Attributes)
+                </MudText>
+                <AttributesEditor Attributes="_form![ListingFields.Attributes]" Properties="_attributeProperties" Name="AttributeName"
+                                  AttributesChanged="@(a => Set(ListingFields.Attributes, a))" />
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Personalization</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    What buyers are asked when they order. A push replaces all of the listing's questions on Etsy with these.
+                    @Pending(ListingFields.Personalization)
+                </MudText>
+                <PersonalizationQuestions Questions="_form![ListingFields.Personalization]"
+                                          QuestionsChanged="@(q => Set(ListingFields.Personalization, q))" />
+            </MudPaper>
         </MudItem>
 
         <MudItem xs="12" md="4">
@@ -346,6 +366,7 @@ else
     private JsonObject? _form;
     private CategoryOption? _category;
     private PushPreview? _preview;
+    private IReadOnlyList<AttributeProperty>? _attributeProperties;
     private bool _unsaved, _pushing, _notFound;
     private IDisposable? _live;
 
@@ -386,8 +407,13 @@ else
         if (keepForm && _form is not null) return;
         _form = model.LocalState();
         _category = Long("taxonomy_id") is { } t ? new CategoryOption(t, _lookups.Categories.GetValueOrDefault(t, $"#{t}")) : null;
+        _attributeProperties = await AttributeEditor.LoadAsync(db, Long("taxonomy_id"));
         _unsaved = false;
     }
+
+    private string AttributeName(long id) =>
+        _lookups!.AttributeProperties?.ContainsKey(id) == true ? _lookups.AttributeName(id)
+            : _snapshot!.Listing.Attributes.FirstOrDefault(a => a.PropertyId == id)?.PropertyName ?? $"Property {id}";
 
     // ---- Form values (the local version as managed-state JSON) ----
 
@@ -409,10 +435,14 @@ else
     private void SetList(string key, string? text) =>
         Set(key, new JsonArray([.. (text ?? "").Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).Select(t => (JsonNode)t)]));
 
-    private void SetCategory(CategoryOption? c)
+    private async Task SetCategory(CategoryOption? c)
     {
         _category = c;
-        if (c is not null) SetLong("taxonomy_id", c.Id);
+        if (c is null) return;
+        SetLong("taxonomy_id", c.Id);
+        // The attributes on offer are the new category's.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _attributeProperties = await AttributeEditor.LoadAsync(db, c.Id);
     }
 
     private async Task<IEnumerable<CategoryOption>> SearchCategoriesAsync(string text, CancellationToken ct)

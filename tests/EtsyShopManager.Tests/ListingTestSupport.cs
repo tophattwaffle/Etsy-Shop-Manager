@@ -509,11 +509,54 @@ internal sealed class FakeEtsyShop : IDisposable
             set.Add(new JsonObject
             {
                 ["property_id"] = long.Parse(parts[7]),
+                ["scale_id"] = form["scale_id"] is { } scale ? long.Parse(scale) : null,
                 ["value_ids"] = new JsonArray([.. (form["value_ids"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(v => (JsonNode)long.Parse(v))]),
                 ["values"] = new JsonArray([.. (form["values"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(v => (JsonNode)v)]),
             });
             listing["_properties"] = set;
             return Json(new JsonObject());
+        }
+        // DELETE /v3/application/shops/{shopId}/listings/{id}/properties/{propertyId} (deleteListingProperty)
+        if (req.Method == HttpMethod.Delete && parts.Length == 8 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "properties")
+        {
+            Writes.Add(("DELETE", path, ""));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            var listing = ListingJson(long.Parse(parts[5]));
+            // A listing still on the default properties gets its own list first (as the GET shows it), minus this one.
+            var set = listing["_properties"] as JsonArray ?? [new JsonObject
+            {
+                ["property_id"] = 200, ["property_name"] = "Primary color", ["value_ids"] = new JsonArray(1), ["values"] = new JsonArray("Black"),
+            }];
+            foreach (var old in set.Where(p => (long)p!["property_id"]! == long.Parse(parts[7])).ToList()) set.Remove(old);
+            listing["_properties"] = set;
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        }
+        // POST / DELETE /v3/application/shops/{shopId}/listings/{id}/personalization: Etsy replaces all questions, giving
+        // new ones (sent without an id) fresh ids, and returns the add-on price as money.
+        if (parts.Length == 7 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "personalization"
+            && (req.Method == HttpMethod.Post || req.Method == HttpMethod.Delete))
+        {
+            var body = req.Content?.ReadAsStringAsync().Result ?? "";
+            Writes.Add((req.Method.Method, req.RequestUri!.PathAndQuery, body));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            var listing = ListingJson(long.Parse(parts[5]));
+            var questions = new JsonArray();
+            if (req.Method == HttpMethod.Post)
+                foreach (var q in JsonNode.Parse(body)!["personalization_questions"]!.AsArray())
+                {
+                    var stored = q!.DeepClone().AsObject();
+                    stored["question_id"] = (long?)q["question_id"] ?? ++_nextEtsyId;
+                    if ((decimal?)q["add_on_price"] is { } price) stored["add_on_price"] = Money((long)Math.Round(price * 100));
+                    foreach (var o in stored["options"] as JsonArray ?? []) o!["option_id"] = (long?)o["option_id"] ?? ++_nextEtsyId;
+                    // Etsy returns text HTML-encoded.
+                    if ((string?)stored["instructions"] is { } instructions) stored["instructions"] = instructions.Replace("\"", "&quot;");
+                    questions.Add(stored);
+                }
+            listing["personalization"] = new JsonObject { ["personalization_questions"] = questions };
+            listing["is_personalizable"] = questions.Count > 0;
+            return req.Method == HttpMethod.Post
+                ? ScriptedHandler.Json(HttpStatusCode.Created, listing["personalization"]!.ToJsonString())
+                : new HttpResponseMessage(HttpStatusCode.NoContent);
         }
         if (req.Method == HttpMethod.Patch && path.StartsWith($"{shop}/listings/"))
         {

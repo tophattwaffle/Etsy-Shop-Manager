@@ -1,0 +1,124 @@
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Web.Modules.Editor
+
+@* A listing's category attributes, from Etsy's list of properties for its category. Every change goes back to the
+   editor as new local attributes (nothing is sent to Etsy until a reviewed push). *@
+
+@if (Properties is null)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+        This category's attributes aren't in the app yet (they're read for the categories the shop's listings use). Push the
+        category first; after the next import its attributes can be set here.
+    </MudAlert>
+}
+else if (Properties.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted">This category has no attributes.</MudText>
+}
+else
+{
+    <MudGrid Spacing="2">
+        @foreach (var p in Properties)
+        {
+            var current = Current(p.PropertyId);
+            var scale = (long?)current?["scale_id"] ?? (p.Scales.Count == 1 ? p.Scales[0].ScaleId : _scales.GetValueOrDefault(p.PropertyId));
+            <MudItem xs="12" sm="6">
+                @if (!p.CanEdit)
+                {
+                    <div class="small muted">@p.Label@(p.IsRequired ? " (required)" : "")</div>
+                    <div>
+                        @(current is null ? "Not set" : ValueText(current, p))
+                        @if (current is not null)
+                        {
+                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Changed(AttributeEditor.Remove(Attributes, p.PropertyId)))">Remove</MudButton>
+                        }
+                    </div>
+                    <div class="small muted">A typed value: set it on Etsy.</div>
+                }
+                else
+                {
+                    <MudStack Row="true" Spacing="2">
+                        @if (p.Scales.Count > 1)
+                        {
+                            <MudSelect T="long?" Value="scale" ValueChanged="@(s => SetScale(p, s))" Label="Scale" Variant="Variant.Outlined"
+                                       Margin="Margin.Dense" Class="esm-w-sm">
+                                @foreach (var s in p.Scales) { <MudSelectItem T="long?" Value="s.ScaleId">@s.Name</MudSelectItem> }
+                            </MudSelect>
+                        }
+                        @if (p.MaxValues == 1)
+                        {
+                            <MudSelect T="long?" Value="@(SelectedIds(current).Cast<long?>().FirstOrDefault())" Label="@Label(p)"
+                                       ValueChanged="@(v => Set(p, scale, v is { } id ? [id] : []))" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                <MudSelectItem T="long?" Value="null">Not set</MudSelectItem>
+                                @foreach (var v in Values(p, scale)) { <MudSelectItem T="long?" Value="v.ValueId">@v.Name</MudSelectItem> }
+                            </MudSelect>
+                        }
+                        else
+                        {
+                            <MudSelect T="long" MultiSelection="true" SelectedValues="@SelectedIds(current)" Label="@Label(p)"
+                                       SelectedValuesChanged="@(ids => Set(p, scale, ids ?? []))" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       ToStringFunc="@(id => p.Values.FirstOrDefault(v => v.ValueId == id)?.Name ?? id.ToString())">
+                                @foreach (var v in Values(p, scale)) { <MudSelectItem T="long" Value="v.ValueId">@v.Name</MudSelectItem> }
+                            </MudSelect>
+                        }
+                    </MudStack>
+                }
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@foreach (var a in AttributeEditor.Items(Attributes).Where(a => Properties is null || Properties.All(p => p.PropertyId != AttributeEditor.PropertyId(a))))
+{
+    var id = AttributeEditor.PropertyId(a);
+    <div class="mt-2">
+        @AttributeEditor.Describe(new JsonArray(a.DeepClone()), Name, (_, s) => $"(scale {s})")
+        <span class="small muted"> · not an attribute of this category</span>
+        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Changed(AttributeEditor.Remove(Attributes, id)))">Remove</MudButton>
+    </div>
+}
+
+@code {
+    /// <summary>The local attributes (managed-state JSON).</summary>
+    [Parameter] public JsonNode? Attributes { get; set; }
+    /// <summary>The category's attribute properties; null when the app doesn't have them.</summary>
+    [Parameter] public IReadOnlyList<AttributeProperty>? Properties { get; set; }
+    /// <summary>A name for attributes outside the category.</summary>
+    [Parameter] public Func<long, string> Name { get; set; } = id => $"Property {id}";
+    [Parameter] public EventCallback<JsonArray> AttributesChanged { get; set; }
+
+    // A scale chosen before any value of the property is (the attribute only exists once it has a value).
+    private readonly Dictionary<long, long?> _scales = [];
+
+    private JsonObject? Current(long propertyId) =>
+        AttributeEditor.Items(Attributes).FirstOrDefault(a => AttributeEditor.PropertyId(a) == propertyId);
+
+    private static IReadOnlyCollection<long> SelectedIds(JsonObject? current) =>
+        [.. (current?["value_ids"] as JsonArray ?? []).Select(v => (long)v!)];
+
+    private static string Label(AttributeProperty p) =>
+        p.Label + (p.IsRequired ? " (required)" : "") + (p.MaxValues is > 1 and var m ? $", up to {m}" : "");
+
+    private static IEnumerable<AttributeValue> Values(AttributeProperty p, long? scale) =>
+        p.Scales.Count == 0 ? p.Values : p.Values.Where(v => v.ScaleId is null || v.ScaleId == scale);
+
+    private static string? ScaleName(AttributeProperty p, long scaleId) => p.Scales.FirstOrDefault(s => s.ScaleId == scaleId)?.Name;
+
+    /// <summary>"0.75 Inches": the values with their scale.</summary>
+    private static string ValueText(JsonObject a, AttributeProperty p) =>
+        string.Join(", ", (a["values"] as JsonArray ?? []).Select(v => (string?)v)) +
+        ((long?)a["scale_id"] is { } s ? $" {ScaleName(p, s) ?? $"(scale {s})"}" : "");
+
+    private Task Set(AttributeProperty p, long? scale, IEnumerable<long> ids) =>
+        Changed(AttributeEditor.Set(Attributes, p, scale, ids));
+
+    private Task SetScale(AttributeProperty p, long? scale)
+    {
+        _scales[p.PropertyId] = scale;
+        // Values of another scale don't apply any more.
+        var keep = SelectedIds(Current(p.PropertyId)).Where(id => Values(p, scale).Any(v => v.ValueId == id)).ToList();
+        return Current(p.PropertyId) is null ? Task.CompletedTask : Set(p, scale, keep);
+    }
+
+    private Task Changed(JsonArray attributes) => AttributesChanged.InvokeAsync(attributes);
+}

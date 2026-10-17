@@ -17,7 +17,8 @@ namespace EtsyShopManager.Web.Modules.Editor;
 /// Writes a listing's local edits to Etsy:
 /// 1. re-read the listing from Etsy; if it changed there meanwhile (drift), stop without writing;
 /// 2. snapshot what Etsy holds (for rollback);
-/// 3. updateListing with the changed listing fields, then updateListingInventory if prices/processing changed
+/// 3. updateListing with the changed listing fields, then the category attributes (one call each), personalization
+///    (one call replacing all questions), photos, and updateListingInventory if variations/prices/processing changed
 ///    (built from a fresh inventory read, so quantities and everything else stay exactly as Etsy has them);
 /// 4. re-read, and keep in the draft anything Etsy didn't take.
 /// Not retried automatically: a failed write is reported and the person decides.
@@ -35,6 +36,10 @@ public sealed class PushListingJob(
     public const string Type = "etsy.listing.push";
     public string JobType => Type;
     public string DisplayName => "Push listing to Etsy";
+
+    /// <summary>Fields written by their own calls rather than updateListing.</summary>
+    private static readonly HashSet<string> SeparateCalls =
+        [ListingFields.Inventory, ListingFields.Images, ListingFields.Attributes, ListingFields.Personalization];
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
@@ -79,7 +84,10 @@ public sealed class PushListingJob(
             model = ListingEditModel.Parse(listing.EtsyState!.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         }
 
-        var preview = ListingEditor.Preview(listing, model, pushInProgress: false, images.Exists);
+        IReadOnlyList<AttributeProperty>? properties;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            properties = await AttributeEditor.LoadAsync(db, (long?)model.Local("taxonomy_id"), ct);
+        var preview = ListingEditor.Preview(listing, model, pushInProgress: false, images.Exists, properties);
         if (preview.Blockers.Count > 0)
         {
             var reason = string.Join(" ", preview.Blockers);
@@ -94,7 +102,9 @@ public sealed class PushListingJob(
 
         var auth = EtsyAuth.ForShop(listing.ShopId);
         var local = model.LocalState();
-        var listingFields = preview.Changes.Where(c => c.Key is not (ListingFields.Inventory or ListingFields.Images)).Select(c => c.Key).ToList();
+        var listingFields = preview.Changes.Where(c => !SeparateCalls.Contains(c.Key)).Select(c => c.Key).ToList();
+        var attributesChanged = preview.Changes.Any(c => c.Key == ListingFields.Attributes);
+        var personalizationChanged = preview.Changes.Any(c => c.Key == ListingFields.Personalization);
         var photosChanged = preview.Changes.Any(c => c.Key == ListingFields.Images);
         var inventoryChanged = preview.Changes.Any(c => c.Key == ListingFields.Inventory);
 
@@ -113,6 +123,32 @@ public sealed class PushListingJob(
                 var form = ListingFormMapper.ToForm(local, listingFields);
                 logger.LogInformation("Pushing {Fields} for listing {ListingId}", string.Join(", ", listingFields), listing.EtsyListingId);
                 await etsy.UpdateListingAsync(listing.Shop.EtsyShopId, listing.EtsyListingId, form, auth, ct);
+                wrote = true;
+            }
+            if (attributesChanged)
+            {
+                // Planned from the fresh read (step 1); after the listing fields, so a new category is in place.
+                foreach (var call in AttributeEditor.Plan(model.Etsy[ListingFields.Attributes], local[ListingFields.Attributes]))
+                {
+                    logger.LogInformation("Attributes for listing {ListingId}: {Call}", listing.EtsyListingId,
+                        call.Describe(listing.Shop.EtsyShopId, listing.EtsyListingId, $"property {call.PropertyId}"));
+                    if (call.Kind == AttributeCallKind.Delete)
+                        await etsy.DeleteListingPropertyAsync(listing.Shop.EtsyShopId, listing.EtsyListingId, call.PropertyId, auth, ct);
+                    else
+                        await etsy.UpdateListingPropertyAsync(listing.Shop.EtsyShopId, listing.EtsyListingId, call.PropertyId,
+                            call.ValueIds, call.Values, call.ScaleId, auth, ct);
+                    wrote = true;
+                }
+            }
+            if (personalizationChanged)
+            {
+                var questions = local[ListingFields.Personalization] as JsonArray ?? [];
+                logger.LogInformation("Pushing {Count} personalization questions for listing {ListingId}", questions.Count, listing.EtsyListingId);
+                if (questions.Count == 0)
+                    await etsy.DeleteListingPersonalizationAsync(listing.Shop.EtsyShopId, listing.EtsyListingId, auth, ct);
+                else // ids from the fresh read, so the questions that stay are updated in place
+                    await etsy.UpdateListingPersonalizationAsync(listing.Shop.EtsyShopId, listing.EtsyListingId,
+                        PersonalizationEditor.Body(questions, listing.PersonalizationJson), auth, ct);
                 wrote = true;
             }
             if (photosChanged)
@@ -256,8 +292,8 @@ public static class ListingFormMapper
             var value = local[key];
             switch (key)
             {
-                case ListingFields.Inventory:
-                    continue; // written through updateListingInventory
+                case ListingFields.Inventory or ListingFields.Images or ListingFields.Attributes or ListingFields.Personalization:
+                    continue; // written through their own calls
                 case "tags" or "materials" or "production_partner_ids":
                     // Array fields are sent comma-separated (Etsy doesn't allow commas inside tags or materials).
                     form.Add(new(key, string.Join(",", (value?.AsArray() ?? []).Select(v => v?.ToString()))));

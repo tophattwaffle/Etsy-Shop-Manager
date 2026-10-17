@@ -36,3 +36,30 @@ public sealed class EtsyOfferingUpdate
     [JsonPropertyName("is_enabled")] public bool IsEnabled { get; set; }
     [JsonPropertyName("readiness_state_id")] public long? ReadinessStateId { get; set; }
 }
+
+/// <summary>Body of updateListingPersonalization. Etsy replaces all of the listing's questions with these.</summary>
+public sealed class EtsyPersonalizationUpdate
+{
+    [JsonPropertyName("personalization_questions")] public List<EtsyPersonalizationQuestionUpdate> PersonalizationQuestions { get; set; } = [];
+}
+
+/// <summary>A question to write. Ids are given for questions (and options) that already exist, left out for new ones.</summary>
+public sealed class EtsyPersonalizationQuestionUpdate
+{
+    [JsonPropertyName("question_id")] public long? QuestionId { get; set; }
+    [JsonPropertyName("question_text")] public string QuestionText { get; set; } = "";
+    [JsonPropertyName("instructions")] public string? Instructions { get; set; }
+    [JsonPropertyName("question_type")] public string QuestionType { get; set; } = "text_input";
+    [JsonPropertyName("required")] public bool Required { get; set; }
+    [JsonPropertyName("max_allowed_characters")] public long? MaxAllowedCharacters { get; set; }
+    [JsonPropertyName("max_allowed_files")] public long? MaxAllowedFiles { get; set; }
+    [JsonPropertyName("options")] public List<EtsyPersonalizationOptionUpdate>? Options { get; set; }
+    /// <summary>In the shop's currency (a number, e.g. 2.5), unlike the money object Etsy returns.</summary>
+    [JsonPropertyName("add_on_price")] public decimal? AddOnPrice { get; set; }
+}
+
+public sealed class EtsyPersonalizationOptionUpdate
+{
+    [JsonPropertyName("option_id")] public long? OptionId { get; set; }
+    [JsonPropertyName("label")] public string Label { get; set; } = "";
+}

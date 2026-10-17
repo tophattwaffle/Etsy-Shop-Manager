@@ -39,7 +39,7 @@ public class ListingEditModelTests
         Assert.Equal(["title"], m.PendingFields);
         m.Set("title", "Vase");
         Assert.False(m.HasDraft);
-        Assert.Throws<ArgumentException>(() => m.Set("attributes", new JsonArray())); // not editable in the app
+        Assert.Throws<ArgumentException>(() => m.Set("styles", new JsonArray())); // not editable: Etsy's API can't change styles
     }
 
     [Fact]

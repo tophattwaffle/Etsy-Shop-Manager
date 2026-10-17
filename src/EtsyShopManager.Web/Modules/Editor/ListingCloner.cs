@@ -29,8 +29,8 @@ public sealed record ClonePayload(int CloneId);
 
 /// <summary>
 /// Copies a listing (its local version, including edits not pushed yet) into a new Etsy <b>draft</b>, in the same shop or
-/// the other one: listing fields, category attributes, variations with prices and stock, and photos in order with
-/// alt text. Nothing is activated; Etsy charges its listing fee only when the draft is published.
+/// the other one: listing fields, category attributes, personalization, variations with prices and stock, and photos in
+/// order with alt text. Nothing is activated; Etsy charges its listing fee only when the draft is published.
 /// </summary>
 public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, ImageStore images, IJobQueue jobs, ISettingsStore settings,
     IAuditLog audit, TimeProvider time)
@@ -88,7 +88,7 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
             blockers.Add($"{(missing.Count == 1 ? "Photo" : "Photos")} {string.Join(", ", missing)} {(missing.Count == 1 ? "isn't" : "aren't")} " +
                          "downloaded in the app yet; wait for the photo download (or import again) first.");
         if (photos.Count == 0) warnings.Add("The listing has no photos; the draft will have none.");
-        warnings.Add("Personalization settings aren't copied; set them on Etsy before publishing if the listing uses them.");
+        blockers.AddRange(PersonalizationEditor.Problems(local[ListingFields.Personalization]));
         if (!sameShop && ((JsonArray?)local["production_partner_ids"])?.Count > 0)
             warnings.Add("Production partners belong to a shop, so they aren't copied to the other shop.");
         warnings.Add("The copy is created as a draft: not visible to buyers, and Etsy charges its listing fee only when you publish it.");
@@ -104,6 +104,10 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
             $"{(choice.ShopSectionId is null ? "" : $", section {Name(targetLookups.Sections, choice.ShopSectionId)}")})",
         };
         if (attributes > 0) calls.Add($"PUT /v3/application/shops/{shop}/listings/(new)/properties/…  ×{attributes} (category attributes, one call each)");
+        var questions = PersonalizationEditor.FromManaged(local[ListingFields.Personalization]).Count;
+        if (questions > 0)
+            calls.Add($"POST /v3/application/shops/{shop}/listings/(new)/personalization?supports_multiple_personalization_questions=true  " +
+                      $"({questions} personalization question{(questions == 1 ? "" : "s")})");
         if (variations > 0)
         {
             var combinations = local[ListingFields.Inventory]?["products"]?.AsArray().Count ?? 0;
@@ -256,7 +260,14 @@ public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, L
                 await etsy.UpdateListingPropertyAsync(shop, newEtsyId.Value, propertyId,
                     [.. (a["value_ids"]?.AsArray() ?? []).Select(v => (long)v!)], [.. (a["values"]?.AsArray() ?? []).Select(v => (string)v!)],
                     (long?)a["scale_id"], auth, ct);
-                log.Add($"Set attribute {(string?)a["property_name"] ?? propertyId.ToString(CultureInfo.InvariantCulture)}.");
+                log.Add($"Set attribute {propertyId.ToString(CultureInfo.InvariantCulture)} ({string.Join(", ", (a["values"]?.AsArray() ?? []).Select(v => (string?)v))}).");
+            }
+
+            // 2b. Personalization (new questions: no ids; they're the source's questions, not the draft's).
+            if (local[ListingFields.Personalization] is JsonArray { Count: > 0 } questions)
+            {
+                await etsy.UpdateListingPersonalizationAsync(shop, newEtsyId.Value, PersonalizationEditor.Body(questions, null), auth, ct);
+                log.Add($"Set {questions.Count} personalization question{(questions.Count == 1 ? "" : "s")}.");
             }
 
             // 3. Variations, prices and stock (from a fresh read of the source, so stock and order are Etsy's).
