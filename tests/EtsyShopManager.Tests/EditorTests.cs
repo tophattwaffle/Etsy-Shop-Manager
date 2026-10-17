@@ -263,6 +263,65 @@ public class ListingPushTests
     }
 
     [Fact]
+    public async Task A_half_written_push_is_reconciled_so_its_own_changes_are_not_drift()
+    {
+        var (shop, id) = await ImportedAsync();
+        using var _ = shop;
+        await Editor(shop).SaveAsync(id, new Dictionary<string, JsonNode?>
+        {
+            ["title"] = "Mine",
+            [ListingFields.Inventory] = await InventoryWithSmallPriceAsync(shop, id, 2199),
+        }, "tophattwaffle");
+        var (pushId, _) = await Editor(shop).RequestPushAsync(id, "tophattwaffle");
+        shop.FailInventoryWritesWith = System.Net.HttpStatusCode.BadRequest; // the title goes through, the prices don't
+
+        await Assert.ThrowsAsync<JobPermanentFailureException>(() => RunPushAsync(shop, pushId!.Value));
+
+        Assert.Equal(["PATCH", "PUT"], shop.Writes.Select(w => w.Method));
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var push = await db.ListingPushes.SingleAsync();
+            Assert.Equal(ListingPushStatus.PartlyApplied, push.Status);
+            Assert.Contains("Applied before the error: Title", push.Error);
+        }
+        shop.FailInventoryWritesWith = null;
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+
+        var l = await ListingAsync(shop, id);
+        Assert.Equal("Mine", l.Title);
+        Assert.False(l.HasDrift); // the title change was ours, not a change on etsy.com
+        Assert.Empty(shop.Events.Events.OfType<DriftDetected>());
+        var preview = await Editor(shop).PreviewAsync(id);
+        Assert.Equal([ListingFields.Inventory], preview.Changes.Select(c => c.Key)); // only the prices are left to push
+        Assert.Empty(preview.Blockers);
+    }
+
+    [Fact]
+    public async Task A_push_whose_job_was_cancelled_does_not_block_the_listing()
+    {
+        var (shop, id) = await ImportedAsync();
+        using var _ = shop;
+        await Editor(shop).SaveAsync(id, new Dictionary<string, JsonNode?> { ["title"] = "Mine" }, "tophattwaffle");
+        var (pushId, _) = await Editor(shop).RequestPushAsync(id, "tophattwaffle");
+        long jobId;
+        await using (var db = shop.Db.CreateDbContext())
+            jobId = (await db.ListingPushes.SingleAsync(p => p.Id == pushId)).JobId!.Value;
+
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            db.Jobs.Add(new Job { Id = jobId, JobType = PushListingJob.Type, Status = JobStatus.Pending });
+            await db.SaveChangesAsync();
+        }
+        Assert.Contains((await Editor(shop).PreviewAsync(id)).Blockers, b => b.Contains("already queued or running"));
+
+        // Cancelled on the Jobs page before it ran: the push never finishes, but the listing must not stay blocked.
+        await using (var db = shop.Db.CreateDbContext())
+            await db.Jobs.Where(j => j.Id == jobId).ExecuteUpdateAsync(s => s.SetProperty(j => j.Status, JobStatus.Cancelled));
+
+        Assert.True((await Editor(shop).PreviewAsync(id)).CanPush);
+    }
+
+    [Fact]
     public async Task Preview_blocks_invalid_edits()
     {
         var (shop, id) = await ImportedAsync();
@@ -391,6 +450,23 @@ public class StockRefillTests
 
         var body = JsonNode.Parse(Assert.Single(shop.Writes).Body)!;
         Assert.All(body["products"]!.AsArray(), p => Assert.Equal(999, (int)p!["offerings"]![0]!["quantity"]!));
+    }
+
+    [Fact]
+    public async Task A_refill_Etsy_rejects_is_shown_on_the_listing_and_not_retried()
+    {
+        var (shop, id) = await SetupAsync(smallQty: 3, largeQty: 50, quantityVaries: true);
+        using var _ = shop;
+        shop.FailWritesWith = System.Net.HttpStatusCode.BadRequest;
+
+        await Assert.ThrowsAsync<JobPermanentFailureException>(() => Refiller(shop).RefillListingAsync(id, CancellationToken.None));
+
+        await using var db = shop.Db.CreateDbContext();
+        var settings = await db.ListingRefills.SingleAsync();
+        Assert.Contains("Etsy rejected the refill", settings.Problem);
+        Assert.Equal(settings.Problem, settings.LastResult);
+        Assert.NotNull(settings.LastCheckedAtUtc);
+        Assert.Null(settings.LastRefilledAtUtc);
     }
 
     [Theory]

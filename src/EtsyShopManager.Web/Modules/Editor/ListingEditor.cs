@@ -103,8 +103,11 @@ public sealed class ListingEditor(
             .Include(l => l.EtsyState)
             .FirstOrDefaultAsync(l => l.Id == listingId, ct)
             ?? throw new InvalidOperationException($"Listing {listingId} not found.");
+        // Only while its job is still waiting or running: a job cancelled on the Jobs page, or one that timed out,
+        // leaves its push unfinished and must not block the listing for good.
         var busy = await db.ListingPushes.AnyAsync(p => p.ListingId == listingId
-            && (p.Status == ListingPushStatus.Pending || p.Status == ListingPushStatus.Running), ct);
+            && (p.Status == ListingPushStatus.Pending || p.Status == ListingPushStatus.Running)
+            && db.Jobs.Any(j => j.Id == p.JobId && (j.Status == JobStatus.Pending || j.Status == JobStatus.Running)), ct);
         return Preview(listing, Model(listing), busy);
     }
 
@@ -207,6 +210,13 @@ public sealed class ListingEditor(
             MaxAttempts = 1, // writes are not retried blindly; the person can push again after reading the error
             CreatedBy = user,
         }, ct);
+        if (push.JobId is null)
+        {
+            push.Status = ListingPushStatus.Failed;
+            push.Error = "A push for this listing is already queued.";
+            await db.SaveChangesAsync(ct);
+            return (null, [push.Error]);
+        }
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("listing.push-requested", nameof(Listing), listing.EtsyListingId.ToString(),
             string.Join(", ", preview.Changes.Select(c => c.Label)), user, ct);

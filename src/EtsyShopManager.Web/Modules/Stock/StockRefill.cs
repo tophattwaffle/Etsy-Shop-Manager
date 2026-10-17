@@ -92,7 +92,20 @@ public sealed class StockRefiller(
             if (plan.ContainsKey(offering.OfferingId)) update.Quantity = settings.RefillTo;
             return update;
         });
-        var updated = await etsy.UpdateListingInventoryAsync(listing.EtsyListingId, body, auth, ct);
+        EtsyInventory updated;
+        try
+        {
+            updated = await etsy.UpdateListingInventoryAsync(listing.EtsyListingId, body, auth, ct);
+        }
+        catch (EtsyApiException ex) when ((int)ex.StatusCode is >= 400 and < 500 and not 429)
+        {
+            // Etsy refused the inventory (e.g. it no longer accepts the listing's current setup). Retrying the same
+            // write won't help; show it on the listing so it isn't mistaken for "stock is fine".
+            settings.Problem = $"Etsy rejected the refill: {ex.Message}";
+            settings.LastResult = settings.Problem;
+            await db.SaveChangesAsync(CancellationToken.None);
+            throw new JobPermanentFailureException(settings.Problem, ex);
+        }
 
         // Keep the local copy current (Etsy issues new product/offering ids on every inventory write).
         var tracked = await db.Listings.Include(l => l.Products).ThenInclude(p => p.Offerings)

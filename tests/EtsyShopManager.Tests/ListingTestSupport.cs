@@ -364,6 +364,9 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>Fails writes (PATCH/PUT) with this status, e.g. to test a failed push.</summary>
     public HttpStatusCode? FailWritesWith { get; set; }
 
+    /// <summary>Fails only updateListingInventory (PUT) with this status: a push that is half written.</summary>
+    public HttpStatusCode? FailInventoryWritesWith { get; set; }
+
     public JsonObject ListingJson(long id) => Listings.Single(l => (long)l["listing_id"]! == id);
 
     private long _nextEtsyId = 900_000;
@@ -413,7 +416,7 @@ internal sealed class FakeEtsyShop : IDisposable
             {
                 var body = req.Content!.ReadAsStringAsync().Result;
                 Writes.Add(("PUT", path, body));
-                if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+                if ((FailWritesWith ?? FailInventoryWritesWith) is { } status) return new HttpResponseMessage(status);
                 var update = JsonNode.Parse(body)!.AsObject();
                 // Etsy stores the new table and issues new product/offering ids.
                 var products = new JsonArray(update["products"]!.AsArray().Select(p => (JsonNode)new JsonObject

@@ -54,7 +54,7 @@ public sealed class PushListingJob(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await FinishAsync(pushId, ListingPushStatus.Failed, ex.Message);
+            await FinishAsync(pushId, ListingPushStatus.Failed, ex.Message, onlyIfRunning: true);
             throw ex is RetryLaterException ? new JobPermanentFailureException(ex.Message, ex) : ex;
         }
     }
@@ -95,33 +95,38 @@ public sealed class PushListingJob(
         var inventory = await etsy.GetListingInventoryAsync(listing.EtsyListingId, auth, ct);
         var snapshotId = await SnapshotAsync(listing, inventory, "Before push", ct);
 
-        // 3. Write.
-        if (listingFields.Count > 0)
+        // 3. Write. Once something is written, a later failure must still reconcile; otherwise the next import would
+        // report the fields this push changed as drift (changed on Etsy) and block further pushes.
+        var wrote = false;
+        try
         {
-            var form = ListingFormMapper.ToForm(local, listingFields);
-            logger.LogInformation("Pushing {Fields} for listing {ListingId}", string.Join(", ", listingFields), listing.EtsyListingId);
-            await etsy.UpdateListingAsync(listing.Shop.EtsyShopId, listing.EtsyListingId, form, auth, ct);
+            if (listingFields.Count > 0)
+            {
+                var form = ListingFormMapper.ToForm(local, listingFields);
+                logger.LogInformation("Pushing {Fields} for listing {ListingId}", string.Join(", ", listingFields), listing.EtsyListingId);
+                await etsy.UpdateListingAsync(listing.Shop.EtsyShopId, listing.EtsyListingId, form, auth, ct);
+                wrote = true;
+            }
+            if (inventoryChanged)
+            {
+                var body = InventoryWriter.WithLocalPrices(inventory, local[ListingFields.Inventory]!);
+                logger.LogInformation("Pushing prices/processing for listing {ListingId}", listing.EtsyListingId);
+                await etsy.UpdateListingInventoryAsync(listing.EtsyListingId, body, auth, ct);
+            }
         }
-        if (inventoryChanged)
+        catch (Exception ex) when (wrote && ex is not OperationCanceledException)
         {
-            var body = InventoryWriter.WithLocalPrices(inventory, local[ListingFields.Inventory]!);
-            logger.LogInformation("Pushing prices/processing for listing {ListingId}", listing.EtsyListingId);
-            await etsy.UpdateListingInventoryAsync(listing.EtsyListingId, body, auth, ct);
+            logger.LogWarning(ex, "Push {PushId} failed after a partial write; reconciling listing {ListingId}", pushId, listing.EtsyListingId);
+            var rest = await ReconcileAsync(pushId, listingId, snapshotId, ct);
+            var applied = preview.Changes.Select(c => c.Key).Except(rest).Select(ListingEditor.Label);
+            var message = $"{ex.Message} Applied before the error: {string.Join(", ", applied)}; the rest is still in your edits.";
+            await FinishAsync(pushId, ListingPushStatus.PartlyApplied, message);
+            await audit.WriteAsync("listing.pushed", nameof(Listing), listing.EtsyListingId.ToString(), message, "system", ct);
+            throw new JobPermanentFailureException(message, ex);
         }
 
         // 4. Re-read and reconcile: Etsy's new state is agreed; what Etsy didn't take stays in the draft.
-        await importer.RefreshListingAsync(listingId, ct, raiseDriftEvents: false);
-        IReadOnlyList<string> notApplied;
-        await using (var db = await dbFactory.CreateDbContextAsync(ct))
-        {
-            var row = await db.Listings.Include(l => l.EtsyState).FirstAsync(l => l.Id == listingId, ct);
-            var after = ListingEditModel.Parse(row.EtsyState!.ManagedJson, row.EtsyState.BaseJson, row.DraftJson);
-            notApplied = after.AcceptPushed(JsonNode.Parse(row.EtsyState.ManagedJson)!.AsObject());
-            ListingMapper.Apply(row, after);
-            var push = await db.ListingPushes.FirstAsync(p => p.Id == pushId, ct);
-            push.SnapshotId = snapshotId;
-            await db.SaveChangesAsync(ct);
-        }
+        var notApplied = await ReconcileAsync(pushId, listingId, snapshotId, ct);
 
         var pushed = preview.Changes.Select(c => c.Key).Except(notApplied).ToList();
         var labels = string.Join(", ", pushed.Select(ListingEditor.Label));
@@ -138,6 +143,21 @@ public sealed class PushListingJob(
         await audit.WriteAsync("listing.pushed", nameof(Listing), listing.EtsyListingId.ToString(), labels, "system", ct);
         await events.PublishAsync(new ListingPushed(listing.ShopId, listingId, listing.EtsyListingId, pushId, pushed), ct);
         return $"pushed {labels}";
+    }
+
+    /// <summary>Re-reads the listing: Etsy's new state becomes agreed. Returns the draft fields Etsy doesn't hold.</summary>
+    private async Task<IReadOnlyList<string>> ReconcileAsync(int pushId, int listingId, int snapshotId, CancellationToken ct)
+    {
+        await importer.RefreshListingAsync(listingId, ct, raiseDriftEvents: false);
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var row = await db.Listings.Include(l => l.EtsyState).FirstAsync(l => l.Id == listingId, ct);
+        var after = ListingEditModel.Parse(row.EtsyState!.ManagedJson, row.EtsyState.BaseJson, row.DraftJson);
+        var notApplied = after.AcceptPushed(JsonNode.Parse(row.EtsyState.ManagedJson)!.AsObject());
+        ListingMapper.Apply(row, after);
+        var push = await db.ListingPushes.FirstAsync(p => p.Id == pushId, ct);
+        push.SnapshotId = snapshotId;
+        await db.SaveChangesAsync(ct);
+        return notApplied;
     }
 
     private async Task<int> SnapshotAsync(Listing listing, Etsy.Models.EtsyInventory inventory, string reason, CancellationToken ct)
@@ -157,11 +177,12 @@ public sealed class PushListingJob(
         return snapshot.Id;
     }
 
-    private async Task FinishAsync(int pushId, ListingPushStatus status, string? error)
+    /// <param name="onlyIfRunning">Leave a push that already has its outcome recorded alone.</param>
+    private async Task FinishAsync(int pushId, ListingPushStatus status, string? error, bool onlyIfRunning = false)
     {
         await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
         var now = time.GetUtcNow().UtcDateTime;
-        await db.ListingPushes.Where(p => p.Id == pushId).ExecuteUpdateAsync(s => s
+        await db.ListingPushes.Where(p => p.Id == pushId && (!onlyIfRunning || p.Status == ListingPushStatus.Running)).ExecuteUpdateAsync(s => s
             .SetProperty(p => p.Status, status)
             .SetProperty(p => p.CompletedAtUtc, now)
             .SetProperty(p => p.Error, error), CancellationToken.None);
