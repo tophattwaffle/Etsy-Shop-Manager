@@ -95,6 +95,9 @@ public class ListingCloneTests
         var copy = await db.Listings.SingleAsync(l => l.Id == clone.NewListingId);
         Assert.Equal(("draft", "Galaxy vase (copy)"), (copy.State, copy.Title));
         Assert.DoesNotContain(shop.Writes, w => w.Body.Contains("state=active")); // never published
+        // The copy's photos are downloaded right away, so the Listings page shows them without an import.
+        Assert.Contains(shop.Provider.GetRequiredService<RecordingJobQueue>().Requests,
+            r => r.JobType == DownloadListingImagesJob.Type && r.ShopId == FakeEtsyShop.ShopId);
     }
 
     [Fact]

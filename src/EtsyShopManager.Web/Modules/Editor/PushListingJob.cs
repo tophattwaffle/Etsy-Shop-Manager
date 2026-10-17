@@ -26,6 +26,7 @@ namespace EtsyShopManager.Web.Modules.Editor;
 public sealed class PushListingJob(
     IDbContextFactory<AppDbContext> dbFactory,
     ListingImporter importer,
+    ListingImportQueue importQueue,
     ImageStore images,
     EtsyApiClient etsy,
     IDomainEventPublisher events,
@@ -211,6 +212,8 @@ public sealed class PushListingJob(
         var push = await db.ListingPushes.FirstAsync(p => p.Id == pushId, ct);
         push.SnapshotId = snapshotId;
         await db.SaveChangesAsync(ct);
+        // Uploaded photos come back as new image rows without files: fetch them (and their thumbnails) now, as an import does.
+        if (uploaded.Count > 0) await importQueue.DownloadImagesAsync(row.ShopId, "push", $"push:{pushId}", ct);
         return notApplied;
     }
 

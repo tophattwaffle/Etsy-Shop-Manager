@@ -175,6 +175,9 @@ public class PhotoPushTests
         await using var db = shop.Db.CreateDbContext();
         Assert.False((await db.Listings.SingleAsync()).HasDraft); // the upload's new Etsy id replaced the file reference
         Assert.Equal(ListingPushStatus.Succeeded, (await db.ListingPushes.SingleAsync()).Status);
+        // The new photo is a new image row; its files (and thumbnail for the Listings page) come with the photo download.
+        Assert.Contains(shop.Provider.GetRequiredService<RecordingJobQueue>().Requests,
+            r => r.JobType == EtsyShopManager.Web.Modules.Listings.DownloadListingImagesJob.Type && r.ShopId == FakeEtsyShop.ShopId);
     }
 
     [Fact]
