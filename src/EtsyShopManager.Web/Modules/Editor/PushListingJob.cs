@@ -43,6 +43,11 @@ public sealed class PushListingJob(
         {
             var push = await db.ListingPushes.FirstOrDefaultAsync(p => p.Id == pushId, ct)
                        ?? throw new JobPermanentFailureException($"Push {pushId} not found.");
+            // Only a waiting push runs (or one a restart interrupted). A finished one re-run from the Jobs page would
+            // send whatever the draft holds now, without the review the push was requested with.
+            if (push.Status is not (ListingPushStatus.Pending or ListingPushStatus.Running))
+                throw new JobPermanentFailureException(
+                    $"Push {pushId} already finished ({push.Status}). Review the changes and push again from the editor.");
             listingId = push.ListingId;
             push.Status = ListingPushStatus.Running;
             await db.SaveChangesAsync(ct);

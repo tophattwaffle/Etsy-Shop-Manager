@@ -263,6 +263,31 @@ public class ListingPushTests
     }
 
     [Fact]
+    public async Task Retrying_a_finished_push_job_sends_nothing()
+    {
+        // "Retry" on the Jobs page re-runs the job with the same push id. Pushes go out only after a reviewed preview,
+        // so a push that already finished must not send whatever the draft holds now.
+        var (shop, id) = await ImportedAsync();
+        using var _ = shop;
+        await Editor(shop).SaveAsync(id, new Dictionary<string, JsonNode?> { ["title"] = "Mine" }, "tophattwaffle");
+        var (pushId, _) = await Editor(shop).RequestPushAsync(id, "tophattwaffle");
+        shop.FailWritesWith = System.Net.HttpStatusCode.BadRequest;
+        await Assert.ThrowsAsync<EtsyShopManager.Etsy.EtsyApiException>(() => RunPushAsync(shop, pushId!.Value));
+        shop.FailWritesWith = null;
+        shop.Writes.Clear();
+        await Editor(shop).SaveAsync(id, new Dictionary<string, JsonNode?> { ["title"] = "Changed after the preview" }, "tophattwaffle");
+
+        var ex = await Assert.ThrowsAsync<JobPermanentFailureException>(() => RunPushAsync(shop, pushId!.Value));
+
+        Assert.Empty(shop.Writes);
+        Assert.Contains("push again from the editor", ex.Message);
+        await using var db = shop.Db.CreateDbContext();
+        var push = await db.ListingPushes.SingleAsync();
+        Assert.Equal(ListingPushStatus.Failed, push.Status);
+        Assert.Contains("400", push.Error); // the original outcome is kept
+    }
+
+    [Fact]
     public async Task A_half_written_push_is_reconciled_so_its_own_changes_are_not_drift()
     {
         var (shop, id) = await ImportedAsync();
