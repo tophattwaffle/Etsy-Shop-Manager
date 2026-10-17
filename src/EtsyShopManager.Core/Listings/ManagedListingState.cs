@@ -19,8 +19,9 @@ namespace EtsyShopManager.Core.Listings;
 public sealed record ManagedListingState
 {
     /// <summary>Bump when the field set or normalisation changes, so old hashes are not compared with new ones.</summary>
-    /// <remarks>2: title, description, tags, materials and styles are HTML-decoded.</remarks>
-    public const int CurrentVersion = 2;
+    /// <remarks>2: title, description, tags, materials and styles are HTML-decoded. 3: properties keep their name (variation
+    /// names such as "Bulk Pricing", needed to add or rename variations).</remarks>
+    public const int CurrentVersion = 3;
 
     public string State { get; init; } = "";
     public string Title { get; init; } = "";
@@ -113,10 +114,10 @@ public sealed record ManagedListingState
     private static string NormalizeNewlines(string s) => s.Replace("\r\n", "\n");
 }
 
-public sealed record ManagedProperty(long PropertyId, long? ScaleId, List<long> ValueIds, List<string> Values)
+public sealed record ManagedProperty(long PropertyId, string? PropertyName, long? ScaleId, List<long> ValueIds, List<string> Values)
 {
     public static ManagedProperty From(PropertyValue v) =>
-        new(v.PropertyId, v.ScaleId, [.. v.ValueIds], [.. v.Values]);
+        new(v.PropertyId, v.PropertyName, v.ScaleId, [.. v.ValueIds], [.. v.Values]);
 
     /// <summary>Sort key for a product: its variation values, independent of Etsy's product ids.</summary>
     [JsonIgnore]

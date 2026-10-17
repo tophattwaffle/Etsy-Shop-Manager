@@ -44,7 +44,7 @@ public sealed class ListingEditor(
         var listing = await db.Listings.AsNoTracking()
             .Include(l => l.Shop).ThenInclude(s => s.Token)
             .Include(l => l.EtsyState)
-            .Include(l => l.Products)
+            .Include(l => l.Products).ThenInclude(p => p.Offerings)
             .Include(l => l.Images.OrderBy(i => i.Rank))
             .AsSplitQuery()
             .FirstOrDefaultAsync(l => l.Id == listingId, ct);
@@ -102,7 +102,7 @@ public sealed class ListingEditor(
         var listing = await db.Listings.AsNoTracking()
             .Include(l => l.Shop).ThenInclude(s => s.Token)
             .Include(l => l.EtsyState)
-            .Include(l => l.Products) // variation names for messages
+            .Include(l => l.Products).ThenInclude(p => p.Offerings).AsSplitQuery() // variation names and stock for the preview
             .FirstOrDefaultAsync(l => l.Id == listingId, ct)
             ?? throw new InvalidOperationException($"Listing {listingId} not found.");
         // Only while its job is still waiting or running: a job cancelled on the Jobs page, or one that timed out,
@@ -146,8 +146,19 @@ public sealed class ListingEditor(
         }
         if (changes.Any(c => c.Key == "materials") && local["materials"] is JsonArray materials && materials.Count > MaxMaterials)
             blockers.Add($"{materials.Count} materials; Etsy allows {MaxMaterials}.");
-        if (changes.Any(c => c.Key == ListingFields.Inventory))
-            blockers.AddRange(InventoryProblems(local[ListingFields.Inventory], InventoryRules.Names(listing)));
+        if (changes.Any(c => c.Key == ListingFields.Inventory) && local[ListingFields.Inventory] is { } inventory)
+        {
+            blockers.AddRange(InventoryProblems(inventory, InventoryRules.Names(listing)));
+            if (model.Etsy[ListingFields.Inventory] is { } etsyInventory)
+            {
+                warnings.AddRange(VariationEditor.Describe(etsyInventory, inventory));
+                var existing = (etsyInventory["products"]?.AsArray() ?? []).Select(InventoryWriter.ProductKey).ToHashSet();
+                var added = (inventory["products"]?.AsArray() ?? []).Count(p => !existing.Contains(InventoryWriter.ProductKey(p)));
+                if (added > 0)
+                    warnings.Add($"{added} new combination{(added == 1 ? "" : "s")} start{(added == 1 ? "s" : "")} with a stock of " +
+                                 $"{NewCombinationStock(listing)} (the listing's current stock; auto-refill keeps it topped up if it's on).");
+            }
+        }
 
         if (changes.Any(c => c.Key == ListingFields.State) && (string?)local[ListingFields.State] == "active"
             && listing.State is "inactive" or "expired" or "draft")
@@ -162,6 +173,15 @@ public sealed class ListingEditor(
         return new PushPreview(changes, blockers, warnings);
     }
 
+    /// <summary>What a new combination starts with, from the last import (the push uses a fresh read; see InventoryWriter).</summary>
+    public static int NewCombinationStock(Listing listing)
+    {
+        var enabled = listing.Products.Where(p => !p.IsDeleted)
+            .SelectMany(p => p.Offerings.Where(o => !o.IsDeleted && o.IsEnabled)).Select(o => o.Quantity).ToList();
+        if (enabled.Count == 0) return Math.Max(1, listing.Quantity);
+        return Math.Max(1, listing.QuantityOnProperty.Count == 0 ? enabled.Max() : enabled.Min());
+    }
+
     /// <summary>The stored Etsy state predates the current managed-field definition (e.g. before text was HTML-decoded).</summary>
     public static bool NeedsRefresh(Listing listing) =>
         listing.EtsyState is { } s && s.ManagedVersion != ManagedListingState.CurrentVersion;
@@ -170,8 +190,33 @@ public sealed class ListingEditor(
     private static IEnumerable<string> InventoryProblems(JsonNode? inventory, IReadOnlyDictionary<long, string> names)
     {
         if (inventory is null) yield break;
-        var offerings = (inventory["products"]?.AsArray() ?? [])
-            .SelectMany(p => p!["offerings"]?.AsArray() ?? []).Select(o => o!).ToList();
+        var products = (inventory["products"]?.AsArray() ?? []).Select(p => p!).ToList();
+        var offerings = products.SelectMany(p => p["offerings"]?.AsArray() ?? []).Select(o => o!).ToList();
+
+        // The variation structure: at most two variations, named, with distinct non-empty values, and every combination
+        // of values present exactly once (Etsy's inventory is the full grid).
+        var variations = VariationEditor.Variations(inventory);
+        if (variations.Count > VariationEditor.MaxVariations)
+            yield return $"{variations.Count} variations; Etsy allows {VariationEditor.MaxVariations}.";
+        foreach (var v in variations.Where(v => v.IsCustom && string.IsNullOrWhiteSpace(v.Name)))
+            yield return "Every variation needs a name.";
+        if (variations.Select(v => v.Name?.Trim()).Where(n => n is { Length: > 0 }).GroupBy(n => n, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1))
+            yield return "Two variations have the same name.";
+        foreach (var v in variations)
+        {
+            var label = v.Name ?? names.GetValueOrDefault(v.PropertyId, $"variation {v.PropertyId}");
+            if (v.Values.Any(string.IsNullOrWhiteSpace)) yield return $"{label} has an empty value.";
+            foreach (var dup in v.Values.GroupBy(x => x.Trim(), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+                yield return $"{label} has \"{dup.Key}\" more than once.";
+        }
+        var combinations = variations.Aggregate(1, (n, v) => n * v.Values.Count);
+        if (products.Any(p => (p["property_values"]?.AsArray().Count ?? 0) != variations.Count)
+            || products.Select(InventoryWriter.ProductKey).Distinct().Count() != products.Count
+            || products.Count != combinations)
+            yield return "Every combination of the variation values must appear exactly once; discard the variation changes and try again.";
+        if (offerings.Count > 0 && offerings.All(o => (bool?)o["is_enabled"] == false))
+            yield return "At least one combination must be available to buyers.";
+
         if (offerings.Any(o => (long?)o["price_amount"] is null or <= 0)) yield return "Every price must be more than zero.";
         // Variations that share the values a price varies by must share the price (all of them when it varies by nothing).
         if (InventoryRules.Groups(inventory, "price_on_property").Any(g => g.Offerings.Select(o => (long?)o["price_amount"]).Distinct().Count() > 1))

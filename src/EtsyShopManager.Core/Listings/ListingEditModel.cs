@@ -19,7 +19,7 @@ public static class ListingFields
     [
         new("title", "Title", true, true),
         new("description", "Description", true, true),
-        new(Inventory, "Prices and processing", true, true),
+        new(Inventory, "Variations, prices and processing", true, true),
         new("tags", "Tags", true, true),
         new("materials", "Materials", true, true),
         new("taxonomy_id", "Category", true, true),

@@ -45,6 +45,7 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-w-lg { max-width: 420px; }
 .esm-minw-sm { min-width: 160px; }
 .esm-minw-md { min-width: 220px; }
+.esm-minw-price { min-width: 110px; }
 .esm-col-icon { width: 32px; }
 
 /* ---- App shell: white (charcoal) bar and sidebar with hairline edges, pill navigation ---- */
@@ -437,3 +438,12 @@ a.lp-status-error:hover { text-decoration: underline; }
 .esm-drift-label { font-weight: 600; }
 .esm-drift-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 760px) { .esm-drift-row { grid-template-columns: 1fr; gap: 6px; } }
+
+/* ---- Listing editor: variations ---- */
+.esm-variations { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.esm-variation { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--esm-line); border-radius: var(--esm-radius-sm); }
+.esm-variation-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.esm-variation-name { font-weight: 600; }
+.esm-variation-values { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.esm-variation-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.esm-variation-add .mud-input-control { margin: 0; }
