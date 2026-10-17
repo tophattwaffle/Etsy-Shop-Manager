@@ -73,7 +73,7 @@ public sealed class PushListingJob(
         ListingEditModel model;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            listing = await db.Listings.AsNoTracking().Include(l => l.Shop).ThenInclude(s => s.Token).Include(l => l.EtsyState)
+            listing = await db.Listings.AsNoTracking().Include(l => l.Shop).ThenInclude(s => s.Token).Include(l => l.EtsyState).Include(l => l.Products)
                 .FirstAsync(l => l.Id == listingId, ct);
             model = ListingEditModel.Parse(listing.EtsyState!.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         }
