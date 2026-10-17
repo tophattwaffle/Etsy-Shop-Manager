@@ -105,7 +105,6 @@ public sealed class PushListingJob(
         // 3. Write. Once something is written, a later failure must still reconcile; otherwise the next import would
         // report the fields this push changed as drift (changed on Etsy) and block further pushes.
         var wrote = false;
-        var photosWritten = false;
         var uploaded = new Dictionary<string, long>(); // file name -> Etsy's new image id
         try
         {
@@ -117,7 +116,7 @@ public sealed class PushListingJob(
                 wrote = true;
             }
             if (photosChanged)
-                await PushPhotosAsync(listing, local[ListingFields.Images]!.AsArray(), auth, uploaded, () => wrote = photosWritten = true, ct);
+                await PushPhotosAsync(listing, local[ListingFields.Images]!.AsArray(), auth, uploaded, () => wrote = true, ct);
             if (inventoryChanged)
             {
                 var body = InventoryWriter.FromLocal(inventory, local[ListingFields.Inventory]!);
@@ -128,7 +127,7 @@ public sealed class PushListingJob(
         catch (Exception ex) when (wrote && ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Push {PushId} failed after a partial write; reconciling listing {ListingId}", pushId, listing.EtsyListingId);
-            var rest = await ReconcileAsync(pushId, listingId, snapshotId, uploaded, photosWritten, ct);
+            var rest = await ReconcileAsync(pushId, listingId, snapshotId, uploaded, ct);
             var applied = preview.Changes.Select(c => c.Key).Except(rest).Select(ListingEditor.Label);
             var message = $"{ex.Message} Applied before the error: {string.Join(", ", applied)}; the rest is still in your edits.";
             await FinishAsync(pushId, ListingPushStatus.PartlyApplied, message);
@@ -137,7 +136,7 @@ public sealed class PushListingJob(
         }
 
         // 4. Re-read and reconcile: Etsy's new state is agreed; what Etsy didn't take stays in the draft.
-        var notApplied = await ReconcileAsync(pushId, listingId, snapshotId, uploaded, photosWritten, ct);
+        var notApplied = await ReconcileAsync(pushId, listingId, snapshotId, uploaded, ct);
 
         var pushed = preview.Changes.Select(c => c.Key).Except(notApplied).ToList();
         var labels = string.Join(", ", pushed.Select(ListingEditor.Label));
@@ -158,10 +157,8 @@ public sealed class PushListingJob(
 
     /// <summary>Re-reads the listing: Etsy's new state becomes agreed. Returns the draft fields Etsy doesn't hold.</summary>
     private async Task<IReadOnlyList<string>> ReconcileAsync(int pushId, int listingId, int snapshotId,
-        IReadOnlyDictionary<string, long> uploaded, bool photosWritten, CancellationToken ct)
+        IReadOnlyDictionary<string, long> uploaded, CancellationToken ct)
     {
-        // Etsy shows a new photo order only after up to ~2 minutes (measured); reading sooner would report it as not applied.
-        if (photosWritten) await Task.Delay(PhotoEditor.SettleTime, time, ct);
         await importer.RefreshListingAsync(listingId, ct, raiseDriftEvents: false);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var row = await db.Listings.Include(l => l.EtsyState).FirstAsync(l => l.Id == listingId, ct);
@@ -189,7 +186,7 @@ public sealed class PushListingJob(
         Action markWrote, CancellationToken ct)
     {
         var current = (await etsy.GetListingImagesAsync(listing.EtsyListingId, auth, ct)).OrderBy(i => i.Rank)
-            .Select(i => (i.ListingImageId, ListingMapper.Text(i.AltText))).ToList();
+            .Select(i => (i.ListingImageId, i.Rank, ListingMapper.Text(i.AltText))).ToList();
         var shopId = listing.Shop.EtsyShopId;
         var newIds = new Dictionary<long, long>(); // the plan's placeholder id of a new photo -> Etsy's id
         long Id(long planned) => planned > 0 ? planned : newIds[planned];
@@ -210,7 +207,7 @@ public sealed class PushListingJob(
                     newIds[call.ImageId] = created.ListingImageId;
                     uploaded[call.FileName!] = created.ListingImageId;
                     break;
-                default: // Move and AltText: put the photo at the position, overwrite=false
+                default: // Rank and AltText: give the photo its rank, overwrite=false (overwrite would drop the photo in that slot)
                     await etsy.RepositionListingImageAsync(shopId, listing.EtsyListingId, Id(call.ImageId), call.Rank, overwrite: false,
                         Alt(call.AltText), auth, ct);
                     break;

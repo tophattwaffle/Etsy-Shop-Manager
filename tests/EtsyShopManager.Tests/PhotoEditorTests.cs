@@ -14,30 +14,43 @@ public class PhotoEditorTests
     private static JsonArray Photos(params long[] ids) =>
         new([.. ids.Select((id, i) => (JsonNode)new JsonObject { ["etsy_image_id"] = id, ["rank"] = i + 1, ["alt_text"] = $"Photo {id}" })]);
 
-    private static IReadOnlyList<(long, string)> Etsy(params long[] ids) => [.. ids.Select(id => (id, $"Photo {id}"))];
+    /// <summary>Etsy's photos with ranks 1..n in this order.</summary>
+    private static IReadOnlyList<(long, int, string)> Etsy(params long[] ids) => [.. ids.Select((id, i) => (id, i + 1, $"Photo {id}"))];
 
     private static IEnumerable<string> Calls(IReadOnlyList<PhotoCall> calls) => calls.Select(c => $"{c.Kind} {c.ImageId}@{c.Rank}");
 
     [Fact]
-    public void A_reorder_moves_photos_into_place_from_the_front_and_skips_the_ones_already_there()
+    public void A_reorder_gives_every_photo_not_in_place_its_own_rank()
     {
-        var calls = PhotoEditor.Plan(Etsy(1, 2, 3, 4), Photos(4, 1, 2, 3));
-        Assert.Equal(["Move 4@1"], Calls(calls)); // one move: the others shift down by themselves
-
-        calls = PhotoEditor.Plan(Etsy(1, 2, 3), Photos(3, 2, 1));
-        Assert.Equal(["Move 3@1", "Move 2@2"], Calls(calls)); // then 1 is already last
+        // Etsy doesn't renumber the others when one photo gets a rank, so every photo after the front one needs its own.
+        Assert.Equal(["Rank 4@1", "Rank 1@2", "Rank 2@3", "Rank 3@4"], Calls(PhotoEditor.Plan(Etsy(1, 2, 3, 4), Photos(4, 1, 2, 3))));
+        Assert.Equal(["Rank 2@1", "Rank 1@2"], Calls(PhotoEditor.Plan(Etsy(1, 2, 3), Photos(2, 1, 3))));
         Assert.Empty(PhotoEditor.Plan(Etsy(1, 2, 3), Photos(1, 2, 3)));
     }
 
     [Fact]
-    public void Deletions_go_first_new_photos_are_added_at_the_end_then_moved_into_place()
+    public void Gaps_and_ties_in_Etsys_ranks_are_cleaned_up()
+    {
+        // Real ranks on listing 1387884604 were 1, 2, 3, 4, 6, 7; after the third test run two photos shared rank 1.
+        IReadOnlyList<(long, int, string)> gaps = [(1, 1, "Photo 1"), (2, 2, "Photo 2"), (3, 3, "Photo 3"), (4, 4, "Photo 4"), (5, 6, "Photo 5"), (6, 7, "Photo 6")];
+        Assert.Equal(["Rank 5@5", "Rank 6@6"], Calls(PhotoEditor.Plan(gaps, Photos(1, 2, 3, 4, 5, 6))));
+
+        IReadOnlyList<(long, int, string)> tie = [(1, 1, "Photo 1"), (2, 1, "Photo 2"), (3, 2, "Photo 3")];
+        Assert.Equal(["Rank 1@2", "Rank 3@3"], Calls(PhotoEditor.Plan(tie, Photos(2, 1, 3))));
+        var (rank, ids) = PhotoEditor.Ties(tie).Single();
+        Assert.Equal(1, rank);
+        Assert.Equal([1L, 2L], ids);
+    }
+
+    [Fact]
+    public void Deletions_go_first_and_new_photos_are_added_at_their_position()
     {
         var local = PhotoEditor.Add(PhotoEditor.Remove(Photos(1, 2, 3), 1), "abc.jpg"); // 1, 3, new
         local = PhotoEditor.Move(local, 2, 0); // new, 1, 3
 
         var calls = PhotoEditor.Plan(Etsy(1, 2, 3), local);
 
-        Assert.Equal(["Delete 2@2", "Upload -1@3", "Move -1@1"], Calls(calls));
+        Assert.Equal(["Delete 2@2", "Upload -1@1", "Rank 1@2"], Calls(calls)); // 3 already has rank 3
     }
 
     [Fact]
@@ -45,35 +58,34 @@ public class PhotoEditorTests
     {
         var calls = PhotoEditor.Plan(Etsy(1, 2), PhotoEditor.Add([], "new.jpg"));
 
-        Assert.Equal(["Upload -1@3", "Delete 1@1", "Delete 2@1"], Calls(calls)); // then it is the only photo, already first
+        Assert.Equal(["Upload -1@1", "Delete 1@1", "Delete 2@2"], Calls(calls));
     }
 
     [Fact]
     public void Alt_text_changes_keep_the_photo_where_it_is()
     {
-        var calls = PhotoEditor.Plan(Etsy(1, 2), PhotoEditor.SetAltText(Photos(1, 2), 1, "Side view"));
+        var call = Assert.Single(PhotoEditor.Plan(Etsy(1, 2), PhotoEditor.SetAltText(Photos(1, 2), 1, "Side view")));
 
-        var call = Assert.Single(calls);
         Assert.Equal((PhotoCallKind.AltText, 2L, 2, "Side view"), (call.Kind, call.ImageId, call.Rank, call.AltText));
     }
 
     [Fact]
     public void No_call_ever_overwrites()
     {
-        var calls = PhotoEditor.Plan(Etsy(1, 2, 3), Photos(3, 1, 2));
+        var calls = PhotoEditor.Plan(Etsy(1, 2, 3), PhotoEditor.Add(Photos(3, 1, 2), "x.jpg"));
         Assert.All(calls.Select(c => c.Describe(42, 7)), d => Assert.DoesNotContain("overwrite=true", d));
     }
 }
 
 public class PhotoPushTests
 {
-    /// <summary>Listing 1 with photos 11, 12, 13.</summary>
-    private static async Task<(FakeEtsyShop Shop, int ListingId)> ImportedAsync(string state = "active", params long[] photos)
+    /// <summary>Listing 1 with photos 11, 12, 13 (ranks 1, 2, 3 unless given).</summary>
+    private static async Task<(FakeEtsyShop Shop, int ListingId)> ImportedAsync(params (long Id, int Rank)[] photos)
     {
         var shop = new FakeEtsyShop();
-        var listing = FakeEtsyShop.Listing(1, "Galaxy vase", state: state);
-        var ids = photos.Length > 0 ? photos : [11, 12, 13];
-        listing["images"] = new JsonArray([.. ids.Select((id, i) => (JsonNode)FakeEtsyShop.Image(1, id, i + 1))]);
+        var listing = FakeEtsyShop.Listing(1, "Galaxy vase");
+        (long Id, int Rank)[] list = photos.Length > 0 ? photos : [(11, 1), (12, 2), (13, 3)];
+        listing["images"] = new JsonArray([.. list.Select(p => (JsonNode)FakeEtsyShop.Image(1, p.Id, p.Rank))]);
         shop.Listings.Add(listing);
         await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
         await using var db = shop.Db.CreateDbContext();
@@ -92,45 +104,11 @@ public class PhotoPushTests
             PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PushPayload(pushId), JobJson.Options),
         }, CancellationToken.None);
 
-    private static List<long> EtsyOrder(FakeEtsyShop s) =>
-        [.. s.ListingJson(1)["images"]!.AsArray().Select(i => (long)i!["listing_image_id"]!)];
+    private static List<(long Id, int Rank)> EtsyRanks(FakeEtsyShop s) =>
+        [.. s.ListingJson(1)["images"]!.AsArray().Select(i => ((long)i!["listing_image_id"]!, (int)i["rank"]!)).OrderBy(x => x.Item2)];
 
     [Fact]
-    public async Task The_fake_replays_Etsys_recorded_answers_to_both_photo_order_test_runs()
-    {
-        // TopHATTwaffle's runs on 2026-10-17 (listing 1387884604). Run 1: overwrite off moves the photo; Run 2: overwrite on
-        // replaces the photo at that rank. Both: reads show the change only after ~2 minutes.
-        var (shop, id) = await ImportedAsync("draft", 3046382746, 3046382084, 3094110891, 4640710505, 4640710463, 4592467744);
-        using var _ = shop;
-        var tester = shop.Provider.GetRequiredService<PhotoOrderTester>();
-        var job = shop.Provider.GetRequiredService<PhotoOrderTestJob>();
-
-        async Task<JsonNode> RunAsync(PhotoOrderStep step)
-        {
-            var (testId, problem) = await tester.RequestAsync(id, [step], "tophattwaffle");
-            Assert.Null(problem);
-            await job.HandleAsync(new JobExecutionContext
-            {
-                JobId = testId!.Value, JobType = PhotoOrderTestJob.Type, Attempt = 1,
-                PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PhotoOrderTestPayload(testId.Value), JobJson.Options),
-            }, CancellationToken.None);
-            shop.Provider.GetRequiredService<RecordingJobQueue>().Requests.Clear();
-            await using var db = shop.Db.CreateDbContext();
-            return JsonNode.Parse((await db.PhotoOrderTests.SingleAsync(t => t.Id == testId)).ResultJson!)!;
-        }
-
-        var run1 = await RunAsync(new PhotoOrderStep(4592467744, 1, Overwrite: false, SendAltText: true));
-        Assert.Equal("[3046382746,3046382084,3094110891,4640710505,4640710463,4592467744]", run1["steps"]![0]!["read_now"]!.ToJsonString());
-        Assert.Equal("[3046382746,3046382084,3094110891,4640710505,4640710463,4592467744]", run1["steps"]![0]!["read_after_20s"]!.ToJsonString());
-        Assert.Equal("[4592467744,3046382746,3046382084,3094110891,4640710505,4640710463]", run1["final_after_120s"]!.ToJsonString());
-
-        var run2 = await RunAsync(new PhotoOrderStep(4640710463, 1, Overwrite: true, SendAltText: true));
-        Assert.Equal("[4592467744,3046382746,3046382084,3094110891,4640710505,4640710463]", run2["before"]!.ToJsonString());
-        Assert.Equal("[4640710463,3046382746,3046382084,3094110891,4640710505]", run2["final_after_120s"]!.ToJsonString()); // 4592467744 is gone
-    }
-
-    [Fact]
-    public async Task A_reorder_is_pushed_as_moves_without_overwrite_and_checked_after_Etsy_catches_up()
+    public async Task A_reorder_sets_every_rank_without_overwrite_and_finishes_with_unique_ranks()
     {
         var (shop, id) = await ImportedAsync();
         using var _ = shop;
@@ -143,15 +121,34 @@ public class PhotoPushTests
         var (pushId, _) = await Editor(shop).RequestPushAsync(id, "tophattwaffle");
         await RunPushAsync(shop, pushId!.Value);
 
-        var write = Assert.Single(shop.Writes);
-        Assert.Equal(("POST", "listing_image_id=13&rank=1&overwrite=false&alt_text=Photo 3"), (write.Method, write.Body));
-        Assert.Equal([13L, 11L, 12L], EtsyOrder(shop));
-        Assert.Contains(PhotoEditor.SettleTime, shop.Time.Delays); // waited before reading back
+        Assert.Equal(
+            ["listing_image_id=13&rank=1&overwrite=false&alt_text=Photo 3", "listing_image_id=11&rank=2&overwrite=false&alt_text=Photo 1",
+             "listing_image_id=12&rank=3&overwrite=false&alt_text=Photo 2"],
+            shop.Writes.Select(w => w.Body));
+        Assert.Equal([(13L, 1), (11L, 2), (12L, 3)], EtsyRanks(shop));
         await using var db = shop.Db.CreateDbContext();
         var listing = await db.Listings.SingleAsync();
-        Assert.False(listing.HasDraft); // Etsy's order, once visible, matched the edit
+        Assert.False(listing.HasDraft); // Etsy's photos now match the edit
         Assert.False(listing.HasDrift);
         Assert.Equal(ListingPushStatus.Succeeded, (await db.ListingPushes.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Tied_ranks_on_Etsy_are_named_in_the_review_and_cleaned_up_by_the_push()
+    {
+        var (shop, id) = await ImportedAsync((11, 1), (12, 1), (13, 3)); // like listing 1387884604 after the third run
+        using var _ = shop;
+        var photos = PhotoEditor.SetAltText(await LocalPhotosAsync(shop, id), 2, "Back");
+        await Editor(shop).SaveAsync(id, new Dictionary<string, JsonNode?> { [ListingFields.Images] = photos }, "tophattwaffle");
+
+        var preview = await Editor(shop).PreviewAsync(id);
+        Assert.Contains(preview.Warnings, w => w.Contains("photos #11 and #12 share position 1"));
+        var (pushId, _) = await Editor(shop).RequestPushAsync(id, "tophattwaffle");
+        await RunPushAsync(shop, pushId!.Value);
+
+        Assert.Equal([(11L, 1), (12L, 2), (13L, 3)], EtsyRanks(shop));
+        await using var db = shop.Db.CreateDbContext();
+        Assert.False((await db.Listings.SingleAsync()).HasDraft);
     }
 
     [Fact]
@@ -173,8 +170,7 @@ public class PhotoPushTests
              $"POST image=<file {file}, 2048 bytes>&rank=2&overwrite=false&alt_text=Close-up",
              "POST listing_image_id=11&rank=1&overwrite=false&alt_text=Front"],
             shop.Writes.Select(w => w.Method == "DELETE" ? $"DELETE {w.Path}" : $"POST {w.Body}"));
-        var etsyPhotos = shop.ListingJson(1)["images"]!.AsArray();
-        Assert.Equal(2, etsyPhotos.Count);
+        var etsyPhotos = shop.ListingJson(1)["images"]!.AsArray().OrderBy(p => (int)p!["rank"]!).ToList();
         Assert.Equal(["Front", "Close-up"], etsyPhotos.Select(p => (string?)p!["alt_text"]));
         await using var db = shop.Db.CreateDbContext();
         Assert.False((await db.Listings.SingleAsync()).HasDraft); // the upload's new Etsy id replaced the file reference

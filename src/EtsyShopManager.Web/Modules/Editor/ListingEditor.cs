@@ -161,10 +161,14 @@ public sealed class ListingEditor(
             }
             if (photos.Select(p => (long?)p!["etsy_image_id"] ?? 0).Where(id => id > 0).GroupBy(id => id).Any(g => g.Count() > 1))
                 blockers.Add("The same photo appears twice.");
-            // The exact calls, so the person sees what goes to Etsy (Etsy shows a new photo order after up to ~2 minutes).
-            var calls = PhotoEditor.Plan(PhotoEditor.FromManaged(model.Etsy[ListingFields.Images]), photos);
-            warnings.Add($"Photos: {calls.Count} call{(calls.Count == 1 ? "" : "s")} to Etsy, one at a time, stopping at the first one Etsy rejects; " +
-                         "the push then waits about 2 minutes for Etsy to show the new order before checking it.");
+            // The exact calls, so the person sees what goes to Etsy.
+            var etsyPhotos = PhotoEditor.FromManaged(model.Etsy[ListingFields.Images]);
+            foreach (var (rank, ids) in PhotoEditor.Ties(etsyPhotos))
+                warnings.Add($"On Etsy, photos {string.Join(" and ", ids.Select(id => $"#{id}"))} share position {rank}, so Etsy shows them " +
+                             "in no fixed order; this push gives every photo its own position.");
+            var calls = PhotoEditor.Plan(etsyPhotos, photos);
+            warnings.Add($"Photos: {calls.Count} call{(calls.Count == 1 ? "" : "s")} to Etsy, one at a time, stopping at the first one Etsy rejects. " +
+                         "Etsy doesn't renumber the other photos when one moves, so every photo not already in place gets its position.");
             warnings.AddRange(calls.Select(c => c.Describe(listing.Shop?.EtsyShopId ?? 0, listing.EtsyListingId)));
         }
         if (changes.Any(c => c.Key == ListingFields.Inventory) && local[ListingFields.Inventory] is { } inventory)
