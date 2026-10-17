@@ -346,6 +346,67 @@ public class ListingPushTests
         Assert.True((await Editor(shop).PreviewAsync(id)).CanPush);
     }
 
+    /// <summary>Size × Color, price varies by size only (18 real listings look like this).</summary>
+    private static Task<(FakeEtsyShop Shop, int ListingId)> SizeByColorAsync() => ImportedAsync(l =>
+    {
+        JsonObject Product(long id, string size, string color, long price)
+        {
+            var p = FakeEtsyShop.Product(id, "", size, price, 5);
+            p["property_values"]!.AsArray().Add(new JsonObject
+            {
+                ["property_id"] = 200, ["property_name"] = "Primary color",
+                ["value_ids"] = new JsonArray(), ["values"] = new JsonArray(color),
+            });
+            return p;
+        }
+        l["inventory"] = new JsonObject
+        {
+            ["price_on_property"] = new JsonArray(100),
+            ["quantity_on_property"] = new JsonArray(),
+            ["sku_on_property"] = new JsonArray(),
+            ["products"] = new JsonArray(
+                Product(11, "Small", "Black", 1999), Product(12, "Small", "White", 1999),
+                Product(13, "Large", "Black", 2999), Product(14, "Large", "White", 2999)),
+        };
+    });
+
+    private static JsonObject Row(JsonNode inventory, string size, string color) =>
+        inventory["products"]!.AsArray().Select(p => p!.AsObject())
+            .Single(p => p["property_values"]!.AsArray().Select(v => (string?)v!["values"]![0]).SequenceEqual([size, color]));
+
+    [Fact]
+    public async Task Prices_must_match_across_variations_that_share_the_price_variation()
+    {
+        var (shop, id) = await SizeByColorAsync();
+        using var _ = shop;
+        var inventory = (await Editor(shop).LoadAsync(id))!.Model.Local(ListingFields.Inventory)!.DeepClone();
+        Row(inventory, "Small", "Black")["offerings"]![0]!["price_amount"] = 2499; // Small/White stays 19.99
+
+        await Editor(shop).SaveAsync(id, new Dictionary<string, JsonNode?> { [ListingFields.Inventory] = inventory }, "tophattwaffle");
+
+        var preview = await Editor(shop).PreviewAsync(id);
+        Assert.False(preview.CanPush);
+        Assert.Contains(preview.Blockers, b => b == "Variations with the same Size must have the same price, because the price varies only by Size.");
+    }
+
+    [Fact]
+    public async Task A_price_edit_applies_to_every_variation_sharing_its_price_variation()
+    {
+        var (shop, id) = await SizeByColorAsync();
+        using var _ = shop;
+        var inventory = (await Editor(shop).LoadAsync(id))!.Model.Local(ListingFields.Inventory)!;
+        var products = inventory["products"]!.AsArray();
+        var smallBlack = products.IndexOf(Row(inventory, "Small", "Black"));
+
+        var linked = InventoryRules.Linked(inventory, smallBlack, "price_on_property")
+            .Select(i => EditorLookups.VariationName(products[i]!)).Order().ToList();
+
+        Assert.Equal(["Small / Black", "Small / White"], linked);
+        // With nothing on the property list, one value applies to every variation.
+        inventory["readiness_state_on_property"] = new JsonArray();
+        Assert.Equal(4, InventoryRules.Linked(inventory, smallBlack, "readiness_state_on_property").Count);
+    }
+
     [Fact]
     public async Task Preview_blocks_invalid_edits()
     {

@@ -156,11 +156,11 @@ else
                                     <td>
                                         <MudNumericField T="decimal" Value="@Price(offering)" ValueChanged="@(v => SetPrice(index, v))"
                                                          Min="0.20m" Step="0.01m" Format="0.00" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                         Disabled="@(!PriceVaries && index > 0)" Class="esm-w-sm" />
+                                                         Disabled="@(!Leads(index, "price_on_property"))" Class="esm-w-sm" />
                                     </td>
                                     <td>
                                         <MudSelect T="long?" Value="@((long?)offering["readiness_state_id"])" ValueChanged="@(v => SetProcessing(index, v))"
-                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!ProcessingVaries && index > 0)" Class="esm-minw-md">
+                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!Leads(index, "readiness_state_on_property"))" Class="esm-minw-md">
                                             <MudSelectItem T="long?" Value="null">—</MudSelectItem>
                                             @foreach (var (id, name) in _lookups.ProcessingProfiles)
                                             {
@@ -172,10 +172,10 @@ else
                             }
                         </tbody>
                     </MudSimpleTable>
-                    @if (Products.Count > 1 && (!PriceVaries || !ProcessingVaries))
+                    @if (Products.Count > 1)
                     {
                         <MudText Typo="Typo.body2" Class="muted mt-2">
-                            @(!PriceVaries ? "One price applies to every variation. " : "")@(!ProcessingVaries ? "One processing profile applies to every variation." : "")
+                            @VariesNote("price_on_property", "price") @VariesNote("readiness_state_on_property", "processing profile")
                         </MudText>
                     }
                 }
@@ -408,15 +408,27 @@ else
     private bool PriceVaries => (_form![ListingFields.Inventory]?["price_on_property"]?.AsArray().Count ?? 0) > 0;
     private bool ProcessingVaries => (_form![ListingFields.Inventory]?["readiness_state_on_property"]?.AsArray().Count ?? 0) > 0;
 
+    // The first row of each group that must share a price (or processing profile) is the one edited; the rest follow it.
+    /// <summary>"One price applies to every variation." / "Variations with the same Size share a price."</summary>
+    private string VariesNote(string onPropertyKey, string what) =>
+        InventoryRules.PropertyNames(_form![ListingFields.Inventory]!, onPropertyKey, InventoryRules.Names(_snapshot!.Listing)) is { Length: > 0 } by
+            ? (Products.All(p => p!["property_values"]!.AsArray().Count <= 1) ? "" : $"Variations with the same {by} share a {what}.")
+            : $"One {what} applies to every variation.";
+
+    private bool Leads(int index, string onPropertyKey) =>
+        InventoryRules.Linked(_form![ListingFields.Inventory]!, index, onPropertyKey)[0] == index;
+
     private static decimal Price(JsonNode offering) =>
         (decimal)((long?)offering["price_amount"] ?? 0) / ((int?)offering["price_divisor"] is int d && d > 0 ? d : 100);
 
     private void SetPrice(int index, decimal price)
     {
         var inventory = _form![ListingFields.Inventory]!.DeepClone();
+        // Every variation sharing the values the price varies by gets the price (all of them when it varies by nothing).
+        var linked = InventoryRules.Linked(inventory, index, "price_on_property");
         foreach (var (product, i) in inventory["products"]!.AsArray().Select((p, i) => (p!, i)))
         {
-            if (PriceVaries && i != index) continue; // one price for all unless it varies by a property
+            if (!linked.Contains(i)) continue;
             var offering = product["offerings"]![0]!;
             var divisor = (int?)offering["price_divisor"] is int d && d > 0 ? d : 100;
             offering["price_amount"] = (long)Math.Round(price * divisor);
@@ -427,9 +439,10 @@ else
     private void SetProcessing(int index, long? readiness)
     {
         var inventory = _form![ListingFields.Inventory]!.DeepClone();
+        var linked = InventoryRules.Linked(inventory, index, "readiness_state_on_property");
         foreach (var (product, i) in inventory["products"]!.AsArray().Select((p, i) => (p!, i)))
         {
-            if (ProcessingVaries && i != index) continue;
+            if (!linked.Contains(i)) continue;
             product["offerings"]![0]!["readiness_state_id"] = readiness is null ? null : JsonValue.Create(readiness.Value);
         }
         Set(ListingFields.Inventory, inventory);

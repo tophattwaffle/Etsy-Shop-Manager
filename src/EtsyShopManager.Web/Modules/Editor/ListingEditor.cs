@@ -44,6 +44,7 @@ public sealed class ListingEditor(
         var listing = await db.Listings.AsNoTracking()
             .Include(l => l.Shop).ThenInclude(s => s.Token)
             .Include(l => l.EtsyState)
+            .Include(l => l.Products)
             .Include(l => l.Images.OrderBy(i => i.Rank))
             .AsSplitQuery()
             .FirstOrDefaultAsync(l => l.Id == listingId, ct);
@@ -101,6 +102,7 @@ public sealed class ListingEditor(
         var listing = await db.Listings.AsNoTracking()
             .Include(l => l.Shop).ThenInclude(s => s.Token)
             .Include(l => l.EtsyState)
+            .Include(l => l.Products) // variation names for messages
             .FirstOrDefaultAsync(l => l.Id == listingId, ct)
             ?? throw new InvalidOperationException($"Listing {listingId} not found.");
         // Only while its job is still waiting or running: a job cancelled on the Jobs page, or one that timed out,
@@ -145,7 +147,7 @@ public sealed class ListingEditor(
         if (changes.Any(c => c.Key == "materials") && local["materials"] is JsonArray materials && materials.Count > MaxMaterials)
             blockers.Add($"{materials.Count} materials; Etsy allows {MaxMaterials}.");
         if (changes.Any(c => c.Key == ListingFields.Inventory))
-            blockers.AddRange(InventoryProblems(local[ListingFields.Inventory]));
+            blockers.AddRange(InventoryProblems(local[ListingFields.Inventory], InventoryRules.Names(listing)));
 
         if (changes.Any(c => c.Key == ListingFields.State) && (string?)local[ListingFields.State] == "active"
             && listing.State is "inactive" or "expired" or "draft")
@@ -165,18 +167,21 @@ public sealed class ListingEditor(
         listing.EtsyState is { } s && s.ManagedVersion != ManagedListingState.CurrentVersion;
 
     /// <summary>Etsy requires one price (and one processing profile) for all variations unless it varies by a property.</summary>
-    private static IEnumerable<string> InventoryProblems(JsonNode? inventory)
+    private static IEnumerable<string> InventoryProblems(JsonNode? inventory, IReadOnlyDictionary<long, string> names)
     {
         if (inventory is null) yield break;
         var offerings = (inventory["products"]?.AsArray() ?? [])
             .SelectMany(p => p!["offerings"]?.AsArray() ?? []).Select(o => o!).ToList();
         if (offerings.Any(o => (long?)o["price_amount"] is null or <= 0)) yield return "Every price must be more than zero.";
-        if (((JsonArray?)inventory["price_on_property"] ?? []).Count == 0
-            && offerings.Select(o => (long?)o["price_amount"]).Distinct().Count() > 1)
-            yield return "All variations must have the same price, because the price doesn't vary by variation on this listing.";
-        if (((JsonArray?)inventory["readiness_state_on_property"] ?? []).Count == 0
-            && offerings.Select(o => (long?)o["readiness_state_id"]).Distinct().Count() > 1)
-            yield return "All variations must have the same processing profile on this listing.";
+        // Variations that share the values a price varies by must share the price (all of them when it varies by nothing).
+        if (InventoryRules.Groups(inventory, "price_on_property").Any(g => g.Offerings.Select(o => (long?)o["price_amount"]).Distinct().Count() > 1))
+            yield return InventoryRules.PropertyNames(inventory, "price_on_property", names) is { Length: > 0 } by
+                ? $"Variations with the same {by} must have the same price, because the price varies only by {by}."
+                : "All variations must have the same price, because the price doesn't vary by variation on this listing.";
+        if (InventoryRules.Groups(inventory, "readiness_state_on_property").Any(g => g.Offerings.Select(o => (long?)o["readiness_state_id"]).Distinct().Count() > 1))
+            yield return InventoryRules.PropertyNames(inventory, "readiness_state_on_property", names) is { Length: > 0 } by
+                ? $"Variations with the same {by} must have the same processing profile."
+                : "All variations must have the same processing profile on this listing.";
     }
 
     /// <summary>Queues a push of the current local edits. Returns the push id, or the reasons it can't go.</summary>
