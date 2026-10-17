@@ -32,6 +32,7 @@ public sealed class PhotoOrderTester(IDbContextFactory<AppDbContext> dbFactory, 
     TimeProvider time)
 {
     public static readonly string[] AllowedStates = ["draft", "inactive"];
+    public const int MaxSteps = 20;
 
     /// <summary>Seconds between a call and the second read of the order (Etsy can be slow to show photo changes).</summary>
     public const int StepWaitSeconds = 20;
@@ -69,20 +70,20 @@ public sealed class PhotoOrderTester(IDbContextFactory<AppDbContext> dbFactory, 
         return calls;
     }
 
-    /// <summary>The order if Etsy takes the photo out and puts it back at the position (the obvious reading of "rank").</summary>
-    public static List<long> Expected(IReadOnlyList<long> order, PhotoOrderStep step)
-    {
-        var result = order.Where(id => id != step.ListingImageId).ToList();
-        result.Insert(Math.Clamp(step.Rank - 1, 0, result.Count), step.ListingImageId);
-        return result;
-    }
+    /// <summary>
+    /// Steps that give every photo its own rank, 1 to n, in <paramref name="order"/> (overwrite off). The second test run
+    /// showed Etsy sets the rank asked for and doesn't renumber the other photos, so ties appear; this run checks that
+    /// setting every rank explicitly leaves each photo with a unique rank in the wanted order.
+    /// </summary>
+    public static List<PhotoOrderStep> SetAllRanks(IEnumerable<long> order) =>
+        [.. order.Select((id, i) => new PhotoOrderStep(id, i + 1, Overwrite: false, SendAltText: true))];
 
     /// <summary>Checks the request and queues the run. Returns the test id, or why it can't run.</summary>
     public async Task<(int? TestId, string? Problem)> RequestAsync(int listingId, IReadOnlyList<PhotoOrderStep> steps, string? user,
         CancellationToken ct = default)
     {
         if (steps.Count == 0) return (null, "Add at least one step.");
-        if (steps.Count > 10) return (null, "At most 10 steps per run.");
+        if (steps.Count > MaxSteps) return (null, $"At most {MaxSteps} steps per run (one per photo; Etsy allows 20 photos).");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var listing = await db.Listings.AsNoTracking().FirstOrDefaultAsync(l => l.Id == listingId, ct);
         if (listing is null) return (null, "Listing not found.");
@@ -210,8 +211,7 @@ public sealed class PhotoOrderTestJob(IDbContextFactory<AppDbContext> dbFactory,
                 context.Result = $"stopped at step {n}";
                 return;
             }
-            var expected = PhotoOrderTester.Expected(order, step);
-            entry["expected"] = new JsonArray([.. expected.Select(id => (JsonNode)id)]);
+            entry["expected"] = $"photo {step.ListingImageId} has rank {step.Rank}";
             var alt = step.SendAltText ? before.FirstOrDefault(i => i.ListingImageId == step.ListingImageId)?.AltText ?? "" : null;
 
             try
@@ -238,24 +238,30 @@ public sealed class PhotoOrderTestJob(IDbContextFactory<AppDbContext> dbFactory,
             var later = await ReadOrderAsync(listing.EtsyListingId, auth, ct);
             entry["read_now"] = now;
             entry[$"read_after_{PhotoOrderTester.StepWaitSeconds}s"] = Ids(later);
-            entry["as_expected"] = later.Select(i => i.ListingImageId).SequenceEqual(expected);
-            order = later.Select(i => i.ListingImageId).ToList(); // the next step starts from what Etsy shows
+            entry["as_expected"] = later.Any(i => i.ListingImageId == step.ListingImageId && i.Rank == step.Rank);
+            order = later.Select(i => i.ListingImageId).ToList();
             await SaveProgressAsync(testId, result, ct);
         }
 
         await Task.Delay(TimeSpan.FromSeconds(PhotoOrderTester.FinalWaitSeconds), time, ct);
-        result[$"final_after_{PhotoOrderTester.FinalWaitSeconds}s"] = Ids(await ReadOrderAsync(listing.EtsyListingId, auth, ct));
+        var final = await ReadOrderAsync(listing.EtsyListingId, auth, ct);
+        result[$"final_after_{PhotoOrderTester.FinalWaitSeconds}s"] = Ids(final);
+        var unique = final.Select(i => i.Rank).Distinct().Count() == final.Count;
+        result["ranks_unique"] = unique;
         var matched = ((JsonArray)result["steps"]!).Count(s => (bool?)s!["as_expected"] == true);
         await FinishAsync(testId, PhotoOrderTestStatus.Completed, result,
-            $"Completed {steps.Count} step(s); {matched} left the order as expected.", snapshotId);
+            $"Completed {steps.Count} step(s); {matched} left the photo at the rank asked for; " +
+            (unique ? "every photo has its own rank at the end." : "some photos share a rank at the end."), snapshotId);
         await audit.WriteAsync("photos.order-test", nameof(Listing), listing.EtsyListingId.ToString(), $"{steps.Count} step(s), {matched} as expected", "system", ct);
         context.Result = $"{steps.Count} step(s), {matched} as expected";
     }
 
+    // In the order Etsy returns them (not re-sorted), each with its rank, so ties and gaps in the ranks show.
     private async Task<List<EtsyListingImage>> ReadOrderAsync(long etsyListingId, EtsyAuth auth, CancellationToken ct) =>
-        [.. (await etsy.GetListingImagesAsync(etsyListingId, auth, ct)).OrderBy(i => i.Rank)];
+        await etsy.GetListingImagesAsync(etsyListingId, auth, ct);
 
-    private static JsonArray Ids(IEnumerable<EtsyListingImage> images) => new([.. images.Select(i => (JsonNode)i.ListingImageId)]);
+    private static JsonArray Ids(IEnumerable<EtsyListingImage> images) =>
+        new([.. images.Select(i => (JsonNode)new JsonObject { ["id"] = i.ListingImageId, ["rank"] = i.Rank })]);
 
     private async Task<int> SnapshotAsync(Listing listing, string rawListingJson, CancellationToken ct)
     {

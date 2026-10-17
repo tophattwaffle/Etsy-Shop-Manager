@@ -300,6 +300,7 @@ internal sealed class FakeEtsyShop : IDisposable
         }
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/images"))
             return Page((Listings.FirstOrDefault(l => (long)l["listing_id"]! == long.Parse(parts[3]))?["images"]?.AsArray() ?? Images(long.Parse(parts[3])))
+                .OrderBy(n => (int)n!["rank"]!) // stable: photos sharing a rank keep their stored order
                 .Select(n => (JsonObject)n!.DeepClone()));
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/inventory"))
             return Json(Inventory(long.Parse(parts[3]), 5));
@@ -390,8 +391,10 @@ internal sealed class FakeEtsyShop : IDisposable
             listing.Remove("inventory");
             return Json(listing);
         }
-        // POST /v3/application/shops/42/listings/{id}/images with listing_image_id and rank: put a photo at a position.
-        // The fake takes it out and inserts it there (the obvious reading; Etsy's real behaviour is what the test tool finds out).
+        // POST /v3/application/shops/42/listings/{id}/images with listing_image_id and rank, as measured on Etsy
+        // (2026-10-17, three photo order test runs): the photo gets the rank asked for and no other photo is renumbered,
+        // so two photos can share a rank (Etsy then shows them in no fixed order; the fake keeps the stored order).
+        // With overwrite=true the photo takes the rank's slot: the photo shown at that rank drops off the listing (just one).
         if (req.Method == HttpMethod.Post && parts.Length == 7 && path.StartsWith($"{shop}/listings/") && parts[6] == "images")
         {
             var fields = ((MultipartFormDataContent)req.Content!).ToDictionary(
@@ -401,12 +404,14 @@ internal sealed class FakeEtsyShop : IDisposable
                 return ScriptedHandler.Json(HttpStatusCode.BadRequest, new JsonObject { ["error"] = message }.ToJsonString());
             var listing = ListingJson(long.Parse(parts[5]));
             var images = listing["images"]!.AsArray().Select(i => i!.DeepClone().AsObject()).ToList();
-            var moved = images.Single(i => (long)i["listing_image_id"]! == long.Parse(fields["listing_image_id"]));
-            images.Remove(moved);
-            images.Insert(Math.Clamp(int.Parse(fields["rank"]) - 1, 0, images.Count), moved);
-            for (var i = 0; i < images.Count; i++) images[i]["rank"] = i + 1;
+            var photo = images.Single(i => (long)i["listing_image_id"]! == long.Parse(fields["listing_image_id"]));
+            var rank = int.Parse(fields["rank"]);
+            if (fields.GetValueOrDefault("overwrite") == "true")
+                images.Remove(images.FirstOrDefault(i => i != photo && (int)i["rank"]! == rank)!); // the one shown in that slot
+            photo["rank"] = rank;
+            if (fields.TryGetValue("alt_text", out var alt)) photo["alt_text"] = alt;
             listing["images"] = new JsonArray([.. images]);
-            return Json(moved.DeepClone());
+            return ScriptedHandler.Json(HttpStatusCode.Created, photo.ToJsonString());
         }
         // PATCH /v3/application/shops/42/listings/{id}
         if (req.Method == HttpMethod.Patch && path.StartsWith($"{shop}/listings/"))
