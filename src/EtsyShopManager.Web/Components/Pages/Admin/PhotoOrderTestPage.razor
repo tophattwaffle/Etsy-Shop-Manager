@@ -45,12 +45,18 @@
 {
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" Class="mb-2">2. Photos on Etsy now</MudText>
+        @foreach (var tie in _photos.GroupBy(p => p.Rank).Where(g => g.Count() > 1))
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                @tie.Count() photos share rank @tie.Key (@string.Join(", ", tie.Select(p => $"#{p.ListingImageId}"))): Etsy shows them in no fixed order.
+            </MudAlert>
+        }
         <div class="esm-photo-strip">
             @foreach (var p in _photos)
             {
                 <figure class="esm-photo-tile">
                     <img src="@(p.Url170x135 ?? p.Url570xN)" alt="" loading="lazy" />
-                    <figcaption>@p.Rank · #@p.ListingImageId</figcaption>
+                    <figcaption>Rank @p.Rank · #@p.ListingImageId</figcaption>
                 </figure>
             }
         </div>
@@ -63,6 +69,8 @@
             after @PhotoOrderTester.StepWaitSeconds s, and once more @PhotoOrderTester.FinalWaitSeconds s after the last.
         </MudText>
         <MudStack Row="true" Class="mb-2" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="NumberAllLastFirst">Number every photo 1–n, last photo first</MudButton>
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="NumberAllAsShown">Number every photo 1–n as shown</MudButton>
             <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="MoveLastToFront">Move the last photo to the front</MudButton>
             <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SwapFirstTwo">Swap the first two</MudButton>
             <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="AddStep">Add a step</MudButton>
@@ -191,7 +199,7 @@
         {
             _photos = await Tester.ReadPhotosAsync(_listingId!.Value);
             _steps.Clear();
-            if (_photos.Count >= 2) MoveLastToFront();
+            if (_photos.Count >= 2) NumberAllLastFirst();
             else _problem = "The listing needs at least two photos to test reordering.";
         }
         catch (Exception ex)
@@ -202,6 +210,20 @@
         {
             _reading = false;
         }
+    }
+
+    private void NumberAllLastFirst()
+    {
+        if (_photos is not { Count: >= 2 }) return;
+        _steps.Clear();
+        _steps.AddRange(PhotoOrderTester.SetAllRanks(_photos.Skip(_photos.Count - 1).Concat(_photos.SkipLast(1)).Select(p => p.ListingImageId)));
+    }
+
+    private void NumberAllAsShown()
+    {
+        if (_photos is not { Count: >= 1 }) return;
+        _steps.Clear();
+        _steps.AddRange(PhotoOrderTester.SetAllRanks(_photos.Select(p => p.ListingImageId)));
     }
 
     private void MoveLastToFront()
