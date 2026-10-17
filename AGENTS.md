@@ -79,7 +79,10 @@ feed of job changes that open Blazor pages subscribe to for live refresh instead
 One shared token-bucket `EtsyRateLimiter` for the whole app (limits are per API key and both shops share it); it
 spaces requests evenly because bursting caused 429s. Every call sends `x-api-key: keystring:secret`. Tokens are per
 shop, encrypted with Data Protection (machine DPAPI), refreshed on demand one refresh per shop at a time; a rejected
-refresh token marks the shop as needing reconnection.
+refresh token marks the shop as needing reconnection. Every write (POST/PUT/PATCH/DELETE on the application API, each
+attempt) is recorded with Etsy's reply by `EtsyWriteJournalHandler` (innermost) into `EtsyWriteLogs` (Admin → Etsy writes,
+kept 90 days); OAuth calls and headers are never recorded, file uploads only as name and size. `EtsyCallContext` names
+the job that made the call.
 
 ### Listings
 Import (`Web/Modules/Listings/ListingImporter.cs` and jobs) is idempotent, matched by Etsy id, resumable page by page;

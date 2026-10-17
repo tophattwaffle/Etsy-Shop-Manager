@@ -72,11 +72,12 @@ public sealed class AdminModule : IModule
     [
         new("Users", "admin/users", Icons.Material.Filled.People, Order: 910, Roles: Roles.Admin),
         new("Audit log", "admin/audit", Icons.Material.Filled.History, Order: 920, Roles: Roles.Admin),
+        new("Etsy writes", "admin/etsy-writes", Icons.Material.Filled.CloudUpload, Order: 925, Roles: Roles.Admin),
         new("Settings", "admin/settings", Icons.Material.Filled.Settings, Order: 930, Roles: Roles.Admin),
     ];
 }
 
-/// <summary>Deletes finished jobs past their retention period.</summary>
+/// <summary>Deletes finished jobs, and Etsy write journal entries, past their retention period.</summary>
 public sealed class JobsCleanupJob(IDbContextFactory<AppDbContext> dbFactory, IOptions<JobOptions> options, TimeProvider time)
     : IJobHandler
 {
@@ -96,6 +97,8 @@ public sealed class JobsCleanupJob(IDbContextFactory<AppDbContext> dbFactory, IO
         var scheduledCutoff = now.AddHours(-options.Value.ScheduledSucceededRetentionHours);
         await db.Jobs.Where(j => j.Status == JobStatus.Succeeded && j.CreatedBy == "scheduler" && j.CompletedAtUtc < scheduledCutoff)
             .ExecuteDeleteAsync(ct);
+        var writeCutoff = now.AddDays(-options.Value.EtsyWriteRetentionDays);
+        await db.EtsyWriteLogs.Where(w => w.AtUtc < writeCutoff).ExecuteDeleteAsync(ct);
         await db.Jobs.Where(j => j.Status == JobStatus.Failed && j.CompletedAtUtc < failedCutoff)
             .ExecuteDeleteAsync(ct);
     }

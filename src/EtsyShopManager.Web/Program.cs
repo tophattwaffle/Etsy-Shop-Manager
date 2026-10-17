@@ -97,6 +97,7 @@ builder.Services.AddJobInfrastructure(builder.Configuration);
 
 builder.Services.AddSingleton<IEtsyCredentialsProvider, EtsyCredentialsProvider>();
 builder.Services.AddSingleton<IEtsyTokenStore, ShopTokenStore>();
+builder.Services.AddSingleton<IEtsyWriteJournal, EtsyWriteJournal>();
 builder.Services.AddEtsy(builder.Configuration);
 
 // ---- Feature modules ------------------------------------------------------------------------------

@@ -25,8 +25,11 @@ public static class EtsyServiceCollectionExtensions
         services.AddTransient<EtsyApiKeyHandler>();
         services.AddTransient<EtsyRetryHandler>();
         services.AddTransient<EtsyRateLimitHandler>();
+        services.AddTransient<EtsyWriteJournalHandler>();
+        services.TryAddSingleton<IEtsyWriteJournal, NullEtsyWriteJournal>(); // the host stores the journal
 
-        // Handler order: api key (outer) → retry → rate limit (inner, so every attempt takes a token).
+        // Handler order: api key (outer) → retry → rate limit (so every attempt takes a token) → write journal (inner,
+        // so it records each attempt exactly as sent).
         services.AddHttpClient(EtsyOAuthClient.HttpClientName, (sp, client) =>
             {
                 var o = sp.GetRequiredService<IOptions<EtsyOptions>>().Value;
@@ -36,7 +39,8 @@ public static class EtsyServiceCollectionExtensions
             })
             .AddHttpMessageHandler<EtsyApiKeyHandler>()
             .AddHttpMessageHandler<EtsyRetryHandler>()
-            .AddHttpMessageHandler<EtsyRateLimitHandler>();
+            .AddHttpMessageHandler<EtsyRateLimitHandler>()
+            .AddHttpMessageHandler<EtsyWriteJournalHandler>();
 
         // Listing photos come from Etsy's CDN (no API key, not counted against the API rate limit).
         services.AddHttpClient(EtsyImageClientName, client =>

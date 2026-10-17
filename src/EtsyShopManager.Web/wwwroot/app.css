@@ -228,6 +228,7 @@ td > .esm-colorbox-note { margin-top: 0; min-width: 160px; }
 
 /* ---- Jobs ---- */
 .job-table tr.job-stack { cursor: pointer; background: var(--esm-sunk); }
+tr.esm-clickable { cursor: pointer; }
 .job-table tr.job-child td:nth-child(2) { padding-left: 20px; }
 
 /* ---- Listings page, styled after Etsy's Shop Manager ----

@@ -197,6 +197,9 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - **Auto-refill:** per listing (on/off, threshold, refill-to ≤ 999). An enabled offering below the threshold is set to refill-to while the listing is active (shared quantity → all variations together); sold-out/inactive listings are flagged, not touched. Runs for the listings in each new order (right after the order check) and in an hourly sweep that finds low stock from one bulk read per 100 listings. Each refill is a job with the changes as its result, raises `StockRefilled` and is audited.
 - **Testing:** no real Etsy writes in development or tests. `FakeEtsyShop` records every write; tests assert the exact `updateListing` form and `updateListingInventory` JSON. Offline checks against a sanitized copy of production: the migration applies, all 130 listings load without false drift, and the inventory body reproduces every real inventory exactly (48 with variations).
 
+## Etsy write journal
+- Every write the app sends to Etsy (each attempt, retries included) and Etsy's exact reply is kept for 90 days and shown to Admins under Etsy writes, with the job that sent it. Added after the reverted photo push (2026-10-17), whose only trace of Etsy's answers was the service log. Uploaded files are recorded by name and size only; OAuth calls and request headers are never recorded.
+
 ## Deployment
 - Source: private Gitea repo `github.com/TopHATTwaffle/etsy-shop-manager`, default branch `master`.
 - Claude pushes to branches and opens PRs; `master` is protected so only TopHATTwaffle merges.

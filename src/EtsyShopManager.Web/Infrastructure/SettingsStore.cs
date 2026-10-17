@@ -104,3 +104,33 @@ public sealed class AuditLog(IDbContextFactory<AppDbContext> dbFactory, TimeProv
         }
     }
 }
+
+/// <summary>Stores the Etsy write journal (see <see cref="IEtsyWriteJournal"/>).</summary>
+public sealed class EtsyWriteJournal(IDbContextFactory<AppDbContext> dbFactory, ILogger<EtsyWriteJournal> logger) : IEtsyWriteJournal
+{
+    public async Task RecordAsync(EtsyWriteRecord record, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            db.EtsyWriteLogs.Add(new EtsyWriteLog
+            {
+                AtUtc = record.AtUtc,
+                Method = record.Method,
+                Path = record.Path,
+                RequestBody = record.RequestBody,
+                StatusCode = record.StatusCode,
+                ResponseBody = record.ResponseBody,
+                Error = record.Error,
+                DurationMs = record.DurationMs,
+                Source = record.Source,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Recording must never break the write it records.
+            logger.LogError(ex, "Failed to record Etsy write {Method} {Path}", record.Method, record.Path);
+        }
+    }
+}

@@ -1,0 +1,124 @@
+@page "/admin/etsy-writes"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Etsy writes · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Etsy writes">
+    <Summary>Every change the app sent to Etsy, with Etsy's exact reply. Select a row to see the request and response.</Summary>
+</PageHeader>
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    <MudSwitch T="bool" Value="_failuresOnly" ValueChanged="OnFailuresOnlyChanged" Color="Color.Primary" Label="Only rejected or failed" Class="mb-2" />
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr>
+                <SortHeader Sort="_sort" Column="when" Changed="LoadAsync">When</SortHeader>
+                <SortHeader Sort="_sort" Column="source" Changed="LoadAsync">From</SortHeader>
+                <SortHeader Sort="_sort" Column="request" Changed="LoadAsync">Request</SortHeader>
+                <SortHeader Sort="_sort" Column="status" Changed="LoadAsync">Etsy's answer</SortHeader>
+                <SortHeader Sort="_sort" Column="duration" Changed="LoadAsync" Class="text-right">Time</SortHeader>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var w in _writes)
+            {
+                <tr class="esm-clickable" @onclick="() => Toggle(w.Id)">
+                    <td>@w.AtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td class="small">@(w.Source ?? "—")</td>
+                    <td><code>@w.Method @w.Path</code></td>
+                    <td class="@(Ok(w) ? "" : "error-text")">@Answer(w)</td>
+                    <td class="text-right">@w.DurationMs ms</td>
+                </tr>
+                @if (_open.Contains(w.Id))
+                {
+                    <tr>
+                        <td colspan="5">
+                            <div class="small muted">Sent</div>
+                            <pre class="json-block">@(w.RequestBody ?? "(no body)")</pre>
+                            <div class="small muted mt-2">Etsy replied</div>
+                            <pre class="json-block">@(w.ResponseBody ?? w.Error ?? "(nothing)")</pre>
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (_writes.Count == 0)
+    {
+        <MudText Class="mt-2 muted">@(_failuresOnly ? "No rejected or failed writes." : "Nothing has been sent to Etsy yet.")</MudText>
+    }
+    @if (_writes.Count == _pageSize)
+    {
+        <MudButton Class="mt-2" Variant="Variant.Text" OnClick="MoreAsync">Load more</MudButton>
+    }
+</MudPaper>
+
+@code {
+    private List<EtsyWriteLog> _writes = [];
+    private readonly HashSet<long> _open = [];
+    private int _pageSize = 200;
+    private bool _failuresOnly;
+
+    // Sorted in the query, so the order covers the whole journal and "Load more" continues it.
+    private readonly ColumnSort _sort = new("when", "source", "request", "status", "duration");
+
+    protected override Task OnInitializedAsync()
+    {
+        _sort.Set("when", descending: true);
+        return LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var q = db.EtsyWriteLogs.AsNoTracking();
+        if (_failuresOnly) q = q.Where(w => w.StatusCode == null || w.StatusCode >= 400);
+        var desc = _sort.Descending;
+        var ordered = _sort.Column switch
+        {
+            "source" => q.OrderBy(w => w.Source, desc),
+            "request" => q.OrderBy(w => w.Path, desc).ThenBy(w => w.Method),
+            "status" => q.OrderBy(w => w.StatusCode, desc),
+            "duration" => q.OrderBy(w => w.DurationMs, desc),
+            _ => q.OrderBy(w => w.Id, desc),
+        };
+        _writes = await ordered.ThenByDescending(w => w.Id).Take(_pageSize).ToListAsync();
+    }
+
+    private async Task OnFailuresOnlyChanged(bool value)
+    {
+        _failuresOnly = value;
+        await LoadAsync();
+    }
+
+    private async Task MoreAsync()
+    {
+        _pageSize += 200;
+        await LoadAsync();
+    }
+
+    private void Toggle(long id)
+    {
+        if (!_open.Remove(id)) _open.Add(id);
+    }
+
+    private static bool Ok(EtsyWriteLog w) => w.StatusCode is >= 200 and < 300;
+
+    private static string Answer(EtsyWriteLog w) => w.StatusCode is { } status
+        ? $"{status} {(Ok(w) ? "OK" : ErrorText(w.ResponseBody))}"
+        : $"no answer: {w.Error}";
+
+    /// <summary>Etsy's error message ({"error": "..."}) when there is one, else the start of the body.</summary>
+    private static string ErrorText(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "";
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(body)?["error"]?.GetValue<string>() is { } error) return error;
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException) { }
+        return body.Length > 120 ? body[..120] + "…" : body;
+    }
+}
