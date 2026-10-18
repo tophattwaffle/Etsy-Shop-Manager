@@ -1,0 +1,231 @@
+@page "/packing-slips/layouts/new"
+@page "/packing-slips/layouts/{Id:int}"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Core.Domain
+@using EtsyShopManager.Web.Modules.Orders
+@using EtsyShopManager.Web.Modules.Shops
+@inject SlipLayoutService Layouts
+@inject OrderPrintService Print
+@inject ShopService Shops
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Edits one packing slip layout: its Liquid template and CSS, with a live preview of a made-up order for a chosen shop.
+   A new layout starts as a copy of the built-in one (or of the layout in ?from=). *@
+<PageTitle>@Title · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="packing-slips" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> Packing slips
+</MudLink>
+
+@if (!_loaded)
+{
+    <PageHeader Title="Packing slip layout" />
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Id is not null && _savedId == 0)
+{
+    <PageHeader Title="Packing slip layout" />
+    <MudAlert Severity="Severity.Warning">This layout no longer exists.</MudAlert>
+}
+else
+{
+    <PageHeader Title="@Title">
+        <Summary>
+            A @SlipLayoutService.Describe(_kind) layout. Changes show in the preview as you type and reach printouts once saved.
+        </Summary>
+        <Actions>
+            <MudButton Variant="Variant.Text" OnClick="ResetAsync">Reset to built-in</MudButton>
+            @if (_savedId != 0)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete layout</MudButton>
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!_dirty)" OnClick="SaveAsync">Save layout</MudButton>
+        </Actions>
+    </PageHeader>
+
+    @if (_problem is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4">@_problem</MudAlert>
+    }
+
+    <MudGrid Spacing="4">
+        <MudItem xs="12" lg="6">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudTextField T="string" Value="_name" ValueChanged="NameChanged" Label="Name" Variant="Variant.Outlined" Immediate="true"
+                              Class="mb-3 esm-w-lg" MaxLength="SlipLayoutService.MaxNameLength" />
+                <MudTextField T="string" Value="_html" ValueChanged="HtmlChanged" Label="HTML template" Lines="22" Variant="Variant.Outlined"
+                              Immediate="true" DebounceInterval="500" Class="mb-3 esm-code" Spellcheck="false" />
+                <MudTextField T="string" Value="_css" ValueChanged="CssChanged" Label="CSS" Lines="16" Variant="Variant.Outlined"
+                              Immediate="true" DebounceInterval="500" Class="esm-code" Spellcheck="false" />
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" GutterBottom="true">What you can use</MudText>
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    The template is HTML with <a href="https://shopify.github.io/liquid/" target="_blank" rel="noopener">Liquid</a>
+                    placeholders: <code>{{ order.receipt_id }}</code> prints a value, <code>{% if order.ship_by %}…{% endif %}</code>
+                    shows something only when there's a value, and <code>{% for item in items %}…{% endfor %}</code> repeats for
+                    each item. Values are printed as text; only <code>{{ shop.qr_code | raw }}</code> needs <code>| raw</code>.
+                </MudText>
+                <MudSimpleTable Dense="true">
+                    <tbody>
+                        @foreach (var (name, meaning) in Fields)
+                        {
+                            <tr><td><code>@name</code></td><td>@meaning</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudText Typo="Typo.body2" Class="mt-3 muted">
+                    The CSS applies only to this layout's slips. Each slip is one US letter page (8.5 × 11 in) with no page margin,
+                    so leave room inside it. The app's print colours and fonts are <code>var(--print-ink)</code>,
+                    <code>--print-muted</code>, <code>--print-line</code>, <code>--print-sunk</code>, <code>--print-paper</code>,
+                    <code>--print-sparkle</code>, <code>--print-slip-font</code> and <code>--print-slip-serif</code>.
+                </MudText>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="6">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+                    <MudText Typo="Typo.h6">Preview</MudText>
+                    @if (_shops.Count > 1)
+                    {
+                        <MudSelect T="int" Value="_previewShop" ValueChanged="PreviewShopChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Class="esm-minw-md" aria-label="Preview for shop">
+                            @foreach (var s in _shops) { <MudSelectItem Value="s.Id">@s.Name</MudSelectItem> }
+                        </MudSelect>
+                    }
+                </MudStack>
+                <MudText Typo="Typo.body2" Class="muted mb-2">A made-up order, with the shop's name, logo and slip settings.</MudText>
+                <iframe class="esm-slip-preview" title="Slip preview" sandbox="allow-same-origin" srcdoc="@_preview"></iframe>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    [SupplyParameterFromQuery] public string? Kind { get; set; }
+    [SupplyParameterFromQuery] public int? From { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private static readonly (string Name, string Meaning)[] Fields =
+    [
+        ("shop.name", "The shop's name"),
+        ("shop.title", "The shop's tagline on Etsy"),
+        ("shop.address", "name.etsy.com"),
+        ("shop.icon_url", "The shop's logo (for an img src)"),
+        ("shop.location", "The location line (Shop details on slips, above)"),
+        ("shop.star_seller", "True when Star Seller is on for the shop"),
+        ("shop.sales", "Etsy's count of the shop's sales"),
+        ("shop.note", "The packing slip note (\"A note from the shop\")"),
+        ("shop.qr_code", "A QR code to the shop on Etsy, as an image: use | raw"),
+        ("order.receipt_id", "The order number"),
+        ("order.order_date / order.ship_by", "\"Oct 16, 2026\"; ship_by is the ship-by date"),
+        ("order.buyer_name", "Who bought it"),
+        ("order.ship_to_name", "Who it ships to"),
+        ("order.address_lines", "The rest of the shipping address, one line each (use a for loop)"),
+        ("order.address_changed", "True when the buyer asked for another address after checkout (the address above is the new one)"),
+        ("order.etsy_ship_to_name / order.etsy_address_lines", "The address Etsy (and so its shipping label) still has"),
+        ("order.payment_method / order.shipping_method", "\"Paid via Etsy Payments\", \"USPS Ground Advantage\""),
+        ("order.note_from_buyer", "The buyer's note to the shop"),
+        ("order.is_gift", "True for a gift order"),
+        ("order.gift_message", "The gift message, as one paragraph"),
+        ("order.gift_from", "Who the gift is from (the buyer's first name)"),
+        ("order.item_count", "How many items, counting quantities"),
+        ("order.totals", "Each has .label and .amount: item total, discount, tax, shipping…"),
+        ("order.order_total", "The order total"),
+        ("order.photo_url", "The first item's photo"),
+        ("items", "Each item: .title, .variations (a list), .personalization, .quantity, .price (\"2 x $12.99\"), .image_url"),
+    ];
+
+    private bool _loaded;
+    private int _savedId;
+    private SlipKind _kind;
+    private string _name = "";
+    private string _html = "";
+    private string _css = "";
+    private bool _dirty;
+    private string? _problem;
+    private string _preview = "";
+    private List<ShopSummary> _shops = [];
+    private int _previewShop;
+
+    private string Title => _savedId != 0 ? _name : $"New {SlipLayoutService.Describe(_kind)} layout";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _shops = await Shops.ListAsync(includeInactive: false);
+        _previewShop = _shops.FirstOrDefault()?.Id ?? 0;
+        if (Id is { } id)
+        {
+            if (await Layouts.GetAsync(id) is { } layout)
+            {
+                (_savedId, _kind, _name, _html, _css) = (layout.Id, layout.Kind, layout.Name, layout.Html, layout.Css);
+            }
+        }
+        else
+        {
+            _kind = Enum.TryParse<SlipKind>(Kind, true, out var k) ? k : SlipKind.Packing;
+            var source = From is > 0 && await Layouts.GetAsync(From.Value) is { } copy && copy.Kind == _kind ? copy : SlipLayoutService.BuiltIn(_kind);
+            (_html, _css) = (source.Html, source.Css);
+            _name = $"{(From is > 0 ? source.Name : $"My {SlipLayoutService.Describe(_kind)}")} copy";
+            _dirty = true;
+        }
+        _loaded = true;
+        await RefreshPreviewAsync();
+    }
+
+    private void NameChanged(string value) { _name = value; _dirty = true; }
+    private Task HtmlChanged(string value) { _html = value; _dirty = true; return RefreshPreviewAsync(); }
+    private Task CssChanged(string value) { _css = value; _dirty = true; return RefreshPreviewAsync(); }
+    private Task PreviewShopChanged(int shopId) { _previewShop = shopId; return RefreshPreviewAsync(); }
+
+    private async Task RefreshPreviewAsync()
+    {
+        _problem = SlipRenderer.Check(_html) is { } p ? $"The HTML template has a problem: {p}" : null;
+        _preview = await Layouts.PreviewAsync(_kind, _html, _css, _previewShop == 0 ? null : _previewShop, Nav.BaseUri, Print);
+    }
+
+    private async Task SaveAsync()
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var (id, error) = await Layouts.SaveAsync(new SlipLayout { Id = _savedId, Kind = _kind, Name = _name, Html = _html, Css = _css }, user);
+        if (error is not null)
+        {
+            Snackbar.Add(error, Severity.Warning);
+            return;
+        }
+        Snackbar.Add($"Saved {_name.Trim()}", Severity.Success);
+        _dirty = false;
+        if (_savedId == 0)
+        {
+            _savedId = id;
+            Nav.NavigateTo($"packing-slips/layouts/{id}", replace: true);
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Reset to built-in",
+            $"Replace this layout's HTML and CSS with the built-in {SlipLayoutService.Describe(_kind)}? Nothing changes until you save.",
+            yesText: "Reset", cancelText: "Cancel");
+        if (confirmed != true) return;
+        var builtIn = SlipLayoutService.BuiltIn(_kind);
+        (_html, _css, _dirty) = (builtIn.Html, builtIn.Css, true);
+        await RefreshPreviewAsync();
+    }
+
+    private async Task DeleteAsync()
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Delete layout",
+            $"Delete {_name}? Shops that print it go back to the built-in {SlipLayoutService.Describe(_kind)}. This can't be undone.",
+            yesText: "Delete layout", cancelText: "Cancel");
+        if (confirmed != true) return;
+        await Layouts.DeleteAsync(_savedId, _shops.Select(s => s.Id), (await AuthState).User.Identity?.Name);
+        Snackbar.Add($"Deleted {_name}", Severity.Success);
+        Nav.NavigateTo("packing-slips");
+    }
+}

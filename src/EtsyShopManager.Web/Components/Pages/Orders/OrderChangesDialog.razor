@@ -39,7 +39,7 @@
                     @if (item.ChangePersonalization)
                     {
                         <MudTextField T="string" @bind-Value="item.Personalization" Immediate="true" Label="Personalization" Variant="Variant.Outlined"
-                                      Lines="2" AutoGrow="true" MaxLength="@OrderOverrides.MaxPersonalizationLength"
+                                      Lines="2" Sizing="InputSizing.Auto" MaxLength="@OrderOverrides.MaxPersonalizationLength"
                                       HelperText="@($"Buyer entered: {item.BuyersPersonalization ?? "nothing"}")" />
                     }
                 </section>
@@ -50,7 +50,7 @@
                 @if (_form.ChangeAddress)
                 {
                     <MudTextField T="string" @bind-Value="_form.Address" Immediate="true" Label="Ship to (name first, then each line)" Variant="Variant.Outlined"
-                                  Lines="5" AutoGrow="true" MaxLength="@OrderOverrides.MaxAddressLength"
+                                  Lines="5" Sizing="InputSizing.Auto" MaxLength="@OrderOverrides.MaxAddressLength"
                                   HelperText="The packing slip marks it, so the shipping label gets the new address too." />
                     <div class="muted small mt-2">On Etsy: @string.Join(", ", OrderOverrides.Lines(_form.EtsyAddress))</div>
                 }

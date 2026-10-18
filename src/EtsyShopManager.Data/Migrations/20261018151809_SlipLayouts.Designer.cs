@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EtsyShopManager.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261018182236_OrderOverrides")]
-    partial class OrderOverrides
+    [Migration("20261018151809_SlipLayouts")]
+    partial class SlipLayouts
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -844,9 +844,6 @@ namespace EtsyShopManager.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("AddressOverride")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("BuyerName")
                         .HasColumnType("TEXT");
 
@@ -968,9 +965,6 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<int>("OrderId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("PersonalizationOverride")
-                        .HasColumnType("TEXT");
-
                     b.Property<long>("PriceAmount")
                         .HasColumnType("INTEGER");
 
@@ -984,10 +978,6 @@ namespace EtsyShopManager.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Title")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("VariationOverrides")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Variations")
@@ -1432,6 +1422,43 @@ namespace EtsyShopManager.Data.Migrations
                     b.HasKey("ShopId");
 
                     b.ToTable("ShopTokens");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.SlipLayout", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Css")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Html")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("SlipLayouts");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.TaxonomyNode", b =>

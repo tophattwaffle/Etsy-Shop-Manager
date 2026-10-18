@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="MudBlazor" />
     <PackageReference Include="QRCoder" />
+    <PackageReference Include="Fluid.Core" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
@@ -24,6 +25,8 @@
     <!-- The HA card is the single source of the order-coloring engine; the Orders page serves and uses the same file. -->
     <EmbeddedResource Include="..\..\homeassistant\www\etsy-orders-card.js" LogicalName="etsy-orders-card.js" />
     <EmbeddedResource Include="Modules\Orders\OrderColors.default.json" LogicalName="OrderColors.default.json" />
+    <!-- The built-in packing slip layouts (Liquid + CSS): what a shop prints until it is given a layout of its own. -->
+    <EmbeddedResource Include="Modules\Orders\Slips\*.liquid;Modules\Orders\Slips\*.css" LogicalName="Slips.%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="EtsyShopManager.Tests" />

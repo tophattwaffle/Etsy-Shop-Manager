@@ -47,6 +47,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<ShopOrderSyncState> ShopOrderSyncStates => Set<ShopOrderSyncState>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<SlipLayout> SlipLayouts => Set<SlipLayout>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -191,6 +192,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         {
             e.HasIndex(x => x.ListingId);
             e.HasOne(x => x.Listing).WithMany().HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<SlipLayout>(e =>
+        {
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).HasMaxLength(100).UseCollation("NOCASE");
         });
 
         b.Entity<TextBlock>(e =>

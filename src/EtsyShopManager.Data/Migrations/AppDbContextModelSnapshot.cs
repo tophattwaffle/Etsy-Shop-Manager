@@ -1431,6 +1431,43 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ShopTokens");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.SlipLayout", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Css")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Html")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("SlipLayouts");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.TaxonomyNode", b =>
                 {
                     b.Property<long>("Id")

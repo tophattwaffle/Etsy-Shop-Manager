@@ -26,6 +26,7 @@ public enum PriceRounding
 /// <summary>One bulk change to many listings.</summary>
 /// <param name="Percent">Price: change by this percent (10 = 10% more, -10 = 10% less).</param>
 /// <param name="Amount">Price: change by this amount in the listing's currency (used when <paramref name="Percent"/> is null).</param>
+/// <param name="Rounding">Price: rounding after a percent change (an amount change is exact, so it isn't rounded).</param>
 /// <param name="Words">Tags or materials to add or remove.</param>
 /// <param name="PerShop">Shipping profile or section per shop (app shop id → Etsy id; a null section means none). Shops left out are skipped.</param>
 public sealed record BulkEdit(BulkEditKind Kind, decimal? Percent = null, decimal? Amount = null, PriceRounding Rounding = PriceRounding.None,
@@ -40,12 +41,15 @@ public sealed record BulkEdit(BulkEditKind Kind, decimal? Percent = null, decima
         _ => "shop_section_id",
     };
 
+    /// <summary>The rounding that applies: only a percent change is rounded.</summary>
+    public PriceRounding AppliedRounding => Percent is null ? PriceRounding.None : Rounding;
+
     /// <summary>Why the change can't be previewed as given, in words (null when it can).</summary>
     public string? Problem => Kind switch
     {
         BulkEditKind.Price when Percent is null && Amount is null => "Enter a percent or an amount.",
         BulkEditKind.Price when Percent is <= -100 => "A price can't go down by 100% or more.",
-        BulkEditKind.Price when (Percent ?? Amount) == 0 && Rounding == PriceRounding.None => "Enter a change other than zero, or choose rounding.",
+        BulkEditKind.Price when (Percent ?? Amount) == 0 && AppliedRounding == PriceRounding.None => "Enter a change other than zero, or choose rounding.",
         BulkEditKind.AddTags or BulkEditKind.RemoveTags or BulkEditKind.AddMaterials or BulkEditKind.RemoveMaterials
             when !(Words ?? []).Any(w => w.Trim().Length > 0) => $"Enter the {(FieldKey == "tags" ? "tags" : "materials")}, separated by commas.",
         BulkEditKind.ShippingProfile or BulkEditKind.Section when PerShop is not { Count: > 0 } => "Choose a value for at least one shop.",
@@ -57,7 +61,7 @@ public sealed record BulkEdit(BulkEditKind Kind, decimal? Percent = null, decima
     {
         BulkEditKind.Price => "Price " + (Percent is { } p
             ? p.ToString("+0.##;-0.##;0", CultureInfo.InvariantCulture) + "%"
-            : (Amount ?? 0).ToString("+0.00;-0.00;0", CultureInfo.InvariantCulture)) + Rounding switch
+            : (Amount ?? 0).ToString("+0.00;-0.00;0", CultureInfo.InvariantCulture)) + AppliedRounding switch
         {
             PriceRounding.To99 => ", rounded to .99",
             PriceRounding.Whole => ", rounded to whole amounts",
@@ -246,7 +250,7 @@ public sealed class BulkListingEditor(IDbContextFactory<AppDbContext> dbFactory,
     public static decimal NewPrice(decimal price, BulkEdit edit)
     {
         var changed = edit.Percent is { } percent ? price * (1 + percent / 100m) : price + (edit.Amount ?? 0);
-        return edit.Rounding switch
+        return edit.AppliedRounding switch
         {
             PriceRounding.To99 => Math.Max(0.99m, Math.Round(changed, MidpointRounding.AwayFromZero) - 0.01m),
             PriceRounding.Whole => Math.Round(changed, MidpointRounding.AwayFromZero),

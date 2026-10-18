@@ -253,6 +253,88 @@ public class OrderPrintTests
         Assert.Empty(await print.GetStarSellersAsync([1]));
     }
 
+    private static SlipLayoutService Layouts(TestDb db, InMemorySettings settings) =>
+        new(db, settings, new NullAuditLog(), TimeProvider.System);
+
+    [Fact]
+    public async Task A_shop_prints_the_layout_it_was_given_with_its_css_kept_to_its_own_slips()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        await using (var ctx = db.CreateDbContext())
+        {
+            ctx.Shops.Add(new Shop { Id = 2, EtsyShopId = 43, Name = "OtherShop", ConnectedAtUtc = DateTime.UtcNow });
+            var other = await ctx.Orders.SingleAsync(o => o.Id == 2);
+            other.MessageFromBuyer = "<b>Please</b> hurry";
+            await ctx.SaveChangesAsync();
+        }
+        var settings = new InMemorySettings();
+        var layouts = Layouts(db, settings);
+        var (id, error) = await layouts.SaveAsync(new SlipLayout
+        {
+            Name = "Minimal", Kind = SlipKind.Packing,
+            Html = "<section class=\"mini\">#{{ order.receipt_id }} for {{ order.ship_to_name }}: {{ order.note_from_buyer }}"
+                   + "{% for item in items %}<p>{{ item.quantity }} × {{ item.title }}</p>{% endfor %}{{ shop.qr_code | raw }}</section>",
+            Css = ".mini { font-size: 14pt; }",
+        }, "tophattwaffle");
+        Assert.Null(error);
+        Assert.Null(await layouts.AssignAsync(1, SlipKind.Packing, id, "tophattwaffle"));
+        Assert.Equal("Minimal is a packing slip layout.", await layouts.AssignAsync(1, SlipKind.Gift, id, "tophattwaffle"));
+
+        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        // Order 2 (an ordinary order) prints the shop's own layout, order 1 (a gift) the built-in gift slip.
+        Assert.Contains($"<div class=\"slip-page slip-layout-{id}\"><section class=\"mini\">#1002 for Other Sample: &lt;b&gt;Please&lt;/b&gt; hurry", slips);
+        Assert.Contains("<p>3 × Mini Caution Sign | desk decor</p>", slips);
+        Assert.Contains("<svg", slips[slips.IndexOf("class=\"mini\"", StringComparison.Ordinal)..]); // | raw keeps the QR code
+        Assert.Contains("<div class=\"slip-page slip-layout-builtin-gift\"><section class=\"gift-slip\">", slips);
+        Assert.Contains($".slip-layout-{id} {{\n.mini {{ font-size: 14pt; }}\n}}", slips);
+        Assert.DoesNotContain("slip-layout-builtin-packing", slips); // only the layouts in use bring their CSS
+
+        // Deleting the layout sends the shop back to the built-in packing slip.
+        await layouts.DeleteAsync(id, [1], "tophattwaffle");
+        Assert.Equal(0, (await layouts.GetAssignmentsAsync([1]))[(1, SlipKind.Packing)]);
+        slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=2");
+        Assert.Contains("<div class=\"slip-page slip-layout-builtin-packing\"><section class=\"slip\">", slips);
+    }
+
+    [Fact]
+    public async Task Layouts_are_checked_before_saving_and_a_broken_one_never_stops_the_others()
+    {
+        using var db = new TestDb();
+        var layouts = Layouts(db, new InMemorySettings());
+        var copy = SlipLayoutService.BuiltIn(SlipKind.Gift);
+        copy.Name = "My gift slip";
+        var (id, error) = await layouts.SaveAsync(copy, "tophattwaffle");
+        Assert.Null(error);
+        Assert.StartsWith("There is already a layout called", (await layouts.SaveAsync(new SlipLayout { Name = "my GIFT slip", Kind = SlipKind.Gift }, "tophattwaffle")).Error);
+        Assert.Equal("Give the layout a name.", (await layouts.SaveAsync(new SlipLayout { Name = " " }, "tophattwaffle")).Error);
+        var broken = await layouts.SaveAsync(new SlipLayout { Id = id, Name = "My gift slip", Kind = SlipKind.Gift, Html = "{% if order.is_gift %}" }, "tophattwaffle");
+        Assert.StartsWith("The HTML template has a problem:", broken.Error);
+        Assert.Equal(copy.Html, (await layouts.GetAsync(id))!.Html); // nothing saved
+
+        Assert.StartsWith("<div class=\"slip-problem\">This packing slip layout couldn't be printed:",
+            await SlipRenderer.RenderAsync("{{ order.receipt_id", SlipModel.Sample(new Shop { Name = "SampleShop" }, new(null, null, false), SlipKind.Packing)));
+    }
+
+    [Fact]
+    public async Task The_preview_fills_a_layout_with_a_made_up_order_for_the_shop()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: false);
+        var settings = new InMemorySettings();
+        var print = new OrderPrintService(db, settings, new NullAuditLog());
+        await print.SetLocationAsync(1, "Testville, Illinois", null);
+        var gift = SlipLayoutService.BuiltIn(SlipKind.Gift);
+
+        var page = await Layouts(db, settings).PreviewAsync(SlipKind.Gift, gift.Html, gift.Css, 1, "https://esm.test/", print);
+
+        Assert.StartsWith("<!doctype html>", page);
+        foreach (var text in new[] { "<base href=\"https://esm.test/\">", "SampleShop", "Testville, Illinois", "4321 Sales", "Happy birthday! Love you lots.",
+                     "- Alex", "Shipped to: Sam Sample", ".slip-layout-preview {" })
+            Assert.Contains(text, page);
+        Assert.DoesNotContain("Sample Buyer", page); // no real buyer's data
+    }
+
     [Fact]
     public async Task History_can_show_gift_orders_only()
     {
@@ -275,6 +357,7 @@ public class OrderPrintTests
         services.AddSingleton<EtsyShopManager.Core.Services.IAuditLog, NullAuditLog>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<OrderPrintService>();
+        services.AddSingleton<SlipLayoutService>();
         services.AddSingleton<ShopAccentService>();
         services.AddSingleton<NavigationManager>(new TestNavigation("http://localhost/" + relativeUrl));
         services.AddSupplyValueFromQueryProvider();

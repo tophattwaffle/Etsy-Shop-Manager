@@ -2,132 +2,28 @@
 @attribute [Authorize]
 @attribute [ExcludeFromInteractiveRouting]
 @layout EtsyShopManager.Web.Components.Layout.PrintLayout
-@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Core.Domain
 @using EtsyShopManager.Web.Modules.Orders
 @inject OrderPrintService Print
+@inject SlipLayoutService Layouts
 
-@* Static SSR printout: one packing slip per selected order, each on its own page, laid out like Etsy's own packing slip
-   (shop header; ship-to and order details on the left; the shop's note, items and totals on the right). Gift orders get
-   the gift slip instead (<GiftSlip>: no prices). Read-only: nothing is marked shipped. *@
+@* Static SSR printout: one slip per selected order, each on its own page. Each shop prints its own layouts (Packing slips
+   page): the packing slip for ordinary orders and the gift slip (no prices) for gift orders, the built-in ones like
+   Etsy's unless the shop was given others. Read-only: nothing is marked shipped. *@
 <PageTitle>Packing slips · Etsy Shop Manager</PageTitle>
 
-@if (_orders.Count == 0)
+@if (_slips.Count == 0)
 {
     <p class="print-empty">No orders selected. Choose orders on the Orders page, then print packing slips.</p>
 }
 else
 {
     <div class="print-sheet">
-        @foreach (var o in _orders)
+        @* Each layout's CSS reaches only its own slips (nested under .slip-layout-{key}). *@
+        <style>@((MarkupString)_css)</style>
+        @foreach (var (key, html) in _slips)
         {
-            if (o.IsGift)
-            {
-                <GiftSlip Order="o" Location="@_locations.GetValueOrDefault(o.ShopId)" StarSeller="@_starSellers.Contains(o.ShopId)" />
-                continue;
-            }
-            var address = OrderPrintService.Address(o);
-            var details = OrderPrintService.Details(o);
-            var items = o.Items.OrderBy(i => i.EtsyTransactionId).ToList();
-            var count = items.Sum(i => Math.Max(1, i.Quantity));
-            <section class="slip">
-                <header class="slip-shop">
-                    @if (o.Shop.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(o.ShopId)" alt="" /> }
-                    <div>
-                        <div class="slip-shop-name">@o.Shop.Name</div>
-                        <div class="slip-shop-url">@OrderPrintService.ShopAddress(o.Shop)</div>
-                        @if (_locations.TryGetValue(o.ShopId, out var location)) { <div>@location</div> }
-                        @if (_starSellers.Contains(o.ShopId)) { <div><StarSellerBadge /></div> }
-                    </div>
-                </header>
-
-                <div class="slip-body">
-                    <aside class="slip-side">
-                        @if (o.AddressOverride is not null)
-                        {
-                            @* The buyer asked for another address after checkout: Etsy (and so its shipping label) still has the old one. *@
-                            <SlipAddressChanged Order="o" Class="slip-field" />
-                        }
-                        else
-                        {
-                            <div class="slip-field">
-                                <div class="slip-label">Ship to</div>
-                                @if (address.Name is not null) { <div>@address.Name</div> }
-                                @foreach (var line in address.Lines) { <div>@line</div> }
-                            </div>
-                        }
-                        @if (o.ShipByUtc is not null)
-                        {
-                            <div class="slip-field">
-                                <div class="slip-label">Scheduled to ship by</div>
-                                <div>@ListingFormat.Local(o.ShipByUtc, "MMM d, yyyy")</div>
-                            </div>
-                        }
-                        <hr class="slip-rule-short" />
-                        <div class="slip-field">
-                            <div class="slip-label">Order</div>
-                            <div>#@o.EtsyReceiptId</div>
-                        </div>
-                        <div class="slip-field">
-                            <div class="slip-label">Order date</div>
-                            <div>@ListingFormat.Local(o.EtsyCreatedAtUtc, "MMM d, yyyy")</div>
-                        </div>
-                        @if (o.BuyerName is { Length: > 0 })
-                        {
-                            <div class="slip-field">
-                                <div class="slip-label">Buyer</div>
-                                <div>@o.BuyerName</div>
-                            </div>
-                        }
-                        @if (details.PaymentMethod is not null)
-                        {
-                            <div class="slip-field">
-                                <div class="slip-label">Payment method</div>
-                                <div>@details.PaymentMethod</div>
-                            </div>
-                        }
-                        @if (details.ShippingMethod is not null)
-                        {
-                            <div class="slip-field">
-                                <div class="slip-label">Shipping method</div>
-                                <div>@details.ShippingMethod</div>
-                            </div>
-                        }
-                    </aside>
-
-                    <div class="slip-main">
-                        @if (_notes.TryGetValue(o.ShopId, out var note))
-                        {
-                            <div class="slip-shop-note"><div class="slip-label">A note from the shop</div><div class="slip-pre">@note</div></div>
-                        }
-                        <div class="slip-count">@count item@(count == 1 ? "" : "s")</div>
-                        <div class="slip-items">
-                            @foreach (var item in items)
-                            {
-                                var (variations, personalization) = OrderPrintService.Split(item);
-                                <div class="slip-item">
-                                    @if (item.ImageUrl is { Length: > 0 }) { <img src="@item.ImageUrl" alt="" /> }
-                                    else { <span class="slip-noimg"></span> }
-                                    <div class="slip-item-text">
-                                        <div class="slip-item-title">@item.Title</div>
-                                        @foreach (var v in variations) { <div>@v</div> }
-                                        @if (personalization is not null) { <div>Personalization: @personalization</div> }
-                                    </div>
-                                    <div class="slip-item-price">@OrderPrintService.LinePrice(item)</div>
-                                </div>
-                            }
-                        </div>
-                        <div class="slip-totals">
-                            @foreach (var (label, amount) in details.Totals)
-                            {
-                                <div>@label</div><div>@amount</div>
-                            }
-                            <div class="slip-total">Order total</div><div class="slip-total">@details.OrderTotal</div>
-                        </div>
-                        @if (o.MessageFromBuyer is { Length: > 0 }) { <div class="slip-note"><span class="slip-label">Note from buyer</span><div>@o.MessageFromBuyer</div></div> }
-                        @if (o.IsGift) { <div class="slip-note"><span class="slip-label">Gift message</span><div>@(o.GiftMessage is { Length: > 0 } g ? g : "This order is a gift.")</div></div> }
-                    </div>
-                </div>
-            </section>
+            <div class="slip-page slip-layout-@key">@((MarkupString)html)</div>
         }
     </div>
 }
@@ -135,17 +31,24 @@ else
 @code {
     [SupplyParameterFromQuery] private string? Ids { get; set; }
 
-    private List<EtsyShopManager.Core.Domain.Order> _orders = [];
-    private Dictionary<int, string> _notes = [];
-    private Dictionary<int, string> _locations = [];
-    private HashSet<int> _starSellers = [];
+    private readonly List<(string Key, string Html)> _slips = [];
+    private string _css = "";
 
     protected override async Task OnInitializedAsync()
     {
-        _orders = await Print.GetOrdersAsync(OrderPrintService.ParseIds(Ids));
-        var shopIds = _orders.Select(o => o.ShopId).Distinct().ToList();
-        _notes = await Print.GetNotesAsync(shopIds);
-        _locations = await Print.GetLocationsAsync(shopIds);
-        _starSellers = await Print.GetStarSellersAsync(shopIds);
+        var orders = await Print.GetOrdersAsync(OrderPrintService.ParseIds(Ids));
+        var shopIds = orders.Select(o => o.ShopId).Distinct().ToList();
+        var shops = await Print.GetShopSettingsAsync(shopIds);
+        var layouts = await Layouts.ResolveAsync(shopIds);
+
+        var used = new Dictionary<string, SlipLayout>();
+        foreach (var o in orders)
+        {
+            var layout = layouts[(o.ShopId, o.IsGift ? SlipKind.Gift : SlipKind.Packing)];
+            var key = SlipLayoutService.ScopeKey(layout);
+            used.TryAdd(key, layout);
+            _slips.Add((key, await SlipRenderer.RenderAsync(layout.Html, SlipModel.For(o, shops[o.ShopId]))));
+        }
+        _css = string.Join("\n", used.Select(u => SlipRenderer.ScopedCss(u.Key, u.Value.Css)));
     }
 }

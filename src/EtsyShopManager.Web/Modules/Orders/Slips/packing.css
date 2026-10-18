@@ -1,0 +1,48 @@
+/* The built-in packing slip: laid out and sized like Etsy's own slip (measured from Etsy's PDF, in points on a
+   612x792pt page). Each slip is one letter page with a 36pt margin inside it. The app's colours and fonts are
+   var(--print-ink), --print-muted, --print-line, --print-sunk, --print-paper, --print-slip-font and --print-slip-serif. */
+.slip {
+    width: 8.5in; min-height: 11in; box-sizing: border-box; padding: 36pt; margin: 0 auto 24px;
+    font-family: var(--print-slip-font); font-size: 9.5pt; line-height: 12.2pt; background: var(--print-paper);
+    box-shadow: 0 0 0 1px var(--print-line);
+}
+.slip-shop { display: flex; align-items: center; gap: 12pt; margin-bottom: 30pt; }
+.slip-shop img { width: 42pt; height: 42pt; object-fit: cover; }
+.slip-shop-name { font-family: var(--print-slip-serif); font-size: 16pt; font-weight: 700; line-height: 20pt; }
+.slip-shop-url { margin-top: 2pt; }
+.star-seller { display: inline-flex; align-items: center; gap: 4pt; white-space: nowrap; }
+.star-seller svg { width: 9pt; height: 9pt; flex: none; }
+.star-seller circle { fill: var(--print-ink); }
+.star-seller path { fill: var(--print-paper); }
+.slip-body { display: grid; grid-template-columns: 138pt 1fr; }
+.slip-side { padding-right: 12pt; }
+.slip-label { font-weight: 600; } /* Etsy's labels are medium weight; Arial has no medium, so semi-bold */
+.slip-field { margin-bottom: 12pt; }
+.slip-rule-short { border: 0; border-top: 0.75pt solid var(--print-ink); margin: 6pt 0 18pt; }
+.slip-shop-note { margin-bottom: 18pt; }
+.slip-pre { white-space: pre-line; }
+.slip-count { font-weight: 600; padding-bottom: 12pt; border-bottom: 0.75pt solid var(--print-ink); }
+.slip-items { border-bottom: 0.75pt solid var(--print-ink); padding: 0 0 16pt; }
+.slip-item { display: grid; grid-template-columns: 42pt 1fr auto; column-gap: 12pt; padding-top: 12pt; break-inside: avoid; }
+.slip-item img, .slip-noimg { width: 42pt; height: 42pt; object-fit: cover; background: var(--print-sunk); display: block; }
+.slip-item-text > div + div { margin-top: 5.6pt; }
+.slip-item-title { font-weight: 600; line-height: 11.7pt; }
+.slip-item-price { white-space: nowrap; text-align: right; }
+.slip-totals { display: grid; grid-template-columns: 1fr 138pt; row-gap: 4.2pt; margin-top: 14pt; text-align: right; }
+.slip-total { font-weight: 700; }
+.slip-note { margin-top: 18pt; }
+/* An address the buyer asked to change after checkout (order.address_changed): boxed under a black bar so it can't be
+   missed when the shipping label is printed, with the address Etsy still has struck through. Black and white, for any
+   printer. */
+.slip-changed { border: 2pt solid var(--print-ink); }
+.slip-changed-flag {
+    background: var(--print-ink); color: var(--print-paper); font-weight: 700; padding: 3pt 6pt;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.slip-changed-body { padding: 5pt 6pt 6pt; }
+.slip-changed-hint { margin-top: 6pt; font-weight: 600; }
+.slip-changed-was { color: var(--print-muted); text-decoration: line-through; }
+
+@media print {
+    .slip { width: auto; margin: 0; box-shadow: none; }
+}

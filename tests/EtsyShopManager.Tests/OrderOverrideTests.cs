@@ -250,6 +250,7 @@ public class OrderOverrideTests
         services.AddSingleton<EtsyShopManager.Core.Services.IAuditLog, NullAuditLog>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<OrderPrintService>();
+        services.AddSingleton<SlipLayoutService>();
         services.AddSingleton<ShopAccentService>();
         services.AddSingleton<NavigationManager>(new TestNavigation("http://localhost/orders/print/slips?ids=1"));
         services.AddSupplyValueFromQueryProvider();

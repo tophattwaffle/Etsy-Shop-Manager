@@ -48,7 +48,7 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
 
     /// <summary>
     /// The shop's location line ("Lombard, Illinois"), printed under the shop on its slips like Etsy's gift slip does.
-    /// Set on the Shops page: Etsy's API has the shop's country but not its city or state.
+    /// Set on the Packing slips page: Etsy's API has the shop's country but not its city or state.
     /// </summary>
     public static string LocationKey(int shopId) => $"Shops.SlipLocation.{shopId}";
 
@@ -76,7 +76,7 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     }
 
     /// <summary>
-    /// Whether the shop prints Etsy's Star Seller badge on its slips. Set on the Shops page: Etsy's API doesn't say whether
+    /// Whether the shop prints Etsy's Star Seller badge on its slips. Set on the Packing slips page: Etsy's API doesn't say whether
     /// a shop is a Star Seller (Etsy reviews it each month).
     /// </summary>
     public static string StarSellerKey(int shopId) => $"Shops.StarSeller.{shopId}";
@@ -88,6 +88,17 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     {
         await settings.SetAsync(StarSellerKey(shopId), isStarSeller ? "1" : null, updatedBy: user, ct: ct);
         await audit.WriteAsync("shop.star-seller", nameof(Shop), shopId.ToString(), isStarSeller ? "on" : "off", user, ct);
+    }
+
+    /// <summary>Each shop's note, location line and Star Seller switch, as its slips print them.</summary>
+    public async Task<Dictionary<int, SlipModel.ShopSettings>> GetShopSettingsAsync(IEnumerable<int> shopIds, CancellationToken ct = default)
+    {
+        var ids = shopIds.Distinct().ToList();
+        var notes = await GetNotesAsync(ids, ct);
+        var locations = await GetLocationsAsync(ids, ct);
+        var stars = await GetStarSellersAsync(ids, ct);
+        return ids.ToDictionary(id => id,
+            id => new SlipModel.ShopSettings(notes.GetValueOrDefault(id), locations.GetValueOrDefault(id), stars.Contains(id)));
     }
 
     public async Task<string?> SetNoteAsync(int shopId, string? text, string? user, CancellationToken ct = default)

@@ -381,6 +381,8 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .lp-list-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--esm-muted); font-size: 0.8rem; }
 .lp-list-check { width: 44px; padding-right: 0 !important; }
 .lp-list tbody tr.is-selected { background: var(--esm-sunk); }
+.lp-list tbody tr.is-selectable { cursor: pointer; user-select: none; }
+.lp-list tbody tr.is-selectable .lp-list-title:hover { text-decoration: none; }
 .lp-bulk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .lp-bulk-fields { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .lp-bulk-fields .mud-input-control { flex: 1 1 160px; margin: 0; }
@@ -418,8 +420,6 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .esm-filter-group { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .esm-filter-group legend { font-weight: 600; font-size: 1rem; padding: 0; margin-bottom: 8px; }
 .esm-filter-group .mud-input-control { margin: 0; }
-.esm-sync-line { font-size: 0.8rem; color: var(--esm-muted); }
-.esm-sync-line.is-error { color: var(--esm-error); }
 .esm-filter-toggle { display: none; }
 @media (max-width: 959.98px) {
     .esm-filter-toggle {
@@ -429,6 +429,12 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
     .esm-filter-toggle-label { flex: 1; text-align: left; }
     .esm-filter-body { display: none; padding: 16px 4px 4px; }
     .esm-filter-body.is-open { display: flex; }
+    /* Inside the folded panel the shop list stays a list with its sync status (the listings page turns it into chips) */
+    .esm-filter-rail .lp-facets { flex-direction: column; overflow-x: visible; gap: 2px; padding: 0; }
+    .esm-filter-rail .lp-facets legend { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+    .esm-filter-rail .lp-shop { display: block; }
+    .esm-filter-rail .lp-shop-status { display: flex; }
+    .esm-filter-rail .lp-facet { width: 100%; border: 0; padding: 8px 12px; }
 }
 .lp-status-error { color: var(--mud-palette-error); }
 a.lp-status-error:hover { text-decoration: underline; }
@@ -600,3 +606,7 @@ a.lp-status-error:hover { text-decoration: underline; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 /* Photo template thumbnails in the template list */
 .esm-template-thumb { width: 48px; }
+
+/* ---- Packing slips: layout editor (Components/Pages/PackingSlips) ---- */
+.esm-code textarea { font-family: Consolas, "Cascadia Mono", monospace; font-size: 0.8rem; line-height: 1.45; white-space: pre; }
+.esm-slip-preview { display: block; width: 100%; height: 700px; border: 1px solid var(--esm-line); border-radius: var(--esm-radius-sm); }
