@@ -8,7 +8,7 @@ namespace EtsyShopManager.Tests;
 /// </summary>
 public partial class DesignRulesTests
 {
-    private static readonly string Root = FindRepoRoot();
+    internal static readonly string Root = FindRepoRoot();
     private static readonly string Components = Path.Combine(Root, "src", "EtsyShopManager.Web", "Components");
 
     [Fact]

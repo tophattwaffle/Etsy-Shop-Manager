@@ -1,0 +1,90 @@
+{%- comment -%}
+  The built-in packing slip, laid out like Etsy's own: the shop at the top; ship-to and order details on the left; the
+  shop's note, the items and the totals on the right. The Packing slips page lists every value you can use.
+{%- endcomment -%}
+<section class="slip">
+    <header class="slip-shop">
+        {%- if shop.icon_url %}<img src="{{ shop.icon_url }}" alt="" />{% endif %}
+        <div>
+            <div class="slip-shop-name">{{ shop.name }}</div>
+            <div class="slip-shop-url">{{ shop.address }}</div>
+            {%- if shop.location %}<div>{{ shop.location }}</div>{% endif %}
+            {%- if shop.star_seller %}
+            <div>
+                <span class="star-seller">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" /><path d="M12 5.2l1.95 4.15 4.55.45-3.45 3.05 1 4.45L12 15l-4.05 2.3 1-4.45L5.5 9.8l4.55-.45z" /></svg>
+                    Star seller
+                </span>
+            </div>
+            {%- endif %}
+        </div>
+    </header>
+
+    <div class="slip-body">
+        <aside class="slip-side">
+            <div class="slip-field">
+                <div class="slip-label">Ship to</div>
+                {%- if order.ship_to_name %}<div>{{ order.ship_to_name }}</div>{% endif %}
+                {%- for line in order.address_lines %}<div>{{ line }}</div>{% endfor %}
+            </div>
+            {%- if order.ship_by %}
+            <div class="slip-field">
+                <div class="slip-label">Scheduled to ship by</div>
+                <div>{{ order.ship_by }}</div>
+            </div>
+            {%- endif %}
+            <hr class="slip-rule-short" />
+            <div class="slip-field">
+                <div class="slip-label">Order</div>
+                <div>#{{ order.receipt_id }}</div>
+            </div>
+            <div class="slip-field">
+                <div class="slip-label">Order date</div>
+                <div>{{ order.order_date }}</div>
+            </div>
+            {%- if order.buyer_name %}
+            <div class="slip-field">
+                <div class="slip-label">Buyer</div>
+                <div>{{ order.buyer_name }}</div>
+            </div>
+            {%- endif %}
+            {%- if order.payment_method %}
+            <div class="slip-field">
+                <div class="slip-label">Payment method</div>
+                <div>{{ order.payment_method }}</div>
+            </div>
+            {%- endif %}
+            {%- if order.shipping_method %}
+            <div class="slip-field">
+                <div class="slip-label">Shipping method</div>
+                <div>{{ order.shipping_method }}</div>
+            </div>
+            {%- endif %}
+        </aside>
+
+        <div class="slip-main">
+            {%- if shop.note %}
+            <div class="slip-shop-note"><div class="slip-label">A note from the shop</div><div class="slip-pre">{{ shop.note }}</div></div>
+            {%- endif %}
+            <div class="slip-count">{{ order.item_count }} item{% if order.item_count != 1 %}s{% endif %}</div>
+            <div class="slip-items">
+                {%- for item in items %}
+                <div class="slip-item">
+                    {%- if item.image_url %}<img src="{{ item.image_url }}" alt="" />{% else %}<span class="slip-noimg"></span>{% endif %}
+                    <div class="slip-item-text">
+                        <div class="slip-item-title">{{ item.title }}</div>
+                        {%- for v in item.variations %}<div>{{ v }}</div>{% endfor %}
+                        {%- if item.personalization %}<div>Personalization: {{ item.personalization }}</div>{% endif %}
+                    </div>
+                    <div class="slip-item-price">{{ item.price }}</div>
+                </div>
+                {%- endfor %}
+            </div>
+            <div class="slip-totals">
+                {%- for total in order.totals %}<div>{{ total.label }}</div><div>{{ total.amount }}</div>{% endfor %}
+                <div class="slip-total">Order total</div><div class="slip-total">{{ order.order_total }}</div>
+            </div>
+            {%- if order.note_from_buyer %}<div class="slip-note"><span class="slip-label">Note from buyer</span><div>{{ order.note_from_buyer }}</div></div>{% endif %}
+        </div>
+    </div>
+</section>

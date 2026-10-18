@@ -22,7 +22,7 @@ public class NavigationTests
     [Fact]
     public void Top_level_sidebar_has_one_Templates_entry_and_admin_pages_sit_under_Settings()
     {
-        Assert.Equal(["Shops", "Orders", "Listings", "Templates", "Lookups"],
+        Assert.Equal(["Shops", "Orders", "Packing slips", "Listings", "Templates", "Lookups"],
             Registry.NavItems.Where(i => i.Group is null).Select(i => i.Title));
         Assert.Equal(["General", "Jobs", "Users", "Audit log", "API keys", "Etsy writes", "Order colors", "Photo order test"],
             Registry.NavItems.Where(i => i.Group == NavGroups.Settings).Select(i => i.Title));
@@ -36,6 +36,14 @@ public class NavigationTests
         HasRoutes<TextBlockPage>("/templates/text/new", "/templates/text/{Id:int}", "/text-blocks/new", "/text-blocks/{Id:int}");
         HasRoutes<VariationListPage>("/templates/variations/new", "/templates/variations/{Id:int}", "/variation-lists/new", "/variation-lists/{Id:int}");
         HasRoutes<PhotoTemplatePage>("/templates/photos/new", "/templates/photos/{Id:int}", "/photo-templates/new", "/photo-templates/{Id:int}");
+    }
+
+    [Fact]
+    public void Packing_slip_pages_live_in_their_own_section()
+    {
+        HasRoutes<EtsyShopManager.Web.Components.Pages.PackingSlips.PackingSlips>("/packing-slips");
+        HasRoutes<EtsyShopManager.Web.Components.Pages.PackingSlips.PackingSlipLayoutPage>("/packing-slips/layouts/new", "/packing-slips/layouts/{Id:int}");
+        Assert.DoesNotContain("ShopSlipPanel", File.ReadAllText(Path.Combine(DesignRulesTests.Root, "src", "EtsyShopManager.Web", "Components", "Pages", "Shops.razor")));
     }
 
     private static void HasRoutes<T>(params string[] expected) =>

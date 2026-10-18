@@ -35,7 +35,7 @@ body { font-family: var(--esm-font, system-ui, sans-serif); font-size: 11pt; lin
 .print-small { font-size: 9pt; }
 .print-empty { max-width: 7.5in; margin: 24px auto; padding: 0 16px; }
 /* Slips are whole letter pages with their own margin. */
-.print-sheet:has(.slip, .gift-slip) { max-width: none; padding: 0; }
+.print-sheet:has(.slip-page) { max-width: none; padding: 0; }
 
 /* Pick list. On paper, the spacer rows in its header and footer repeat on every page and stand in for the page margin. */
 .pick-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
@@ -51,88 +51,16 @@ body { font-family: var(--esm-font, system-ui, sans-serif); font-size: 11pt; lin
 .pick-spacer td { height: 0.5in; padding: 0; border: 0; }
 .pick-table td.pick-title { border: 0; padding: 0 0 6px; }
 
-/* Packing slips: laid out and sized like Etsy's own slip (measured from Etsy's PDF, in points on a 612x792pt page).
-   Each slip is one letter page with a 36pt margin inside it. */
-.slip {
-    width: 8.5in; min-height: 11in; box-sizing: border-box; padding: 36pt; margin: 0 auto 24px;
-    font-family: var(--print-slip-font); font-size: 9.5pt; line-height: 12.2pt; background: var(--print-paper);
-    box-shadow: 0 0 0 1px var(--print-line);
-}
-.slip-shop { display: flex; align-items: center; gap: 12pt; margin-bottom: 30pt; }
-.slip-shop img { width: 42pt; height: 42pt; object-fit: cover; }
-.slip-shop-name { font-family: var(--print-slip-serif); font-size: 16pt; font-weight: 700; line-height: 20pt; }
-.slip-shop-url { margin-top: 2pt; }
-.slip-body { display: grid; grid-template-columns: 138pt 1fr; }
-.slip-side { padding-right: 12pt; }
-.slip-label { font-weight: 600; } /* Etsy's labels are medium weight; Arial has no medium, so semi-bold */
-.slip-field { margin-bottom: 12pt; }
-.slip-rule-short { border: 0; border-top: 0.75pt solid var(--print-ink); margin: 6pt 0 18pt; }
-.slip-shop-note { margin-bottom: 18pt; }
-.slip-pre { white-space: pre-line; }
-.slip-count { font-weight: 600; padding-bottom: 12pt; border-bottom: 0.75pt solid var(--print-ink); }
-.slip-items { border-bottom: 0.75pt solid var(--print-ink); padding: 0 0 16pt; }
-.slip-item { display: grid; grid-template-columns: 42pt 1fr auto; column-gap: 12pt; padding-top: 12pt; break-inside: avoid; }
-.slip-item img, .slip-noimg { width: 42pt; height: 42pt; object-fit: cover; background: var(--print-sunk); display: block; }
-.slip-item-text > div + div { margin-top: 5.6pt; }
-.slip-item-title { font-weight: 600; line-height: 11.7pt; }
-.slip-item-price { white-space: nowrap; text-align: right; }
-.slip-totals { display: grid; grid-template-columns: 1fr 138pt; row-gap: 4.2pt; margin-top: 14pt; text-align: right; }
-.slip-total { font-weight: 700; }
-.slip-note { margin-top: 18pt; }
-
-/* Gift slips: laid out like Etsy's gift slip (points measured from Etsy's PDF). The top half stays blank for a shipping
-   label; the order is on the left (no prices), the gift side past the fold on the right. */
-.gift-slip {
-    position: relative; width: 8.5in; height: 11in; box-sizing: border-box; margin: 0 auto 24px; overflow: hidden;
-    font-family: var(--print-slip-font); font-size: 8pt; line-height: 11pt; background: var(--print-paper);
-    box-shadow: 0 0 0 1px var(--print-line);
-}
-.gift-cut { position: absolute; left: 14pt; right: 14pt; top: 396pt; border-top: 1pt dashed var(--print-line); }
-.gift-fold { position: absolute; left: 306pt; top: 453pt; height: 283pt; border-left: 1pt dashed var(--print-line); }
-.gift-left { position: absolute; left: 23pt; top: 407pt; width: 277pt; }
-.gift-shop { display: flex; gap: 6pt; align-items: flex-start; margin-bottom: 18pt; }
-.gift-shop img { width: 45pt; height: 45pt; object-fit: cover; }
-.gift-shop-name { font-size: 9.5pt; line-height: 13pt; font-weight: 600; }
-/* Etsys Star Seller badge and the sales count, on one line as on Etsys gift slip. */
-.gift-shop-stats { display: flex; align-items: center; gap: 6pt; }
-.star-seller { display: inline-flex; align-items: center; gap: 4pt; white-space: nowrap; }
-.star-seller svg { width: 9pt; height: 9pt; flex: none; }
-.star-seller circle { fill: var(--print-ink); }
-.star-seller path { fill: var(--print-paper); }
-.gift-strong { font-weight: 600; }
-.gift-order { margin-bottom: 6pt; }
-.gift-item { break-inside: avoid; }
-.gift-item > div + div { margin-top: 11pt; }
-.gift-item + .gift-item { margin-top: 18pt; }
-.gift-item-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 13pt; }
-.gift-qty { padding-top: 4pt; }
-.gift-right { position: absolute; left: 306pt; right: 0; top: 396pt; bottom: 0; text-align: center; }
-/* A small serif headline where Etsy has its wordmark, with five gold hand-drawn sparkles: two beside it, three below. */
-.gift-head { position: relative; width: 190pt; margin: 22pt auto 0; height: 60pt; }
-.gift-headline { padding-top: 4pt; font-family: var(--print-slip-serif); font-size: 16pt; line-height: 20pt; }
-.gift-sparkle {
-    position: absolute; width: 12pt; height: 12pt; overflow: visible;
-    fill: none; stroke: var(--print-sparkle); stroke-width: 3; stroke-linecap: round;
-}
-.gift-sparkle-1 { left: 23pt; top: 4pt; transform: rotate(-8deg); }
-.gift-sparkle-2 { left: 156pt; top: -3pt; width: 13pt; height: 13pt; transform: rotate(14deg); }
-.gift-sparkle-3 { left: 10pt; top: 31pt; width: 10pt; height: 10pt; transform: rotate(-20deg); }
-.gift-sparkle-4 { left: 152pt; top: 31pt; width: 10pt; height: 10pt; transform: rotate(24deg); }
-.gift-sparkle-5 { left: 189pt; top: 28pt; transform: rotate(40deg); }
-.gift-photo { display: block; width: 113pt; height: 113pt; margin: 31pt auto 0; object-fit: cover; border-radius: 6pt; background: var(--print-sunk); }
-/* The message runs almost the panel's full width, so a short one stays on one line as on Etsy's; the sender sits under it. */
-.gift-message { margin: 6pt 12pt 0; font-family: var(--print-slip-serif); font-style: italic; font-size: 11.5pt; line-height: 14pt; }
-.gift-sender { margin-top: 4pt; font-family: var(--print-slip-serif); font-size: 10.5pt; line-height: 13pt; }
-.gift-qr { position: absolute; left: 12pt; right: 12pt; bottom: 26pt; }
-.gift-qr-code { margin: 10pt auto 0; width: 36pt; height: 36pt; }
-.gift-qr-code svg { display: block; width: 100%; height: 100%; }
+/* Packing and gift slips: each order's slip is a .slip-page holding its layout's HTML (Packing slips page; the built-in
+   layouts are in Modules/Orders/Slips). A layout's CSS only reaches its own slips. */
+.slip-page { display: flow-root; }
+/* A layout that can't be printed says so in its slip's place (SlipRenderer). */
+.slip-problem { margin: 0.5in; padding: 12pt; border: 1pt solid var(--print-ink); font-family: var(--print-slip-font); }
 
 @media print {
     .print-toolbar { display: none; }
     .print-sheet { max-width: none; margin: 0; padding: 0 0.5in; }
     .pick-spacer { display: table-row; }
-    .slip, .gift-slip { margin: 0; box-shadow: none; }
-    .slip { width: auto; }
-    .slip + .slip, .slip + .gift-slip, .gift-slip + .slip, .gift-slip + .gift-slip { break-before: page; }
+    .slip-page + .slip-page { break-before: page; }
     a { color: inherit; text-decoration: none; }
 }
