@@ -548,4 +548,18 @@ public class OrderDueTests
     {
         Assert.Equal(("—", false, (string?)null), OrderDue.For(null, Now));
     }
+
+    [Theory]
+    [InlineData("completed", true, true, "Shipped", "--due-hue: 120")]
+    [InlineData("completed", true, false, "Completed", "--due-hue: 120")]
+    [InlineData("paid", true, false, "Open", "--due-hue: 45")]
+    [InlineData("Canceled", true, false, "Canceled", "--due-hue: 0")]
+    [InlineData("fully refunded", true, true, "Refunded", "--due-hue: 0")]
+    [InlineData("partially refunded", true, true, "Partly refunded", "--due-hue: 30")]
+    [InlineData("payment processing", false, false, "Payment processing", null)]
+    public void History_status_pill_uses_the_ship_by_pill_style(string status, bool paid, bool shipped, string text, string? style)
+    {
+        var order = new Order { Status = status, IsPaid = paid, IsShipped = shipped };
+        Assert.Equal((text, style), OrderDue.Status(order));
+    }
 }

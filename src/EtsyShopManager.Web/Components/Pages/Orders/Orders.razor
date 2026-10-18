@@ -70,105 +70,7 @@
         <div class="order-grid">
             @foreach (var o in _shown)
             {
-                var due = OrderDue.For(o.ShipByUtc, Time.GetUtcNow().UtcDateTime);
-                <div class="order-card @(due.Urgent ? "urgent" : "")" style="@ShopStyle(o.ShopId)">
-                    <div class="order-head">
-                        <div class="order-pick">
-                            <MudCheckBox T="bool" Value="@_picked.Contains(o.Id)" ValueChanged="@(on => Pick(o.Id, on))" Dense="true"
-                                         Size="Size.Small" aria-label="@($"Select order {o.EtsyReceiptId} to print")" />
-                            <div>
-                                <div class="order-buyer">
-                                    @(o.BuyerName ?? $"#{o.EtsyReceiptId}")
-                                    @if (o.IsGift) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Class="ml-1">Gift</MudChip> }
-                                </div>
-                                <div class="muted small">
-                                    <a href="@OrderUrl(o.ShopId, o.EtsyReceiptId)" target="@OrderTarget(o.ShopId, o.EtsyReceiptId)">#@o.EtsyReceiptId</a>
-                                    · @o.Shop.Name · @ListingFormat.Local(o.EtsyCreatedAtUtc)
-                                </div>
-                                @if (OrderOverrides.Address(o) is { } shipTo)
-                                {
-                                    <ChangedMark Caption="Address changed" Label="@AddressChangedLabel(o, shipTo)" />
-                                }
-                            </div>
-                        </div>
-                        <div class="text-right">
-                            <span class="esm-due" style="@due.Style">@due.Text</span>
-                            <div class="small muted">@OrderTotal(o)</div>
-                            <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
-                                <MudTooltip Text="Change personalization, variations or address">
-                                    <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => ChangeOrderAsync(o)"
-                                                   aria-label="@($"Change order {o.EtsyReceiptId}")" />
-                                </MudTooltip>
-                            </AuthorizeView>
-                        </div>
-                    </div>
-                    @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
-                    {
-                        var (variations, personalization) = Split(i);
-                        <div class="order-item @(i.UnitsMade >= i.UnitsToMake ? "is-made" : "")">
-                            @if (!string.IsNullOrEmpty(i.ImageUrl))
-                            {
-                                <img src="@i.ImageUrl" alt="" loading="lazy" />
-                            }
-                            else
-                            {
-                                <div class="noimg"></div>
-                            }
-                            <div class="order-item-body">
-                                <div><b>@(i.Quantity > 1 ? $"×{i.Quantity} " : "")</b>@ShortTitle(i.Title)</div>
-                                @if (variations.Count > 0)
-                                {
-                                    <div class="order-vars">
-                                        @foreach (var (v, vi) in variations.Select((v, n) => (v, n)))
-                                        {
-                                            if (BuyersVariation(i, v) is { } buyers)
-                                            {
-                                                <span class="esm-changed">
-                                                    <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
-                                                    <ChangedMark Label="@($"{v.Name} changed here. The buyer chose {buyers}.")" />
-                                                </span>
-                                            }
-                                            else
-                                            {
-                                                <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
-                                            }
-                                        }
-                                    </div>
-                                }
-                                @if (i.PersonalizationOverride is not null)
-                                {
-                                    var buyers = OrderOverrides.BuyersPersonalization(i);
-                                    <div class="esm-changed esm-changed-note">
-                                        @if (personalization is not null)
-                                        {
-                                            <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
-                                        }
-                                        else
-                                        {
-                                            <span class="muted small">No personalization</span>
-                                        }
-                                        <ChangedMark Label="@(buyers is null ? "Personalization changed here. The buyer entered none." : $"Personalization changed here. The buyer entered: {buyers}")" />
-                                    </div>
-                                }
-                                else if (personalization is not null)
-                                {
-                                    <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
-                                }
-                                @if (i.Sku is not null) { <div class="muted small">SKU @i.Sku</div> }
-                            </div>
-                            <MadeToggle Made="@i.UnitsMade" Quantity="@i.UnitsToMake" ReadOnly="@(!_canMark)" What="@ShortTitle(i.Title)"
-                                        MadeChanged="@(made => SetMadeAsync([i], made))" />
-                        </div>
-                    }
-                    @if (o.MessageFromBuyer is not null)
-                    {
-                        <div class="order-message"><b>Note from buyer:</b> @o.MessageFromBuyer</div>
-                    }
-                    @if (o.IsGift)
-                    {
-                        <div class="order-message"><b>🎁 Gift</b>@(o.GiftMessage is null ? "" : $": {o.GiftMessage}")</div>
-                    }
-                </div>
+                @OrderCard(o, history: false)
             }
         </div>
         }
@@ -241,59 +143,50 @@
     <MudTabPanel Text="History">
         <div class="lp-layout">
         <section class="lp-main" aria-label="Order history">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Wrap="Wrap.Wrap" Class="mb-2">
-            <MudTextField T="string" Value="_historyText" ValueChanged="OnHistoryTextChanged" Label="Search buyer, item, SKU or receipt #"
-                          Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true" Class="esm-w-lg"
-                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
-            <MudSpacer />
-            @if (_historyPicked.Count > 0)
+            @* The same cards as the Open tab, a page at a time (searched, filtered and sorted by the server). *@
+            <div class="lp-toolbar">
+                <MudTextField T="string" Value="_historyText" ValueChanged="OnHistoryTextChanged" Placeholder="Search buyer, item, SKU or receipt #"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="lp-search" aria-label="Search order history" />
+            </div>
+            <div class="lp-toolbar">
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => PickHistoryPage(!AllHistoryRowsPicked)" Disabled="@(_historyRows.Count == 0)">
+                    @(AllHistoryRowsPicked ? "Unselect this page" : "Select this page")
+                </MudButton>
+                @if (_historyPicked.Count > 0)
+                {
+                    <span class="muted small">@_historyPicked.Count selected</span>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _historyPicked.Clear()">Clear</MudButton>
+                }
+                <MudSpacer />
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
+                           Disabled="@(_historyPicked.Count == 0)" Href="@HistoryPrintLink("pick")" Target="_blank">Print pick list</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
+                           Disabled="@(_historyPicked.Count == 0)" Href="@HistoryPrintLink("slips")" Target="_blank">Print packing slips</MudButton>
+            </div>
+            @if (_historyRows.Count == 0)
             {
-                <span class="muted small">@_historyPicked.Count selected</span>
-                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _historyPicked.Clear()">Clear</MudButton>
+                <MudText Class="muted">
+                    @(string.IsNullOrWhiteSpace(_historyText) && !_historyGifts ? "No orders yet. The first poll pulls the shop's order history." : "No orders match.")
+                </MudText>
             }
-            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
-                       Disabled="@(_historyPicked.Count == 0)" Href="@HistoryPrintLink("pick")" Target="_blank">Print pick list</MudButton>
-            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
-                       Disabled="@(_historyPicked.Count == 0)" Href="@HistoryPrintLink("slips")" Target="_blank">Print packing slips</MudButton>
-        </MudStack>
-        <MudTable @ref="_history" T="Order" ServerData="LoadHistoryAsync" Dense="true" Hover="true" RowsPerPage="50">
-            <HeaderContent>
-                @* Sorted by the server, so the order covers every page. The first column picks orders to print (any status). *@
-                <MudTh>
-                    <MudCheckBox T="bool" Value="@AllHistoryRowsPicked" ValueChanged="PickHistoryPage" Dense="true" Size="Size.Small"
-                                 Disabled="@(_historyRows.Count == 0)" aria-label="Select every order on this page to print" />
-                </MudTh>
-                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Date" InitialDirection="SortDirection.Descending">Date</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Receipt">Receipt</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Buyer">Buyer</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Items">Items</MudTableSortLabel></MudTh>
-                <MudTh Class="text-right"><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Total">Total</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Status">Status</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Shop">Shop</MudTableSortLabel></MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd>
-                    <MudCheckBox T="bool" Value="@_historyPicked.Contains(context.Id)" ValueChanged="@(on => PickHistory(context.Id, on))"
-                                 Dense="true" Size="Size.Small" aria-label="@($"Select order {context.EtsyReceiptId} to print")" />
-                </MudTd>
-                <MudTd>@ListingFormat.Local(context.EtsyCreatedAtUtc, "yyyy-MM-dd")</MudTd>
-                <MudTd><a href="@OrderUrl(context.ShopId, context.EtsyReceiptId)" target="@OrderTarget(context.ShopId, context.EtsyReceiptId)">#@context.EtsyReceiptId</a></MudTd>
-                <MudTd>
-                    @context.BuyerName
-                    @if (context.IsGift) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Class="ml-1">Gift</MudChip> }
-                </MudTd>
-                <MudTd class="small">@string.Join(", ", context.Items.Select(i => (i.Quantity > 1 ? $"{i.Quantity}× " : "") + ShortTitle(i.Title)))</MudTd>
-                <MudTd Class="text-right">@OrderTotal(context)</MudTd>
-                <MudTd>
-                    <MudChip T="string" Size="Size.Small" Color="@(context.IsOpen ? Color.Warning : context.IsShipped ? Color.Success : Color.Default)">
-                        @(context.IsOpen ? "open" : context.IsShipped ? "shipped" : context.Status)
-                    </MudChip>
-                </MudTd>
-                <MudTd>@context.Shop.Name</MudTd>
-            </RowTemplate>
-            <NoRecordsContent><MudText>No orders yet. The first poll pulls the shop's order history.</MudText></NoRecordsContent>
-            <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100, 200 }" /></PagerContent>
-        </MudTable>
+            <div class="order-grid">
+                @foreach (var o in _historyRows)
+                {
+                    @OrderCard(o, history: true)
+                }
+            </div>
+            @if (_historyTotal > 0)
+            {
+                <div class="lp-pager">
+                    <span class="lp-muted">@(_historyPage * HistoryPageSize + 1)–@(_historyPage * HistoryPageSize + _historyRows.Count) of @_historyTotal.ToString("N0")</span>
+                    <MudStack Row="true" Spacing="1">
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_historyPage == 0)" OnClick="() => HistoryPageAsync(_historyPage - 1)">Previous</MudButton>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@((_historyPage + 1) * HistoryPageSize >= _historyTotal)"
+                                   OnClick="() => HistoryPageAsync(_historyPage + 1)">Next</MudButton>
+                    </MudStack>
+                </div>
+            }
         </section>
         @FilterRail(HistoryTab)
         </div>
@@ -324,7 +217,10 @@
         ["personalization"] = r => (string?)r.Row["personalization"],
         ["shipby"] = r => (long?)r.Row["ship_by_ts"],
     };
-    private MudTable<Order>? _history;
+    private const int HistoryPageSize = 48;
+    private int _historyPage;
+    private int _historyTotal;
+    private bool _historyOldestFirst;
     private string? _historyText;
     private bool _historyGifts;
     private Timer? _timer;
@@ -340,13 +236,14 @@
         _canMark = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
         _colorConfig = (await Colors.GetAsync()).ToCardJson();
         await LoadAsync();
+        await LoadHistoryAsync();
         // Orders change when a check for orders runs (or a shop is (re)connected): reload then.
         _live = JobEvents.Subscribe(
             c => c.JobType == PollShopOrdersJob.Type || c.JobType == EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type,
             _ => InvokeAsync(async () =>
             {
                 await LoadAsync();
-                if (_history is not null) await _history.ReloadServerData();
+                await LoadHistoryAsync();
                 StateHasChanged();
             }));
         // Items marked made in another browser (or on the dashboard): reload the open orders.
@@ -367,13 +264,16 @@
         _toMake = ToMakeList.Build(_open, TimeZoneInfo.Local);
     }
 
-    // The order cards and the To make rows share the same OrderItem objects, so both tabs show the change at once.
+    // The order cards and the To make rows share the same OrderItem objects, so both tabs show the change at once. History
+    // loads its own copies, so it is re-read after a change (and the open orders too when the change came from History).
     private async Task SetMadeAsync(IReadOnlyList<OrderItem> items, int made)
     {
         if (!_canMark) return;
         try
         {
             await MadeItems.SetMadeAsync(items, made, source: this);
+            if (items.Any(i => _historyRows.Any(o => o.Items.Contains(i)))) await LoadAsync();
+            await LoadHistoryAsync();
         }
         catch (Exception ex)
         {
@@ -388,6 +288,7 @@
         _ = InvokeAsync(async () =>
         {
             await LoadAsync();
+            await LoadHistoryAsync();
             StateHasChanged();
         });
     }
@@ -433,28 +334,47 @@
     {
         _shopId = id;
         await LoadAsync();
-        if (_history is not null) await _history.ReloadServerData();
+        await HistoryPageAsync(0);
     }
 
-    private async Task<TableData<Order>> LoadHistoryAsync(TableState state, CancellationToken ct)
+    // History is paged by the server; a change of search, filter, sort or shop starts again at the first page.
+    private async Task LoadHistoryAsync()
     {
-        var sortBy = state.SortDirection == SortDirection.None ? null : state.SortLabel;
-        var (orders, total) = await Queries.GetHistoryAsync(_shopId, _historyText, state.Page * state.PageSize, state.PageSize, ct,
-            sortBy, descending: state.SortDirection != SortDirection.Ascending, giftsOnly: _historyGifts);
+        var (orders, total) = await Queries.GetHistoryAsync(_shopId, _historyText, _historyPage * HistoryPageSize, HistoryPageSize,
+            sortBy: OrderQueries.HistorySort.Date, descending: !_historyOldestFirst, giftsOnly: _historyGifts);
+        if (orders.Count == 0 && total > 0 && _historyPage > 0)
+        {
+            // The page ran past the end (orders left the list): show the last page instead.
+            _historyPage = (total - 1) / HistoryPageSize;
+            await LoadHistoryAsync();
+            return;
+        }
         _historyRows = orders;
-        return new TableData<Order> { Items = orders, TotalItems = total };
+        _historyTotal = total;
+    }
+
+    private async Task HistoryPageAsync(int page)
+    {
+        _historyPage = Math.Max(0, page);
+        await LoadHistoryAsync();
     }
 
     private async Task OnHistoryTextChanged(string? text)
     {
         _historyText = text;
-        if (_history is not null) await _history.ReloadServerData();
+        await HistoryPageAsync(0);
     }
 
     private async Task OnHistoryGiftsChanged(bool on)
     {
         _historyGifts = on;
-        if (_history is not null) await _history.ReloadServerData();
+        await HistoryPageAsync(0);
+    }
+
+    private async Task OnHistorySortChanged(bool oldestFirst)
+    {
+        _historyOldestFirst = oldestFirst;
+        await HistoryPageAsync(0);
     }
 
     private async Task PollNowAsync()
@@ -465,6 +385,120 @@
             if (await PollQueue.PollShopAsync(s.ShopId, user) is not null) queued++;
         Snackbar.Add(queued == 0 ? "A check is already queued" : "Checking Etsy for orders…", Severity.Info);
     }
+
+    /// <summary>One order as a card: the Open tab's layout, used by History too (with the order's status pill in place of
+    /// the ship-by pill).</summary>
+    private RenderFragment OrderCard(Order o, bool history) => __builder =>
+    {
+        var due = OrderDue.For(o.ShipByUtc, Time.GetUtcNow().UtcDateTime);
+        var (pillText, pillStyle) = history ? OrderDue.Status(o) : (due.Text, due.Style);
+        var picked = history ? _historyPicked.Contains(o.Id) : _picked.Contains(o.Id);
+        <div class="order-card @(!history && due.Urgent ? "urgent" : "")" style="@ShopStyle(o.ShopId)">
+            <div class="order-head">
+                <div class="order-pick">
+                    <MudCheckBox T="bool" Value="@picked" ValueChanged="@(on => { if (history) PickHistory(o.Id, on); else Pick(o.Id, on); })" Dense="true"
+                                 Size="Size.Small" aria-label="@($"Select order {o.EtsyReceiptId} to print")" />
+                    <div>
+                        <div class="order-buyer">
+                            @(o.BuyerName ?? $"#{o.EtsyReceiptId}")
+                            @if (o.IsGift) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Class="ml-1">Gift</MudChip> }
+                        </div>
+                        <div class="muted small">
+                            <a href="@OrderUrl(o.ShopId, o.EtsyReceiptId)" target="@OrderTarget(o.ShopId, o.EtsyReceiptId)">#@o.EtsyReceiptId</a>
+                            · @o.Shop.Name · @ListingFormat.Local(o.EtsyCreatedAtUtc)
+                        </div>
+                        @if (OrderOverrides.Address(o) is { } shipTo)
+                        {
+                            <ChangedMark Caption="Address changed" Label="@AddressChangedLabel(o, shipTo)" />
+                        }
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="esm-due" style="@pillStyle">@pillText</span>
+                    <div class="small muted">@OrderTotal(o)</div>
+                    @if (o.IsOpen)
+                    {
+                        <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+                            <MudTooltip Text="Change personalization, variations or address">
+                                <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => ChangeOrderAsync(o)"
+                                               aria-label="@($"Change order {o.EtsyReceiptId}")" />
+                            </MudTooltip>
+                        </AuthorizeView>
+                    }
+                </div>
+            </div>
+            @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
+            {
+                var (variations, personalization) = Split(i);
+                <div class="order-item @((!history || o.IsOpen) && i.UnitsMade >= i.UnitsToMake ? "is-made" : "")">
+                    @if (!string.IsNullOrEmpty(i.ImageUrl))
+                    {
+                        <img src="@i.ImageUrl" alt="" loading="lazy" />
+                    }
+                    else
+                    {
+                        <div class="noimg"></div>
+                    }
+                    <div class="order-item-body">
+                        <div><b>@(i.Quantity > 1 ? $"×{i.Quantity} " : "")</b>@ShortTitle(i.Title)</div>
+                        @if (variations.Count > 0)
+                        {
+                            <div class="order-vars">
+                                @foreach (var (v, vi) in variations.Select((v, n) => (v, n)))
+                                {
+                                    if (BuyersVariation(i, v) is { } buyers)
+                                    {
+                                        <span class="esm-changed">
+                                            <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                            <ChangedMark Label="@($"{v.Name} changed here. The buyer chose {buyers}.")" />
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                    }
+                                }
+                            </div>
+                        }
+                        @if (i.PersonalizationOverride is not null)
+                        {
+                            var buyers = OrderOverrides.BuyersPersonalization(i);
+                            <div class="esm-changed esm-changed-note">
+                                @if (personalization is not null)
+                                {
+                                    <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
+                                }
+                                else
+                                {
+                                    <span class="muted small">No personalization</span>
+                                }
+                                <ChangedMark Label="@(buyers is null ? "Personalization changed here. The buyer entered none." : $"Personalization changed here. The buyer entered: {buyers}")" />
+                            </div>
+                        }
+                        else if (personalization is not null)
+                        {
+                            <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
+                        }
+                        @if (i.Sku is not null) { <div class="muted small">SKU @i.Sku</div> }
+                    </div>
+                    @* Made marks are for orders still to send; History shows them only on orders that are still open. *@
+                    @if (!history || o.IsOpen)
+                    {
+                        <MadeToggle Made="@i.UnitsMade" Quantity="@i.UnitsToMake" ReadOnly="@(!_canMark)" What="@ShortTitle(i.Title)"
+                                    MadeChanged="@(made => SetMadeAsync([i], made))" />
+                    }
+                </div>
+            }
+            @if (o.MessageFromBuyer is not null)
+            {
+                <div class="order-message"><b>Note from buyer:</b> @o.MessageFromBuyer</div>
+            }
+            @if (o.IsGift)
+            {
+                <div class="order-message"><b>🎁 Gift</b>@(o.GiftMessage is null ? "" : $": {o.GiftMessage}")</div>
+            }
+        </div>
+    };
 
     private const int OpenTab = 0, ToMakeTab = 1, HistoryTab = 2;
 
@@ -568,6 +602,14 @@
                 }
                 @if (tab == HistoryTab)
                 {
+                    <fieldset class="esm-filter-group">
+                        <legend>Sort by</legend>
+                        <MudSelect T="bool" Value="_historyOldestFirst" ValueChanged="OnHistorySortChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   ToStringFunc="@(oldest => oldest ? "Oldest" : "Newest")" aria-label="Sort order history">
+                            <MudSelectItem T="bool" Value="false">Newest</MudSelectItem>
+                            <MudSelectItem T="bool" Value="true">Oldest</MudSelectItem>
+                        </MudSelect>
+                    </fieldset>
                     <fieldset class="esm-filter-group">
                         <legend>Filter</legend>
                         <MudSwitch T="bool" Value="_historyGifts" ValueChanged="OnHistoryGiftsChanged" Color="Color.Primary" Label="Gift orders only" />
