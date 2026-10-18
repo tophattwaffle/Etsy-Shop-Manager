@@ -223,6 +223,45 @@ public class VariationListTests
     }
 
     [Fact]
+    public async Task A_variation_is_linked_from_the_editor_with_its_match_shown_and_applied_to_that_listing_only()
+    {
+        var (shop, colored, plain) = await SetupAsync();
+        using var _ = shop;
+        var colors = await PlaColorsAsync(shop);
+        var sizes = (await Lists(shop).SaveAsync(null, "Sizes", [new(0, "Small", true), new(0, "Large", true), new(0, "XL", true)], "tophattwaffle")).Id!.Value;
+
+        // Any list can be chosen; a poor match is linkable but warned about.
+        var (poor, poorError) = await Lists(shop).PreviewLinkAsync(colors, plain, 100);
+        Assert.Null(poorError);
+        Assert.Equal((0, 2), (poor!.InList, poor.Values));
+        Assert.Equal("None of Size's values are in PLA Colors; applying it adds all of the list's options next to them.", poor.Warning);
+        Assert.Equal(["Size:", "Adds Black", "Adds White", "Adds Red"], poor.Changes);
+
+        var (good, _) = await Lists(shop).PreviewLinkAsync(colors, colored, Color);
+        Assert.Equal((3, 4, null), (good!.InList, good.Values, good.Warning));
+        Assert.Empty(good.Changes);
+        Assert.Null(await Lists(shop).LinkVariationAsync(colors, colored, Color, "tophattwaffle"));
+        Assert.Equal("Color already follows PLA Colors; unlink it first.", (await Lists(shop).PreviewLinkAsync(sizes, colored, Color)).Error);
+
+        // Linking records the link only; "Apply list now" changes that listing and no other.
+        var (sizePreview, _) = await Lists(shop).PreviewLinkAsync(sizes, colored, 100);
+        Assert.Equal(["Size:", "Adds XL"], sizePreview!.Changes);
+        Assert.Null(await Lists(shop).LinkVariationAsync(sizes, colored, 100, "tophattwaffle"));
+        Assert.Null(await Lists(shop).LinkVariationAsync(sizes, plain, 100, "tophattwaffle"));
+        Assert.Equal([("PLA Colors", Color), ("Sizes", 100L)],
+            (await Lists(shop).ListingLinksAsync(colored)).Select(l => (l.ListName, l.PropertyId)).OrderBy(l => l.ListName));
+        Assert.Equal(1, await Lists(shop).ApplyAsync(sizes, "tophattwaffle", listingId: colored));
+        Assert.Contains("XL", VariationEditor.Variations(await InventoryAsync(shop, colored)).Single(v => v.PropertyId == 100).Values);
+        Assert.DoesNotContain("XL", VariationEditor.Variations(await InventoryAsync(shop, plain)).Single().Values);
+        Assert.Empty(shop.Writes);
+
+        // Unlinking keeps the values as they are.
+        await Lists(shop).UnlinkAsync(sizes, colored, "tophattwaffle");
+        Assert.Contains("XL", VariationEditor.Variations(await InventoryAsync(shop, colored)).Single(v => v.PropertyId == 100).Values);
+        Assert.Equal("PLA Colors", Assert.Single(await Lists(shop).ListingLinksAsync(colored)).ListName);
+    }
+
+    [Fact]
     public async Task Hand_edits_removed_options_and_changes_on_Etsy_are_left_alone()
     {
         var (shop, colored, _) = await SetupAsync();
@@ -251,6 +290,8 @@ public class VariationListTests
         shop.ListingJson(1)["last_modified_timestamp"] = 1_760_000_500;
         await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
         Assert.Equal(VariationListUseStatus.ChangedOnEtsy, Assert.Single(await Lists(shop).UsesAsync(listId)).Status);
+        var sizes = (await Lists(shop).SaveAsync(null, "Sizes", [new(0, "Small", true)], "tophattwaffle")).Id!.Value;
+        Assert.Equal("This listing's variations changed on Etsy; resolve that first.", await Lists(shop).LinkVariationAsync(sizes, colored, 100, "tophattwaffle"));
         await Lists(shop).SaveAsync(listId, "PLA Colors", [list.Options[0], list.Options[1], new(0, "Blue", true)], "tophattwaffle");
         Assert.Equal(0, await Lists(shop).ApplyAsync(listId, "tophattwaffle"));
         Assert.Empty(shop.Writes);

@@ -37,6 +37,12 @@ public sealed record VariationListSummary(int Id, string Name, int Options, int 
 public sealed record VariationListAddPlan(JsonObject Inventory, long PropertyId, string VariationName, IReadOnlyList<string> Values,
     int Combinations, List<VariationListOption> Applied);
 
+/// <summary>A variation of a listing and the list it follows.</summary>
+public sealed record VariationListLink(int ListId, string ListName, long PropertyId);
+
+/// <summary>What linking a variation to a list means: how many of its values are in the list and what applying would change.</summary>
+public sealed record VariationListLinkPreview(int InList, int Values, string? Warning, IReadOnlyList<string> Changes, IReadOnlyList<string> Notes);
+
 /// <summary>A listing the list can be added to as a new variation, with the variations it already has.</summary>
 public sealed record VariationListAddable(int ListingId, string Title, string ShopName, IReadOnlyList<string> Variations);
 
@@ -389,6 +395,73 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             : (null, null, $"{listing.Title} has no inventory imported; refresh it from Etsy first.");
     }
 
+    /// <summary>The lists a listing's variations follow.</summary>
+    public async Task<IReadOnlyList<VariationListLink>> ListingLinksAsync(int listingId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.ListingVariationLists.AsNoTracking().Where(l => l.ListingId == listingId)
+            .Select(l => new VariationListLink(l.VariationListId, l.VariationList.Name, l.PropertyId)).ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// What linking one of a listing's variations to a list means (nothing is saved): how many of its values are in the
+    /// list, a warning when few are, and what applying the list would then change. Any list can be chosen here (no match
+    /// threshold, unlike <see cref="CandidatesAsync"/>).
+    /// </summary>
+    public async Task<(VariationListLinkPreview? Preview, string? Error)> PreviewLinkAsync(int listId, int listingId, long propertyId,
+        CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var (list, inventory, error) = await LinkSourceAsync(db, listId, listingId, propertyId, ct);
+        if (error is not null) return (null, error);
+        var variation = VariationEditor.Variations(inventory!).Single(v => v.PropertyId == propertyId);
+        var names = list!.Options.Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var inList = variation.Values.Count(names.Contains);
+        var link = new ListingVariationList { PropertyId = propertyId, AppliedOptions = InitialApplied(list, propertyId, inventory!) };
+        var plan = Plan(list, link, inventory!);
+        string? warning = inList >= MinOverlap && inList * 2 >= variation.Values.Count ? null
+            : inList == 0 ? $"None of {variation.Name}'s values are in {list.Name}; applying it adds all of the list's options next to them."
+            : $"Only {inList} of {variation.Values.Count} values are in {list.Name}; the others stay as the listing's own.";
+        return (new VariationListLinkPreview(inList, variation.Values.Count, warning, plan.Changes, plan.Notes), null);
+    }
+
+    /// <summary>Links one variation of a listing to a list, starting from what the listing has. Changes come with the next apply.</summary>
+    public async Task<string?> LinkVariationAsync(int listId, int listingId, long propertyId, string? user, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var (list, inventory, error) = await LinkSourceAsync(db, listId, listingId, propertyId, ct);
+        if (error is not null) return error;
+        db.ListingVariationLists.Add(new ListingVariationList
+        {
+            ListingId = listingId, VariationListId = listId, PropertyId = propertyId,
+            AppliedOptions = InitialApplied(list!, propertyId, inventory!), LinkedAtUtc = time.GetUtcNow().UtcDateTime,
+        });
+        await db.SaveChangesAsync(ct);
+        await audit.WriteAsync("variation-list.linked", nameof(VariationList), listId.ToString(), $"{list!.Name}: listing {listingId}, from its editor", user, ct);
+        return null;
+    }
+
+    private static async Task<(VariationList? List, JsonNode? Inventory, string? Error)> LinkSourceAsync(AppDbContext db, int listId, int listingId,
+        long propertyId, CancellationToken ct)
+    {
+        var list = await db.VariationLists.AsNoTracking().FirstOrDefaultAsync(l => l.Id == listId, ct);
+        if (list is null) return (null, null, "That list no longer exists.");
+        var listing = await db.Listings.AsNoTracking().Include(l => l.EtsyState).FirstOrDefaultAsync(l => l.Id == listingId, ct);
+        if (listing?.EtsyState is null) return (null, null, "That listing hasn't been imported.");
+        var model = ListingEditModel.Parse(listing.EtsyState.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
+        if (model.Local(ListingFields.Inventory) is not { } inventory
+            || VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == propertyId) is not { } variation)
+            return (null, null, "This listing doesn't have that variation.");
+        if (await db.ListingVariationLists.Where(l => l.ListingId == listingId && l.PropertyId == propertyId)
+                .Select(l => l.VariationList.Name).FirstOrDefaultAsync(ct) is { } other)
+            return (null, null, $"{variation.Name} already follows {other}; unlink it first.");
+        if (await db.ListingVariationLists.AnyAsync(l => l.ListingId == listingId && l.VariationListId == listId, ct))
+            return (null, null, $"Another variation of this listing already follows {list.Name}.");
+        if (model.DriftFields.Contains(ListingFields.Inventory))
+            return (null, null, "This listing's variations changed on Etsy; resolve that first.");
+        return (list, inventory, null);
+    }
+
     public async Task UnlinkAsync(int listId, int listingId, string? user, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -398,13 +471,14 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
 
     /// <summary>
     /// Brings every linked listing in line with the list, as drafts (nothing is sent to Etsy). Listings whose variations
-    /// changed on Etsy, or that lost the variation, are skipped. Returns the listings changed.
+    /// changed on Etsy, or that lost the variation, are skipped. Returns the listings changed. With <paramref name="listingId"/>,
+    /// only that listing (the editor's "Apply list now").
     /// </summary>
-    public async Task<int> ApplyAsync(int listId, string? user, CancellationToken ct = default)
+    public async Task<int> ApplyAsync(int listId, string? user, CancellationToken ct = default, int? listingId = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var list = await db.VariationLists.AsNoTracking().FirstAsync(l => l.Id == listId, ct);
-        var links = await db.ListingVariationLists.Where(l => l.VariationListId == listId)
+        var links = await db.ListingVariationLists.Where(l => l.VariationListId == listId && (listingId == null || l.ListingId == listingId))
             .Include(l => l.Listing).ThenInclude(l => l.EtsyState).ToListAsync(ct);
         var changed = 0;
         foreach (var link in links.Where(l => l.Listing.EtsyState is not null))
