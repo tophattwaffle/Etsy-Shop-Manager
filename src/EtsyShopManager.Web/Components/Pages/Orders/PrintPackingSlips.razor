@@ -5,9 +5,10 @@
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Modules.Orders
 @inject OrderPrintService Print
-@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
 
-@* Static SSR printout: one packing slip per selected order, each on its own page. Read-only: nothing is marked shipped. *@
+@* Static SSR printout: one packing slip per selected order, each on its own page, laid out like Etsy's own packing slip
+   (shop header; ship-to and order details on the left; items and totals on the right; a footer line). Read-only:
+   nothing is marked shipped. *@
 <PageTitle>Packing slips · Etsy Shop Manager</PageTitle>
 
 @if (_orders.Count == 0)
@@ -20,52 +21,98 @@ else
         @foreach (var o in _orders)
         {
             var address = OrderPrintService.Address(o);
-            <section class="slip" style="@ShopStyle(o.ShopId)">
-                <div class="slip-head">
-                    <div class="slip-shop">
-                        @if (o.Shop.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(o.ShopId)" alt="" /> }
-                        <div>
-                            <div class="slip-shop-name">@o.Shop.Name</div>
-                            @if (o.Shop.Url is { Length: > 0 }) { <div class="print-muted print-small">@o.Shop.Url</div> }
+            var details = OrderPrintService.Details(o);
+            var items = o.Items.OrderBy(i => i.EtsyTransactionId).ToList();
+            var count = items.Sum(i => Math.Max(1, i.Quantity));
+            <section class="slip">
+                <header class="slip-shop">
+                    @if (o.Shop.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(o.ShopId)" alt="" /> }
+                    <div>
+                        <div class="slip-shop-name">@o.Shop.Name</div>
+                        <div class="slip-shop-url">@OrderPrintService.ShopAddress(o.Shop)</div>
+                    </div>
+                </header>
+
+                <div class="slip-body">
+                    <aside class="slip-side">
+                        <div class="slip-field">
+                            <div class="slip-label">Ship to</div>
+                            @if (address.Name is not null) { <div>@address.Name</div> }
+                            @foreach (var line in address.Lines) { <div>@line</div> }
                         </div>
-                    </div>
-                    <div class="slip-meta">
-                        <div><b>Order #@o.EtsyReceiptId</b></div>
-                        <div class="print-small">Ordered @ListingFormat.Local(o.EtsyCreatedAtUtc, "MMM d, yyyy")</div>
-                        @if (o.ShipByUtc is not null) { <div class="print-small">Ship by @ListingFormat.Local(o.ShipByUtc, "MMM d, yyyy")</div> }
-                    </div>
-                </div>
-
-                <div class="slip-address">
-                    <div class="print-muted print-small">Ship to</div>
-                    @if (address.Name is not null) { <div class="slip-address-name">@address.Name</div> }
-                    @foreach (var line in address.Lines) { <div>@line</div> }
-                </div>
-
-                <table class="slip-items">
-                    <thead class="esm-fixed-order">
-                        <tr><th>Qty</th><th>Item</th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in o.Items.OrderBy(i => i.EtsyTransactionId))
+                        @if (o.ShipByUtc is not null)
                         {
-                            var (variations, personalization) = OrderPrintService.Split(item);
-                            <tr>
-                                <td class="slip-qty"><b>×@Math.Max(1, item.Quantity)</b></td>
-                                <td>
-                                    <div>@OrderPrintService.ShortTitle(item.Title)</div>
-                                    @if (variations.Count > 0) { <div class="print-small">@string.Join(" · ", variations)</div> }
-                                    @if (personalization is not null) { <div class="print-small">Personalization: @personalization</div> }
-                                    @if (item.Sku is not null) { <div class="print-muted print-small">SKU @item.Sku</div> }
-                                </td>
-                            </tr>
+                            <div class="slip-field">
+                                <div class="slip-label">Scheduled to ship by</div>
+                                <div>@ListingFormat.Local(o.ShipByUtc, "MMM d, yyyy")</div>
+                            </div>
                         }
-                    </tbody>
-                </table>
+                        <hr class="slip-rule-short" />
+                        <div class="slip-field">
+                            <div class="slip-label">Order</div>
+                            <div>#@o.EtsyReceiptId</div>
+                        </div>
+                        <div class="slip-field">
+                            <div class="slip-label">Order date</div>
+                            <div>@ListingFormat.Local(o.EtsyCreatedAtUtc, "MMM d, yyyy")</div>
+                        </div>
+                        @if (o.BuyerName is { Length: > 0 })
+                        {
+                            <div class="slip-field">
+                                <div class="slip-label">Buyer</div>
+                                <div>@o.BuyerName</div>
+                            </div>
+                        }
+                        @if (details.PaymentMethod is not null)
+                        {
+                            <div class="slip-field">
+                                <div class="slip-label">Payment method</div>
+                                <div>@details.PaymentMethod</div>
+                            </div>
+                        }
+                        @if (details.ShippingMethod is not null)
+                        {
+                            <div class="slip-field">
+                                <div class="slip-label">Shipping method</div>
+                                <div>@details.ShippingMethod</div>
+                            </div>
+                        }
+                    </aside>
 
-                @if (o.MessageFromBuyer is { Length: > 0 }) { <div class="slip-note"><b>Note from buyer:</b> @o.MessageFromBuyer</div> }
-                @if (o.IsGift) { <div class="slip-note"><b>Gift</b>@(o.GiftMessage is { Length: > 0 } g ? $": {g}" : "")</div> }
-                @if (_thanks.TryGetValue(o.ShopId, out var thanks)) { <div class="slip-thanks">@thanks</div> }
+                    <div class="slip-main">
+                        <div class="slip-count">@count item@(count == 1 ? "" : "s")</div>
+                        <div class="slip-items">
+                            @foreach (var item in items)
+                            {
+                                var (variations, personalization) = OrderPrintService.Split(item);
+                                <div class="slip-item">
+                                    @if (item.ImageUrl is { Length: > 0 }) { <img src="@item.ImageUrl" alt="" /> }
+                                    else { <span class="slip-noimg"></span> }
+                                    <div class="slip-item-text">
+                                        <div class="slip-item-title">@item.Title</div>
+                                        @foreach (var v in variations) { <div>@v</div> }
+                                        @if (personalization is not null) { <div>Personalization: @personalization</div> }
+                                    </div>
+                                    <div class="slip-item-price">@OrderPrintService.LinePrice(item)</div>
+                                </div>
+                            }
+                        </div>
+                        <div class="slip-totals">
+                            @foreach (var (label, amount) in details.Totals)
+                            {
+                                <div>@label</div><div>@amount</div>
+                            }
+                            <div class="slip-total">Order total</div><div class="slip-total">@details.OrderTotal</div>
+                        </div>
+                        @if (o.MessageFromBuyer is { Length: > 0 }) { <div class="slip-note"><span class="slip-label">Note from buyer</span><div>@o.MessageFromBuyer</div></div> }
+                        @if (o.IsGift) { <div class="slip-note"><span class="slip-label">Gift message</span><div>@(o.GiftMessage is { Length: > 0 } g ? g : "This order is a gift.")</div></div> }
+                    </div>
+                </div>
+
+                @if (_thanks.TryGetValue(o.ShopId, out var thanks))
+                {
+                    <footer class="slip-footer">@thanks</footer>
+                }
             </section>
         }
     </div>
@@ -76,15 +123,10 @@ else
 
     private List<EtsyShopManager.Core.Domain.Order> _orders = [];
     private Dictionary<int, string> _thanks = [];
-    private Dictionary<int, string> _accents = [];
 
     protected override async Task OnInitializedAsync()
     {
         _orders = await Print.GetOrdersAsync(OrderPrintService.ParseIds(Ids));
-        var shopIds = _orders.Select(o => o.ShopId).Distinct().ToList();
-        _thanks = await Print.GetThanksAsync(shopIds);
-        _accents = await ShopAccents.GetEffectiveAsync(shopIds);
+        _thanks = await Print.GetThanksAsync(_orders.Select(o => o.ShopId).Distinct());
     }
-
-    private string? ShopStyle(int shopId) => _accents.TryGetValue(shopId, out var color) ? $"--shop: {color}" : null;
 }
