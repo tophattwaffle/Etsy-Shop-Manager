@@ -20,7 +20,7 @@ public static class AppTheme
             {
                 Primary = "#222222",
                 PrimaryContrastText = "#ffffff",
-                Secondary = "#d5641c", // Etsy orange: the brand mark only
+                Secondary = "#d5641c", // Etsy orange: the brand mark, and the selected tab outside a shop
                 Background = "#ffffff",
                 BackgroundGray = "#f2f2f2",
                 Surface = "#ffffff",
