@@ -62,8 +62,23 @@
         }
         else
         {
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap" Class="mb-3">
-                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen">Select all unshipped</MudButton>
+        <div class="lp-layout">
+        <section class="lp-main" aria-label="Open orders">
+            <div class="lp-toolbar">
+                <MudSelect T="string" Value="_openFilter.Sort" ValueChanged="OnOpenSortChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           ToStringFunc="@SortLabel" Class="lp-sort" aria-label="Sort open orders">
+                    @foreach (var (key, label) in OpenOrderFilter.SortOptions)
+                    {
+                        <MudSelectItem T="string" Value="key">@label</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (_openFilter.IsFiltered)
+                {
+                    <span class="muted small">@_shown.Count of @_open.Count orders</span>
+                }
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen" Disabled="@(_shown.Count == 0)">
+                    @(_openFilter.IsFiltered ? "Select all shown" : "Select all unshipped")
+                </MudButton>
                 @if (Picked.Count > 0)
                 {
                     <span class="muted small">@Picked.Count selected</span>
@@ -74,10 +89,16 @@
                            Disabled="@(Picked.Count == 0)" Href="@PrintLink("pick")" Target="_blank">Print pick list</MudButton>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
                            Disabled="@(Picked.Count == 0)" Href="@PrintLink("slips")" Target="_blank">Print packing slips</MudButton>
+            </div>
+        @if (_shown.Count == 0)
+        {
+            <MudStack Spacing="2" AlignItems="AlignItems.Start">
+                <MudText Class="muted">No open orders match these filters.</MudText>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="ClearOpenFilters">Clear filters</MudButton>
             </MudStack>
         }
         <div class="order-grid">
-            @foreach (var o in _open)
+            @foreach (var o in _shown)
             {
                 var due = OrderDue.For(o.ShipByUtc, Time.GetUtcNow().UtcDateTime);
                 <div class="order-card @(due.Urgent ? "urgent" : "")" style="@ShopStyle(o.ShopId)">
@@ -143,6 +164,63 @@
                 </div>
             }
         </div>
+        </section>
+
+        @* Etsy's Seller app filters that apply to open orders and that the stored receipts can answer. *@
+        <aside class="lp-rail" aria-label="Filters">
+            <fieldset class="lp-facets">
+                <legend>Show only</legend>
+                <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.HasNote)"
+                        @onclick="() => SetOpenFilter(_openFilter with { HasNote = !_openFilter.HasNote })">
+                    <span class="lp-facet-label">Has note from buyer</span>
+                    <span class="lp-count">@OpenCount(_openFilter with { HasNote = true })</span>
+                </button>
+                <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Gift)"
+                        @onclick="() => SetOpenFilter(_openFilter with { Gift = !_openFilter.Gift })">
+                    <span class="lp-facet-label">Marked as gift</span>
+                    <span class="lp-count">@OpenCount(_openFilter with { Gift = true })</span>
+                </button>
+                <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Personalized)"
+                        @onclick="() => SetOpenFilter(_openFilter with { Personalized = !_openFilter.Personalized })">
+                    <span class="lp-facet-label">Personalized</span>
+                    <span class="lp-count">@OpenCount(_openFilter with { Personalized = true })</span>
+                </button>
+            </fieldset>
+
+            @if (_shippingMethods.Count > 0)
+            {
+                <fieldset class="lp-facets">
+                    <legend>Shipping method</legend>
+                    <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Shipping is null)"
+                            @onclick="() => SetOpenFilter(_openFilter with { Shipping = null })">
+                        <span class="lp-facet-label">Any shipping</span>
+                        <span class="lp-count">@OpenCount(_openFilter with { Shipping = null })</span>
+                    </button>
+                    @foreach (var method in _shippingMethods)
+                    {
+                        <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Shipping == method)"
+                                @onclick="() => SetOpenFilter(_openFilter with { Shipping = method })">
+                            <span class="lp-facet-label">@method</span>
+                            <span class="lp-count">@OpenCount(_openFilter with { Shipping = method })</span>
+                        </button>
+                    }
+                </fieldset>
+            }
+
+            <fieldset class="lp-facets">
+                <legend>Destination</legend>
+                @foreach (var (key, label) in DestinationOptions)
+                {
+                    <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Destination == key)"
+                            @onclick="() => SetOpenFilter(_openFilter with { Destination = key })">
+                        <span class="lp-facet-label">@label</span>
+                        <span class="lp-count">@OpenCount(_openFilter with { Destination = key })</span>
+                    </button>
+                }
+            </fieldset>
+        </aside>
+        </div>
+        }
     </MudTabPanel>
 
     <MudTabPanel Text="@($"To make ({_toMakeTotal})")">
@@ -302,6 +380,8 @@
         _accents = await ShopAccents.GetEffectiveAsync(shopIds);
         _orderLinks = await ShopOrderLinks.GetOverridesAsync(shopIds);
         _open = await Queries.GetOpenOrdersAsync(_shopId);
+        _openFilter = _openFilter with { HomeCountries = await Queries.GetHomeCountriesAsync() };
+        RefreshShown();
         var payload = HaPayloadBuilder.OpenOrders(_open, TimeZoneInfo.Local);
         _toMake = payload["items_needed"]!.AsArray().Select(n => n!.AsObject()).ToList();
         _toMakeTotal = (int)payload["total_items_needed"]!;
@@ -381,16 +461,57 @@
         Snackbar.Add(queued == 0 ? "A check is already queued" : "Checking Etsy for orders…", Severity.Info);
     }
 
-    // Orders picked for printing (open orders only; one that ships or closes drops out on the next refresh).
+    // Sort and filters of the Open tab (ship-by date first, as before); the To make tab still counts every open order.
+    private OpenOrderFilter _openFilter = new();
+    private List<Order> _shown = [];
+    private List<string> _shippingMethods = [];
+
+    private void RefreshShown()
+    {
+        _shown = _openFilter.Apply(_open);
+        // A chosen method stays listed after its last order ships, so it can still be cleared.
+        _shippingMethods = [.. _open.Select(OrderPrintService.ShippingMethod).Append(_openFilter.Shipping).OfType<string>()
+            .Distinct().Order(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    // As in Etsy's app: "United States" / "International" (or "Domestic" when the shops shown ship from different countries).
+    private IEnumerable<(string? Key, string Label)> DestinationOptions
+    {
+        get
+        {
+            var homes = _status.Where(s => _shopId is null || s.ShopId == _shopId).Select(s => _openFilter.HomeCountry(s.ShopId)).Distinct().ToList();
+            var domestic = homes.Count == 1 ? OrderPrintService.CountryName(homes[0]) ?? "Domestic" : "Domestic";
+            return [(null, "All"), (OpenOrderFilter.Destinations.Domestic, domestic), (OpenOrderFilter.Destinations.International, "International")];
+        }
+    }
+
+    private void SetOpenFilter(OpenOrderFilter filter)
+    {
+        _openFilter = filter;
+        RefreshShown();
+    }
+
+    private void OnOpenSortChanged(string sort) => SetOpenFilter(_openFilter with { Sort = sort });
+
+    private void ClearOpenFilters() => SetOpenFilter(new OpenOrderFilter { Sort = _openFilter.Sort, HomeCountries = _openFilter.HomeCountries });
+
+    private int OpenCount(OpenOrderFilter filter) => _open.Count(filter.Matches);
+
+    private static string Pressed(bool on) => on ? "true" : "false";
+
+    private static string SortLabel(string? key) =>
+        OpenOrderFilter.SortOptions.FirstOrDefault(s => s.Key == key).Label ?? "Ship by date";
+
+    // Orders picked for printing (open orders shown by the filters only; one that ships or closes drops out on the next refresh).
     private readonly HashSet<int> _picked = [];
-    private List<int> Picked => [.. _open.Where(o => _picked.Contains(o.Id)).Select(o => o.Id)];
+    private List<int> Picked => [.. _shown.Where(o => _picked.Contains(o.Id)).Select(o => o.Id)];
 
     private void Pick(int id, bool on)
     {
         if (on) _picked.Add(id); else _picked.Remove(id);
     }
 
-    private void SelectAllOpen() => _picked.UnionWith(_open.Select(o => o.Id));
+    private void SelectAllOpen() => _picked.UnionWith(_shown.Select(o => o.Id));
 
     private string PrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", Picked)}";
 

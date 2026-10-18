@@ -26,6 +26,19 @@ public sealed class OrderQueries(IDbContextFactory<AppDbContext> dbFactory, Time
             .ToList();
     }
 
+    /// <summary>
+    /// Each shop's home country (for the domestic/international filter): the origin country most of its shipping profiles
+    /// ship from. Shops with no origin country on file are left out.
+    /// </summary>
+    public async Task<Dictionary<int, string>> GetHomeCountriesAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var origins = await db.ShippingProfiles.AsNoTracking().Where(p => p.OriginCountryIso != null && p.OriginCountryIso != "")
+            .Select(p => new { p.ShopId, p.OriginCountryIso }).ToListAsync(ct);
+        return origins.GroupBy(p => p.ShopId).ToDictionary(g => g.Key,
+            g => g.GroupBy(p => p.OriginCountryIso!.Trim().ToUpperInvariant()).OrderByDescending(c => c.Count()).ThenBy(c => c.Key).First().Key);
+    }
+
     /// <summary>Order history columns the table can sort by (server-side, so the order covers every page).</summary>
     public static class HistorySort
     {
