@@ -3,6 +3,7 @@
 @using EtsyShopManager.Web.Modules.Listings
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject ListingQueries Listings
 @inject ListingImportQueue ImportQueue
 @inject ISnackbar Snackbar
 @inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
@@ -185,13 +186,49 @@
             <MudItem xs="12" md="6">
                 @if (_selectedTaxonomy == 0)
                 {
-                    <MudText Class="muted">Select a category to see its properties. Properties are cached for categories listings use.</MudText>
+                    <MudText Class="muted">Select a category to see its listings and properties. Properties are cached for categories listings use.</MudText>
                 }
-                else if (_properties.Count == 0)
+                else
+                {
+                    @* The listings in the selected category (still on Etsy, any state), each opening its listing page. *@
+                    <MudText Typo="Typo.h6" GutterBottom="true">Listings (@_categoryTotal.ToString("N0"))</MudText>
+                    @if (_categoryListings.Count == 0)
+                    {
+                        <MudText Class="muted mb-4">None of your listings use this category.</MudText>
+                    }
+                    else
+                    {
+                        <div class="esm-tax-listings mb-4">
+                            @foreach (var l in _categoryListings)
+                            {
+                                <a class="esm-tax-listing" href="@($"listings/{l.Id}")">
+                                    @if (ImageStore.UrlFor(l.ThumbFileName) is { } thumb)
+                                    {
+                                        <img src="@thumb" alt="" class="listing-thumb" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <span class="listing-thumb placeholder"></span>
+                                    }
+                                    <span class="esm-grow">
+                                        <span class="listing-title">@l.Title</span>
+                                        <span class="small muted">@l.ShopName, @ListingFormat.StateLabel(l.State)</span>
+                                    </span>
+                                </a>
+                            }
+                        </div>
+                        @if (_categoryTotal > _categoryListings.Count)
+                        {
+                            <MudText Typo="Typo.body2" Class="muted mb-4">Showing the @_categoryListings.Count most recently updated.</MudText>
+                        }
+                    }
+                    <MudText Typo="Typo.h6" GutterBottom="true">Properties</MudText>
+                }
+                @if (_selectedTaxonomy != 0 && _properties.Count == 0)
                 {
                     <MudText Class="muted">No properties cached for this category (they are fetched for categories in use).</MudText>
                 }
-                else
+                else if (_properties.Count > 0)
                 {
                     <MudSimpleTable Dense="true">
                         <thead>
@@ -246,6 +283,9 @@
     private List<TaxonomyNode> _nodes = [];
     private long _selectedTaxonomy;
     private List<TaxonomyProperty> _properties = [];
+    private List<ListingRow> _categoryListings = [];
+    private int _categoryTotal;
+    private const int CategoryListingLimit = 100;
 
     // Header-click sorting per tab; the "Listings" columns read the usage counts, so these are set up on init.
     private TableSort<ShippingProfile> _shippingSort = new();
@@ -399,6 +439,7 @@
         await using var db = await DbFactory.CreateDbContextAsync();
         _properties = await db.TaxonomyProperties.AsNoTracking().Where(p => p.TaxonomyId == id)
             .OrderByDescending(p => p.IsRequired).ThenBy(p => p.DisplayName ?? p.Name).ToListAsync();
+        (_categoryListings, _categoryTotal) = await Listings.SearchAsync(new ListingFilter { TaxonomyId = id, Take = CategoryListingLimit });
     }
 
     private async Task RefreshLookupsAsync()
