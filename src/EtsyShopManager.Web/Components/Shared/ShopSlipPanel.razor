@@ -5,13 +5,15 @@
 @inject OrderPrintService Print
 @inject ISnackbar Snackbar
 
-@* The note printed on each shop's packing slips as "A note from the shop" (Orders → Print packing slips), like the packing
-   slip note set on Etsy, which Etsy's API doesn't share. *@
+@* What each shop's packing slips print besides the order: the note printed as "A note from the shop" (Orders → Print
+   packing slips), like the packing slip note set on Etsy, which Etsy's API doesn't share; and the shop's location line
+   under its name, like Etsy's gift slip (Etsy's API has no shop city or state). *@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Packing slips</MudText>
     <MudText Typo="Typo.body2" Class="muted mb-3">
-        Printed on each shop's packing slips as "A note from the shop", like the note you can set on Etsy (Etsy doesn't share
-        that note with apps, so set it here). Leave it empty for none.
+        The note is printed on each shop's packing slips as "A note from the shop", like the note you can set on Etsy (Etsy
+        doesn't share that note with apps, so set it here). The location line is printed under the shop's name, as on Etsy's
+        gift slips. Leave either empty for none.
     </MudText>
 
     @if (_shops is null)
@@ -34,6 +36,9 @@
                 <MudTextField T="string" @bind-Value="_text[s.Id]" Label="@($"{s.Name} packing slip note")" Lines="2" Sizing="InputSizing.Auto" Variant="Variant.Outlined"
                               Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxNoteLength" Class="esm-grow"
                               ReadOnly="@(!_canEdit)" Placeholder="Thanks for your order! If you have any issues, please send me a message on Etsy!" />
+                <MudTextField T="string" @bind-Value="_location[s.Id]" Label="Location line" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxLocationLength"
+                              ReadOnly="@(!_canEdit)" Placeholder="City, State" />
                 @if (_canEdit)
                 {
                     <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveAsync(s)">Save</MudButton>
@@ -48,6 +53,7 @@
 
     private List<ShopSummary>? _shops;
     private readonly Dictionary<int, string?> _text = [];
+    private readonly Dictionary<int, string?> _location = [];
     private bool _canEdit;
 
     protected override async Task OnInitializedAsync()
@@ -55,13 +61,21 @@
         var user = (await AuthState).User;
         _canEdit = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
         _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
-        var saved = await Print.GetNotesAsync(_shops.Select(s => s.Id));
-        foreach (var s in _shops) _text[s.Id] = saved.GetValueOrDefault(s.Id);
+        var ids = _shops.Select(s => s.Id).ToList();
+        var notes = await Print.GetNotesAsync(ids);
+        var locations = await Print.GetLocationsAsync(ids);
+        foreach (var s in _shops)
+        {
+            _text[s.Id] = notes.GetValueOrDefault(s.Id);
+            _location[s.Id] = locations.GetValueOrDefault(s.Id);
+        }
     }
 
     private async Task SaveAsync(ShopSummary shop)
     {
-        var error = await Print.SetNoteAsync(shop.Id, _text[shop.Id], (await AuthState).User.Identity?.Name);
-        Snackbar.Add(error ?? $"Saved the packing slip note for {shop.Name}", error is null ? Severity.Success : Severity.Warning);
+        var user = (await AuthState).User.Identity?.Name;
+        var error = await Print.SetNoteAsync(shop.Id, _text[shop.Id], user)
+            ?? await Print.SetLocationAsync(shop.Id, _location[shop.Id], user);
+        Snackbar.Add(error ?? $"Saved the packing slip for {shop.Name}", error is null ? Severity.Success : Severity.Warning);
     }
 }

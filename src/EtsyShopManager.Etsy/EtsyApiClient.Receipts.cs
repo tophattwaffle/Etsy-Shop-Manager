@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EtsyShopManager.Etsy.Models;
 using Microsoft.AspNetCore.WebUtilities;
 
@@ -28,6 +29,17 @@ public sealed partial class EtsyApiClient
             query["min_last_modified"] = new DateTimeOffset(DateTime.SpecifyKind(since, DateTimeKind.Utc)).ToUnixTimeSeconds().ToString();
         return GetRawPageAsync<EtsyReceipt>(
             QueryHelpers.AddQueryString($"/v3/application/shops/{etsyShopId}/receipts", query), auth, ct);
+    }
+
+    /// <summary>
+    /// One receipt (getShopReceipt). Used to re-read gift orders whose receipt in the list came without the gift sender.
+    /// </summary>
+    public async Task<EtsyRaw<EtsyReceipt>> GetShopReceiptAsync(long etsyShopId, long receiptId, EtsyAuth auth, CancellationToken ct = default)
+    {
+        var element = await GetAsync<JsonElement>($"/v3/application/shops/{etsyShopId}/receipts/{receiptId}", auth, ct);
+        return new EtsyRaw<EtsyReceipt>(
+            element.Deserialize<EtsyReceipt>(EtsyJson.Options) ?? throw new JsonException($"Empty receipt {receiptId}"),
+            element.GetRawText());
     }
 
     /// <summary>Up to 100 listings by id (any state the seller can see), with images.</summary>

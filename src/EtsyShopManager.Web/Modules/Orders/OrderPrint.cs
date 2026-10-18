@@ -44,12 +44,35 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         [.. (ids ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(s => int.TryParse(s, out var id) ? id : 0).Where(id => id > 0).Distinct()];
 
-    public async Task<Dictionary<int, string>> GetNotesAsync(IEnumerable<int> shopIds, CancellationToken ct = default)
+    public const int MaxLocationLength = 100;
+
+    /// <summary>
+    /// The shop's location line ("Lombard, Illinois"), printed under the shop on its slips like Etsy's gift slip does.
+    /// Set on the Shops page: Etsy's API has the shop's country but not its city or state.
+    /// </summary>
+    public static string LocationKey(int shopId) => $"Shops.SlipLocation.{shopId}";
+
+    public Task<Dictionary<int, string>> GetNotesAsync(IEnumerable<int> shopIds, CancellationToken ct = default) =>
+        GetPerShopAsync(shopIds, NoteKey, ct);
+
+    public Task<Dictionary<int, string>> GetLocationsAsync(IEnumerable<int> shopIds, CancellationToken ct = default) =>
+        GetPerShopAsync(shopIds, LocationKey, ct);
+
+    private async Task<Dictionary<int, string>> GetPerShopAsync(IEnumerable<int> shopIds, Func<int, string> key, CancellationToken ct)
     {
         var result = new Dictionary<int, string>();
         foreach (var id in shopIds.Distinct())
-            if (await settings.GetAsync(NoteKey(id), ct) is { Length: > 0 } text) result[id] = text;
+            if (await settings.GetAsync(key(id), ct) is { Length: > 0 } text) result[id] = text;
         return result;
+    }
+
+    public async Task<string?> SetLocationAsync(int shopId, string? text, string? user, CancellationToken ct = default)
+    {
+        var value = string.IsNullOrWhiteSpace(text) ? null : string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (value?.Length > MaxLocationLength) return $"Keep the location line to {MaxLocationLength} characters.";
+        await settings.SetAsync(LocationKey(shopId), value, updatedBy: user, ct: ct);
+        await audit.WriteAsync("shop.slip-location", nameof(Shop), shopId.ToString(), value is null ? "cleared" : "set", user, ct);
+        return null;
     }
 
     public async Task<string?> SetNoteAsync(int shopId, string? text, string? user, CancellationToken ct = default)
