@@ -25,6 +25,7 @@ public sealed class OrdersModule : IModule
         services.AddSingleton<OrderPollQueue>();
         services.AddSingleton<OrderColorService>();
         services.AddSingleton<OrderPrintService>();
+        services.AddSingleton<SlipLayoutService>();
 
         services.AddJobHandler<PollShopOrdersJob>();
         services.AddJobHandler<PollAllOrdersJob>();
@@ -75,6 +76,7 @@ public sealed class OrdersModule : IModule
     public IEnumerable<NavItem> NavItems =>
     [
         new("Orders", "orders", Icons.Material.Filled.LocalShipping, Order: 15),
+        new("Packing slips", "packing-slips", Icons.Material.Filled.Receipt, Order: 16, Roles: "Admin,Editor"),
         new("API keys", "admin/api-keys", Icons.Material.Filled.Key, Order: 925, Roles: Roles.Admin, Group: NavGroups.Settings),
         new("Order colors", "admin/order-colors", Icons.Material.Filled.Palette, Order: 926, Roles: Roles.Admin, Group: NavGroups.Settings),
     ];

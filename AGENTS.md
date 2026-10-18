@@ -129,6 +129,10 @@ Order colors: the list lives in the app (`OrderColorService`, Admin → Order co
 as `color_config`; the card's coloring engine (`EtsyOrderColors`) is also what the Orders page uses, because the app
 embeds and serves the card file itself (`OrderCardScript`). Change coloring in the card only; `OrderColorTests` checks
 the embedded copy matches.
+Packing slips (the Packing slips section) are Liquid templates rendered with Fluid (`SlipTemplates.cs`): the built-in
+packing and gift layouts are embedded from `Modules/Orders/Slips`, Admins save copies as `SlipLayout` rows, and each shop
+picks one per kind. A layout's CSS is nested under `.slip-layout-{key}` so it only reaches its own slips; values are
+HTML-encoded unless a template uses `| raw`. Change the built-in look in those files, not in Razor.
 
 ### Hosting details
 - Live data root defaults to `C:\ProgramData\EtsyShopManager` (DB, images, Data Protection keys, backups, logs).

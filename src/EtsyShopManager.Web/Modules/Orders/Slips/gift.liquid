@@ -1,0 +1,60 @@
+{%- comment -%}
+  The built-in gift slip, laid out like Etsy's (letter page, sizes in points from Etsy's PDF): the top half is left blank
+  for a shipping label, then a cut line; below it, the order on the left (no prices) and, past a fold line, the gift side:
+  "A gift for you" with gold sparkles, the item photo, the gift message and who it's from, and a QR code to the shop.
+  Etsy's own logo and slogans aren't used, and the shop's name stays on the left so the gift doesn't read as the shop's.
+{%- endcomment -%}
+<section class="gift-slip">
+    <div class="gift-cut" aria-hidden="true"></div>
+    <div class="gift-fold" aria-hidden="true"></div>
+
+    <div class="gift-left">
+        <div class="gift-shop">
+            {%- if shop.icon_url %}<img src="{{ shop.icon_url }}" alt="" />{% endif %}
+            <div>
+                <div class="gift-shop-name">{{ shop.name }}</div>
+                {%- if shop.title %}<div>{{ shop.title }}</div>{% endif %}
+                {%- if shop.location %}<div>{{ shop.location }}</div>{% endif %}
+                {%- if shop.star_seller or shop.sales %}
+                <div class="gift-shop-stats">
+                    {%- if shop.star_seller %}
+                    <span class="star-seller">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" /><path d="M12 5.2l1.95 4.15 4.55.45-3.45 3.05 1 4.45L12 15l-4.05 2.3 1-4.45L5.5 9.8l4.55-.45z" /></svg>
+                        Star seller
+                    </span>
+                    {%- endif %}
+                    {%- if shop.sales %}<span>{{ shop.sales }} Sales</span>{% endif %}
+                </div>
+                {%- endif %}
+            </div>
+        </div>
+        <div class="gift-order">
+            <div class="gift-strong">Order #{{ order.receipt_id }}</div>
+            {%- if order.ship_to_name %}<div>Shipped to: {{ order.ship_to_name }}</div>{% endif %}
+        </div>
+        {%- for item in items %}
+        <div class="gift-item">
+            <div class="gift-strong gift-item-title">{{ item.title }}</div>
+            {%- for v in item.variations %}<div>{{ v }}</div>{% endfor %}
+            {%- if item.personalization %}<div>Personalization: {{ item.personalization }}</div>{% endif %}
+            <div class="gift-qty">Quantity: {{ item.quantity }}</div>
+        </div>
+        {%- endfor %}
+    </div>
+
+    <div class="gift-right">
+        <div class="gift-head">
+            {%- for i in (1..5) %}
+            <svg class="gift-sparkle gift-sparkle-{{ i }}" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.4 2 L11.6 22 M3.2 7.4 L20.6 16.2 M3.8 17 L20.2 6.6" /></svg>
+            {%- endfor %}
+            <div class="gift-headline">A gift for you</div>
+        </div>
+        {%- if order.photo_url %}<img class="gift-photo" src="{{ order.photo_url }}" alt="" />{% else %}<div class="gift-photo"></div>{% endif %}
+        {%- if order.gift_message %}<div class="gift-message">{{ order.gift_message }}</div>{% endif %}
+        {%- if order.gift_from %}<div class="gift-sender">- {{ order.gift_from }}</div>{% endif %}
+        <div class="gift-qr">
+            <div>Scan below to shop more from this independent seller.</div>
+            <div class="gift-qr-code">{{ shop.qr_code | raw }}</div>
+        </div>
+    </div>
+</section>
