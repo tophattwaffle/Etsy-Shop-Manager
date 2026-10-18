@@ -133,6 +133,9 @@ Order changes a buyer asks for after checkout (personalization, variation values
 local order only (`OrderOverrides`, `OrderOverrideService`; polling never touches them). Read item variations through
 `OrderOverrides.Variations` and the address through `OrderPrintService.Address`, so every view shows the change;
 `EtsyAddress` is Etsy's, and slips mark a changed address so the shipping label gets changed too.
+Made marks: `OrderItem.MadeQuantity` (units made, local only, polling never touches it) is set from the order cards and
+the To make rows through `OrderMadeService`; `ToMakeList` ties each To make row to its order items (soonest ship-by
+first) so both views mark the same items. The HA payload doesn't carry it.
 Packing slips (the Packing slips section) are Liquid templates rendered with Fluid (`SlipTemplates.cs`): the built-in
 packing and gift layouts are embedded from `Modules/Orders/Slips`, Admins save copies as `SlipLayout` rows, and each shop
 picks one per kind. A layout's CSS is nested under `.slip-layout-{key}` so it only reaches its own slips; values are

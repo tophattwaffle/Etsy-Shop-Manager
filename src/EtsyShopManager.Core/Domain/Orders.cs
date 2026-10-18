@@ -100,6 +100,18 @@ public class OrderItem
 
     /// <summary>Etsy CDN URL of the item's photo, resolved when the order is stored.</summary>
     public string? ImageUrl { get; set; }
+
+    /// <summary>
+    /// How many of <see cref="Quantity"/> the seller has marked as made (Orders page and To make). Only this app knows
+    /// it: polling never touches it and nothing is sent to Etsy.
+    /// </summary>
+    public int MadeQuantity { get; set; }
+
+    /// <summary>The units to make (Etsy's quantity, at least one), as the To make list counts them.</summary>
+    public int UnitsToMake => Math.Max(1, Quantity);
+
+    /// <summary>Units marked made, never more than <see cref="UnitsToMake"/> (Etsy's quantity can drop after marking).</summary>
+    public int UnitsMade => Math.Clamp(MadeQuantity, 0, UnitsToMake);
 }
 
 public sealed record OrderVariation

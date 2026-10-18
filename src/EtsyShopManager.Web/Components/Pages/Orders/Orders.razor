@@ -16,6 +16,7 @@
 @inject EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService ShopOrderLinks
 @inject IJSRuntime Js
 @inject IDialogService Dialogs
+@inject OrderMadeService MadeItems
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
 
@@ -104,7 +105,7 @@
                     @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
                     {
                         var (variations, personalization) = Split(i);
-                        <div class="order-item">
+                        <div class="order-item @(i.UnitsMade >= i.UnitsToMake ? "is-made" : "")">
                             @if (!string.IsNullOrEmpty(i.ImageUrl))
                             {
                                 <img src="@i.ImageUrl" alt="" loading="lazy" />
@@ -155,6 +156,8 @@
                                 }
                                 @if (i.Sku is not null) { <div class="muted small">SKU @i.Sku</div> }
                             </div>
+                            <MadeToggle Made="@i.UnitsMade" Quantity="@i.UnitsToMake" ReadOnly="@(!_canMark)" What="@ShortTitle(i.Title)"
+                                        MadeChanged="@(made => SetMadeAsync([i], made))" />
                         </div>
                     }
                     @if (o.MessageFromBuyer is not null)
@@ -174,7 +177,7 @@
         </div>
     </MudTabPanel>
 
-    <MudTabPanel Text="@($"To make ({_toMakeTotal})")">
+    <MudTabPanel Text="@($"To make ({_toMake.Sum(r => r.Left)})")">
         <div class="lp-layout">
         <section class="lp-main" aria-label="Items to make">
         @if (_toMake.Count == 0)
@@ -183,9 +186,16 @@
         }
         else
         {
+            @if (_toMake.Sum(r => r.Made) is var made and > 0)
+            {
+                <div class="lp-toolbar">
+                    <span class="muted small">@made of @_toMake.Sum(r => r.Quantity) made. Marking here marks the order items too.</span>
+                </div>
+            }
             <MudSimpleTable Dense="true" Hover="true">
                 <thead>
                     <tr>
+                        <SortHeader Sort="_toMakeSort" Column="made" Changed="StateHasChanged">Made</SortHeader>
                         <SortHeader Sort="_toMakeSort" Column="qty" Changed="StateHasChanged" Class="text-right">Qty</SortHeader>
                         <SortHeader Sort="_toMakeSort" Column="item" Changed="StateHasChanged">Item</SortHeader>
                         <SortHeader Sort="_toMakeSort" Column="variations" Changed="StateHasChanged">Variations</SortHeader>
@@ -194,11 +204,16 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var row in _toMakeSort.Apply(_toMake))
+                    @foreach (var make in _toMakeSort.Apply(_toMake))
                     {
-                        <tr>
-                            <td class="text-right"><b>@((int)row["quantity"]!)</b></td>
-                            <td>@ShortTitle((string?)row["title"])</td>
+                        var row = make.Row;
+                        <tr class="@(make.IsMade ? "is-made" : "")">
+                            <td>
+                                <MadeToggle Made="@make.Made" Quantity="@make.Quantity" Labelled="false" ReadOnly="@(!_canMark)" What="@ShortTitle((string?)row["title"])"
+                                            MadeChanged="@(m => SetMadeAsync(make.Items, m))" />
+                            </td>
+                            <td class="text-right"><b>@make.Quantity</b></td>
+                            <td class="esm-made-text">@ShortTitle((string?)row["title"])</td>
                             <td>
                                 @* One pill per variation, as on the order cards (one long pill wrapped into a circle on phones). *@
                                 <div class="order-vars">
@@ -298,17 +313,17 @@
     private bool _accentsRequested;
     private int? _shopId;
     private List<Order> _open = [];
-    private List<JsonObject> _toMake = [];
+    private List<ToMakeRow> _toMake = [];
 
-    private readonly TableSort<JsonObject> _toMakeSort = new()
+    private readonly TableSort<ToMakeRow> _toMakeSort = new()
     {
-        ["qty"] = r => (int?)r["quantity"],
-        ["item"] = r => ShortTitle((string?)r["title"]),
-        ["variations"] = r => string.Join(" ", r["variations"]?.AsArray().Select(v => (string?)v?["value"]) ?? []),
-        ["personalization"] = r => (string?)r["personalization"],
-        ["shipby"] = r => (long?)r["ship_by_ts"],
+        ["made"] = r => (double)r.Made / r.Quantity,
+        ["qty"] = r => r.Quantity,
+        ["item"] = r => ShortTitle((string?)r.Row["title"]),
+        ["variations"] = r => string.Join(" ", r.Row["variations"]?.AsArray().Select(v => (string?)v?["value"]) ?? []),
+        ["personalization"] = r => (string?)r.Row["personalization"],
+        ["shipby"] = r => (long?)r.Row["ship_by_ts"],
     };
-    private int _toMakeTotal;
     private MudTable<Order>? _history;
     private string? _historyText;
     private bool _historyGifts;
@@ -316,8 +331,13 @@
     private IDisposable? _live;
     private JsonObject? _colorConfig;
 
+    // Admins and Editors mark items made; Viewers see what is made.
+    private bool _canMark;
+
     protected override async Task OnInitializedAsync()
     {
+        var user = (await AuthState).User;
+        _canMark = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
         _colorConfig = (await Colors.GetAsync()).ToCardJson();
         await LoadAsync();
         // Orders change when a check for orders runs (or a shop is (re)connected): reload then.
@@ -329,6 +349,8 @@
                 if (_history is not null) await _history.ReloadServerData();
                 StateHasChanged();
             }));
+        // Items marked made in another browser (or on the dashboard): reload the open orders.
+        MadeItems.Changed += OnMadeElsewhere;
         // Ship-by countdowns and "synced … ago" are relative to now: re-render every 30 s.
         _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
@@ -342,9 +364,32 @@
         _open = await Queries.GetOpenOrdersAsync(_shopId);
         _openFilter = _openFilter with { HomeCountries = await Queries.GetHomeCountriesAsync() };
         RefreshShown();
-        var payload = HaPayloadBuilder.OpenOrders(_open, TimeZoneInfo.Local);
-        _toMake = payload["items_needed"]!.AsArray().Select(n => n!.AsObject()).ToList();
-        _toMakeTotal = (int)payload["total_items_needed"]!;
+        _toMake = ToMakeList.Build(_open, TimeZoneInfo.Local);
+    }
+
+    // The order cards and the To make rows share the same OrderItem objects, so both tabs show the change at once.
+    private async Task SetMadeAsync(IReadOnlyList<OrderItem> items, int made)
+    {
+        if (!_canMark) return;
+        try
+        {
+            await MadeItems.SetMadeAsync(items, made, source: this);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Couldn't save what's made: {ex.Message}", Severity.Error);
+            await LoadAsync();
+        }
+    }
+
+    private void OnMadeElsewhere(object? source)
+    {
+        if (ReferenceEquals(source, this)) return;
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
     }
 
     // Color the variation pills and personalization notes rendered by <ColorBox> (new or changed ones only),
@@ -666,6 +711,7 @@
 
     public void Dispose()
     {
+        MadeItems.Changed -= OnMadeElsewhere;
         _live?.Dispose();
         _timer?.Dispose();
     }

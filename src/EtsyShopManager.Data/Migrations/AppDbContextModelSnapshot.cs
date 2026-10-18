@@ -962,6 +962,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<long?>("ListingImageId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("MadeQuantity")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("OrderId")
                         .HasColumnType("INTEGER");
 
