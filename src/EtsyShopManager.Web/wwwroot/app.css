@@ -371,6 +371,9 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .lp-bulk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .lp-bulk-fields { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .lp-bulk-fields .mud-input-control { flex: 1 1 160px; margin: 0; }
+.lp-bulk-fields .mud-input-control.lp-bulk-kind { flex: 0 1 260px; }
+.lp-bulk-result { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--esm-line); }
+.lp-bulk-preview { max-height: 420px; overflow: auto; margin-top: 8px; }
 .lp-sku { color: var(--esm-muted); font-size: 0.8rem; white-space: nowrap; }
 
 .lp-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 24px; font-size: 0.875rem; }
