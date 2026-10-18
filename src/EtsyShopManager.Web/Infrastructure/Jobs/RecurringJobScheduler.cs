@@ -58,23 +58,24 @@ public sealed class RecurringJobScheduler(
         CancellationToken ct = default) =>
         def.IntervalSettingKey is null ? def.Interval : def.EffectiveInterval(await settings.GetAsync(def.IntervalSettingKey, ct));
 
-    private async Task ScheduleDueAsync(CancellationToken ct)
+    internal async Task ScheduleDueAsync(CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var now = time.GetUtcNow().UtcDateTime;
 
         foreach (var def in definitions)
         {
+            var interval = await GetIntervalAsync(def, settings, ct);
             var state = await db.RecurringJobs.FindAsync([def.Name], ct);
             if (state is null)
             {
-                // First time we see this definition: make it due after InitialDelay.
-                state = new RecurringJobState { Name = def.Name, LastEnqueuedAtUtc = now - def.Interval + def.InitialDelay };
+                // First time we see this definition: make it due after InitialDelay (with the interval in use, which an
+                // app setting may have changed).
+                state = new RecurringJobState { Name = def.Name, LastEnqueuedAtUtc = now - interval + def.InitialDelay };
                 db.RecurringJobs.Add(state);
                 await db.SaveChangesAsync(ct);
             }
 
-            var interval = await GetIntervalAsync(def, settings, ct);
             if (state.LastEnqueuedAtUtc + interval > now) continue;
 
             var id = await queue.EnqueueAsync(new JobRequest

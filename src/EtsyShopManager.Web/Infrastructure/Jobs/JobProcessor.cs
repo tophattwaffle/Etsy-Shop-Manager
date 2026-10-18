@@ -24,8 +24,7 @@ public sealed class JobProcessor(
     {
         // Let the host finish starting (and the DB finish migrating) before touching the queue.
         await Task.Yield();
-        await RecoverInterruptedJobsAsync(stoppingToken);
-        LogRegisteredHandlers();
+        if (!await StartUpAsync(stoppingToken)) return;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -48,6 +47,34 @@ public sealed class JobProcessor(
                 logger.LogError(ex, "Job processor loop error");
                 try { await Task.Delay(TimeSpan.FromSeconds(5), time, stoppingToken); }
                 catch (OperationCanceledException) { break; }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Re-queues interrupted jobs, retrying until it works: an exception escaping ExecuteAsync would end job processing
+    /// for good (and by default stop the whole service), so a busy or locked database here only delays the start.
+    /// False when the service is stopping.
+    /// </summary>
+    private async Task<bool> StartUpAsync(CancellationToken stoppingToken)
+    {
+        while (true)
+        {
+            try
+            {
+                await RecoverInterruptedJobsAsync(stoppingToken);
+                LogRegisteredHandlers();
+                return true;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Job processor start-up failed; retrying in 5 seconds");
+                try { await Task.Delay(TimeSpan.FromSeconds(5), time, stoppingToken); }
+                catch (OperationCanceledException) { return false; }
             }
         }
     }
