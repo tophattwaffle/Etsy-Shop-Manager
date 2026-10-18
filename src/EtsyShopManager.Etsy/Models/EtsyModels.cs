@@ -47,4 +47,5 @@ public sealed class EtsyShop
     [JsonPropertyName("icon_url_fullxfull")] public string? IconUrl { get; set; }
     [JsonPropertyName("listing_active_count")] public int? ListingActiveCount { get; set; }
     [JsonPropertyName("is_vacation")] public bool? IsVacation { get; set; }
+    [JsonPropertyName("transaction_sold_count")] public int? TransactionSoldCount { get; set; }
 }

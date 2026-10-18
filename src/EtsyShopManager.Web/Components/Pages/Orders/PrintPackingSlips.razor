@@ -5,10 +5,11 @@
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Modules.Orders
 @inject OrderPrintService Print
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
 
 @* Static SSR printout: one packing slip per selected order, each on its own page, laid out like Etsy's own packing slip
-   (shop header; ship-to and order details on the left; items and totals on the right; a footer line). Read-only:
-   nothing is marked shipped. *@
+   (shop header; ship-to and order details on the left; the shop's note, items and totals on the right). Gift orders get
+   the gift slip instead (<GiftSlip>: no prices). Read-only: nothing is marked shipped. *@
 <PageTitle>Packing slips · Etsy Shop Manager</PageTitle>
 
 @if (_orders.Count == 0)
@@ -20,6 +21,11 @@ else
     <div class="print-sheet">
         @foreach (var o in _orders)
         {
+            if (o.IsGift)
+            {
+                <GiftSlip Order="o" Accent="@_accents.GetValueOrDefault(o.ShopId)" />
+                continue;
+            }
             var address = OrderPrintService.Address(o);
             var details = OrderPrintService.Details(o);
             var items = o.Items.OrderBy(i => i.EtsyTransactionId).ToList();
@@ -80,6 +86,10 @@ else
                     </aside>
 
                     <div class="slip-main">
+                        @if (_notes.TryGetValue(o.ShopId, out var note))
+                        {
+                            <div class="slip-shop-note"><div class="slip-label">A note from the shop</div><div class="slip-pre">@note</div></div>
+                        }
                         <div class="slip-count">@count item@(count == 1 ? "" : "s")</div>
                         <div class="slip-items">
                             @foreach (var item in items)
@@ -108,11 +118,6 @@ else
                         @if (o.IsGift) { <div class="slip-note"><span class="slip-label">Gift message</span><div>@(o.GiftMessage is { Length: > 0 } g ? g : "This order is a gift.")</div></div> }
                     </div>
                 </div>
-
-                @if (_thanks.TryGetValue(o.ShopId, out var thanks))
-                {
-                    <footer class="slip-footer">@thanks</footer>
-                }
             </section>
         }
     </div>
@@ -122,11 +127,14 @@ else
     [SupplyParameterFromQuery] private string? Ids { get; set; }
 
     private List<EtsyShopManager.Core.Domain.Order> _orders = [];
-    private Dictionary<int, string> _thanks = [];
+    private Dictionary<int, string> _notes = [];
+    private Dictionary<int, string> _accents = [];
 
     protected override async Task OnInitializedAsync()
     {
         _orders = await Print.GetOrdersAsync(OrderPrintService.ParseIds(Ids));
-        _thanks = await Print.GetThanksAsync(_orders.Select(o => o.ShopId).Distinct());
+        var shopIds = _orders.Select(o => o.ShopId).Distinct().ToList();
+        _notes = await Print.GetNotesAsync(shopIds);
+        if (_orders.Any(o => o.IsGift)) _accents = await ShopAccents.GetEffectiveAsync(shopIds);
     }
 }

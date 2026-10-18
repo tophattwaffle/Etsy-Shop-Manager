@@ -86,7 +86,10 @@
                             <MudCheckBox T="bool" Value="@_picked.Contains(o.Id)" ValueChanged="@(on => Pick(o.Id, on))" Dense="true"
                                          Size="Size.Small" aria-label="@($"Select order {o.EtsyReceiptId} to print")" />
                             <div>
-                                <div class="order-buyer">@(o.BuyerName ?? $"#{o.EtsyReceiptId}")</div>
+                                <div class="order-buyer">
+                                    @(o.BuyerName ?? $"#{o.EtsyReceiptId}")
+                                    @if (o.IsGift) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Class="ml-1">Gift</MudChip> }
+                                </div>
                                 <div class="muted small">
                                     <a href="@OrderUrl(o.ShopId, o.EtsyReceiptId)" target="@OrderTarget(o.ShopId, o.EtsyReceiptId)">#@o.EtsyReceiptId</a>
                                     · @o.Shop.Name · @ListingFormat.Local(o.EtsyCreatedAtUtc)
@@ -187,9 +190,12 @@
     </MudTabPanel>
 
     <MudTabPanel Text="History">
-        <MudTextField T="string" Value="_historyText" ValueChanged="OnHistoryTextChanged" Label="Search buyer, item, SKU or receipt #"
-                      Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true" Class="mb-2 esm-w-lg"
-                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Wrap="Wrap.Wrap" Class="mb-2">
+            <MudTextField T="string" Value="_historyText" ValueChanged="OnHistoryTextChanged" Label="Search buyer, item, SKU or receipt #"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true" Class="esm-w-lg"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+            <MudCheckBox T="bool" Value="_historyGifts" ValueChanged="OnHistoryGiftsChanged" Label="Gift orders" Dense="true" />
+        </MudStack>
         <MudTable @ref="_history" T="Order" ServerData="LoadHistoryAsync" Dense="true" Hover="true" RowsPerPage="50">
             <HeaderContent>
                 @* Sorted by the server, so the order covers every page. *@
@@ -204,7 +210,10 @@
             <RowTemplate>
                 <MudTd>@ListingFormat.Local(context.EtsyCreatedAtUtc, "yyyy-MM-dd")</MudTd>
                 <MudTd><a href="@OrderUrl(context.ShopId, context.EtsyReceiptId)" target="@OrderTarget(context.ShopId, context.EtsyReceiptId)">#@context.EtsyReceiptId</a></MudTd>
-                <MudTd>@context.BuyerName</MudTd>
+                <MudTd>
+                    @context.BuyerName
+                    @if (context.IsGift) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Class="ml-1">Gift</MudChip> }
+                </MudTd>
                 <MudTd class="small">@string.Join(", ", context.Items.Select(i => (i.Quantity > 1 ? $"{i.Quantity}× " : "") + ShortTitle(i.Title)))</MudTd>
                 <MudTd Class="text-right">@OrderTotal(context)</MudTd>
                 <MudTd>
@@ -246,6 +255,7 @@
     private int _toMakeTotal;
     private MudTable<Order>? _history;
     private string? _historyText;
+    private bool _historyGifts;
     private Timer? _timer;
     private IDisposable? _live;
     private JsonObject? _colorConfig;
@@ -327,13 +337,19 @@
     {
         var sortBy = state.SortDirection == SortDirection.None ? null : state.SortLabel;
         var (orders, total) = await Queries.GetHistoryAsync(_shopId, _historyText, state.Page * state.PageSize, state.PageSize, ct,
-            sortBy, descending: state.SortDirection != SortDirection.Ascending);
+            sortBy, descending: state.SortDirection != SortDirection.Ascending, giftsOnly: _historyGifts);
         return new TableData<Order> { Items = orders, TotalItems = total };
     }
 
     private async Task OnHistoryTextChanged(string? text)
     {
         _historyText = text;
+        if (_history is not null) await _history.ReloadServerData();
+    }
+
+    private async Task OnHistoryGiftsChanged(bool on)
+    {
+        _historyGifts = on;
         if (_history is not null) await _history.ReloadServerData();
     }
 

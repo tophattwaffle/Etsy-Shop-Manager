@@ -24,9 +24,10 @@ public sealed record PickListLine(string Title, IReadOnlyList<string> Variations
 /// </summary>
 public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory, ISettingsStore settings, IAuditLog audit)
 {
-    public const int MaxThanksLength = 300;
+    public const int MaxNoteLength = 500;
 
-    public static string ThanksKey(int shopId) => $"Shops.SlipThanks.{shopId}";
+    /// <summary>The shop's packing slip note ("A note from the shop"). The key is from when it was a thank-you line, so notes saved then still apply.</summary>
+    public static string NoteKey(int shopId) => $"Shops.SlipThanks.{shopId}";
 
     /// <summary>The orders, in ship-by order (then receipt), with their items and shop.</summary>
     public async Task<List<Order>> GetOrdersAsync(IReadOnlyCollection<int> ids, CancellationToken ct = default)
@@ -43,19 +44,19 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         [.. (ids ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(s => int.TryParse(s, out var id) ? id : 0).Where(id => id > 0).Distinct()];
 
-    public async Task<Dictionary<int, string>> GetThanksAsync(IEnumerable<int> shopIds, CancellationToken ct = default)
+    public async Task<Dictionary<int, string>> GetNotesAsync(IEnumerable<int> shopIds, CancellationToken ct = default)
     {
         var result = new Dictionary<int, string>();
         foreach (var id in shopIds.Distinct())
-            if (await settings.GetAsync(ThanksKey(id), ct) is { Length: > 0 } text) result[id] = text;
+            if (await settings.GetAsync(NoteKey(id), ct) is { Length: > 0 } text) result[id] = text;
         return result;
     }
 
-    public async Task<string?> SetThanksAsync(int shopId, string? text, string? user, CancellationToken ct = default)
+    public async Task<string?> SetNoteAsync(int shopId, string? text, string? user, CancellationToken ct = default)
     {
         var value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
-        if (value?.Length > MaxThanksLength) return $"Keep the thank-you line to {MaxThanksLength} characters.";
-        await settings.SetAsync(ThanksKey(shopId), value, updatedBy: user, ct: ct);
+        if (value?.Length > MaxNoteLength) return $"Keep the packing slip note to {MaxNoteLength} characters.";
+        await settings.SetAsync(NoteKey(shopId), value, updatedBy: user, ct: ct);
         await audit.WriteAsync("shop.slip-thanks", nameof(Shop), shopId.ToString(), value is null ? "cleared" : "set", user, ct);
         return null;
     }
@@ -100,6 +101,20 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
             if (Money(key, negative) is { } amount) totals.Add((label, amount));
         var grand = Money("grandtotal") ?? (order.Grandtotal is { } g ? Listings.ListingFormat.PriceWithSymbol(g, order.Divisor, order.CurrencyCode) : itemTotal);
         return new SlipDetails(payment, shipping, totals, grand);
+    }
+
+    /// <summary>Who the gift is from, as the buyer wrote it at checkout (the receipt's gift_sender; null when not given).</summary>
+    public static string? GiftSender(Order order) => Text(Receipt(order)?["gift_sender"]);
+
+    /// <summary>
+    /// A QR code (inline SVG, sized by CSS) linking to the shop's Etsy page, for the bottom of gift slips. Drawn here, so
+    /// the printout needs nothing from outside the app.
+    /// </summary>
+    public static string ShopQrSvg(Shop shop)
+    {
+        using var data = new QRCoder.QRCodeGenerator().CreateQrCode($"https://{ShopAddress(shop)}", QRCoder.QRCodeGenerator.ECCLevel.M);
+        return new QRCoder.SvgQRCode(data).GetGraphic(4, "#000000", "#ffffff", drawQuietZones: false,
+            sizingMode: QRCoder.SvgQRCode.SizingMode.ViewBoxAttribute);
     }
 
     /// <summary>The shop's Etsy address as Etsy prints it on slips ("name.etsy.com").</summary>

@@ -37,7 +37,7 @@ public class OrderPrintTests
             CurrencyCode = "USD",
             RawJson = """
                 {"name":"Sample Buyer","formatted_address":"Sample Buyer\n1 Example Street\nApt 2\nSpringfield, IL 62701\nUnited States",
-                 "payment_method":"cc",
+                 "payment_method":"cc", "is_gift":true, "gift_message":"Happy birthday!", "gift_sender":"Grandma Sample",
                  "total_price":{"amount":3897,"divisor":100,"currency_code":"USD"},
                  "discount_amt":{"amount":500,"divisor":100,"currency_code":"USD"},
                  "total_tax_cost":{"amount":140,"divisor":100,"currency_code":"USD"},
@@ -107,44 +107,89 @@ public class OrderPrintTests
     }
 
     [Fact]
-    public async Task Thank_you_lines_are_kept_per_shop()
+    public async Task Packing_slip_notes_are_kept_per_shop()
     {
         using var db = new TestDb();
         var settings = new InMemorySettings();
         var print = new OrderPrintService(db, settings, new NullAuditLog());
-        Assert.Null(await print.SetThanksAsync(1, "  Thanks for shopping small!  ", "tophattwaffle"));
-        Assert.Null(await print.SetThanksAsync(2, "", "tophattwaffle"));
-        Assert.Equal("Keep the thank-you line to 300 characters.", await print.SetThanksAsync(1, new string('x', 301), "tophattwaffle"));
-        Assert.Equal(new Dictionary<int, string> { [1] = "Thanks for shopping small!" }, await print.GetThanksAsync([1, 2]));
+        Assert.Null(await print.SetNoteAsync(1, "  Thanks for shopping small!  ", "tophattwaffle"));
+        Assert.Null(await print.SetNoteAsync(2, "", "tophattwaffle"));
+        Assert.Equal("Keep the packing slip note to 500 characters.", await print.SetNoteAsync(1, new string('x', 501), "tophattwaffle"));
+        Assert.Equal(new Dictionary<int, string> { [1] = "Thanks for shopping small!" }, await print.GetNotesAsync([1, 2]));
+    }
+
+    private static async Task SeedAsync(TestDb db, bool firstIsGift)
+    {
+        await using var ctx = db.CreateDbContext();
+        ctx.Shops.Add(new Shop
+        {
+            Id = 1, EtsyShopId = 42, Name = "SampleShop", Title = "Little things, made well", TransactionSoldCount = 4321,
+            ConnectedAtUtc = DateTime.UtcNow,
+        });
+        var orders = SampleOrders();
+        orders[0].IsGift = firstIsGift;
+        foreach (var o in orders) ctx.Orders.Add(o);
+        await ctx.SaveChangesAsync();
     }
 
     [Fact]
     public async Task Printouts_render_the_selected_orders_only()
     {
         using var db = new TestDb();
-        await using (var ctx = db.CreateDbContext())
-        {
-            ctx.Shops.Add(new Shop { Id = 1, EtsyShopId = 42, Name = "SampleShop", ConnectedAtUtc = DateTime.UtcNow });
-            foreach (var o in SampleOrders()) ctx.Orders.Add(o);
-            await ctx.SaveChangesAsync();
-        }
+        await SeedAsync(db, firstIsGift: false);
         var settings = new InMemorySettings();
-        await new OrderPrintService(db, settings, new NullAuditLog()).SetThanksAsync(1, "Thanks for shopping small!", null);
+        await new OrderPrintService(db, settings, new NullAuditLog()).SetNoteAsync(1, "Thanks for shopping small!", null);
 
         var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=2,1");
         Assert.Equal(2, CountOf(slips, "<section class=\"slip\""));
         Assert.True(slips.IndexOf("#1002", StringComparison.Ordinal) < slips.IndexOf("#1001", StringComparison.Ordinal)); // ship-by first
         foreach (var text in new[] { "1 Example Street", "Testville, CA 90001", "Personalization: Bob", "Color: Yellow", "Please hurry",
-                     "Happy birthday!", "Thanks for shopping small!", "SampleShop", "sampleshop.etsy.com", "Paid via Etsy Payments",
+                     "A note from the shop", "Thanks for shopping small!", "SampleShop", "sampleshop.etsy.com", "Paid via Etsy Payments",
                      "USPS First-Class Mail", "Order total", "$41.19", "2 x $12.99", "3 items", "4 items", "Scheduled to ship by" })
             Assert.Contains(text, slips);
+        Assert.True(slips.IndexOf("A note from the shop", StringComparison.Ordinal) < slips.IndexOf("4 items", StringComparison.Ordinal));
 
-        var pick = await RenderAsync<PrintPickList>(db, settings, "orders/print/pick?ids=1");
+        var pick = await RenderAsync<PrintPickList>(db, settings, "orders/print/pick?ids=1,2");
+        pick = await RenderAsync<PrintPickList>(db, settings, "orders/print/pick?ids=1");
         Assert.Contains("Mini Caution Sign", pick);
         Assert.Contains("×2", pick);
         Assert.DoesNotContain("1002", pick);
 
         Assert.Contains("No orders selected", await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips"));
+    }
+
+    [Fact]
+    public async Task Gift_orders_print_a_gift_slip_without_prices()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        var settings = new InMemorySettings();
+
+        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.Equal((1, 1), (CountOf(slips, "<section class=\"gift-slip\""), CountOf(slips, "<section class=\"slip\"")));
+        var gift = slips[slips.IndexOf("<section class=\"gift-slip\"", StringComparison.Ordinal)..];
+        gift = gift[..(gift.IndexOf("</section>", StringComparison.Ordinal) + 10)];
+        foreach (var text in new[] { "SampleShop", "Little things, made well", "4321 Sales", "Order #1001", "Shipped to: Sample Buyer",
+                     "Mini Caution Sign | desk decor | gift", "Color: Yellow", "Personalization: Bob", "Quantity: 2", "Quantity: 1",
+                     "A gift for you", "Happy birthday!", "- Grandma Sample", "Scan to see more from SampleShop.", "<svg" })
+            Assert.Contains(text, gift);
+        Assert.DoesNotContain("$", gift); // no prices on a gift slip
+        Assert.DoesNotContain("1 Example Street", gift); // the address goes on the shipping label
+
+        var qr = OrderPrintService.ShopQrSvg(new Shop { Name = "SampleShop" });
+        Assert.StartsWith("<svg", qr);
+        Assert.Contains("viewBox", qr);
+    }
+
+    [Fact]
+    public async Task History_can_show_gift_orders_only()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        var queries = new OrderQueries(db, TimeProvider.System);
+        Assert.Equal(2, (await queries.GetHistoryAsync(null, null, 0, 50)).Total);
+        var (gifts, total) = await queries.GetHistoryAsync(null, null, 0, 50, giftsOnly: true);
+        Assert.Equal((1, 1001L), (total, Assert.Single(gifts).EtsyReceiptId));
     }
 
     private static int CountOf(string text, string part) => (text.Length - text.Replace(part, "").Length) / part.Length;

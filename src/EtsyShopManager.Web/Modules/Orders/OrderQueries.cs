@@ -34,11 +34,12 @@ public sealed class OrderQueries(IDbContextFactory<AppDbContext> dbFactory, Time
     }
 
     public async Task<(List<Order> Orders, int Total)> GetHistoryAsync(int? shopId, string? text, int skip, int take,
-        CancellationToken ct = default, string? sortBy = null, bool descending = true)
+        CancellationToken ct = default, string? sortBy = null, bool descending = true, bool giftsOnly = false)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         IQueryable<Order> q = db.Orders.AsNoTracking();
         if (shopId is { } id) q = q.Where(o => o.ShopId == id);
+        if (giftsOnly) q = q.Where(o => o.IsGift);
         if (!string.IsNullOrWhiteSpace(text))
         {
             var t = text.Trim();
