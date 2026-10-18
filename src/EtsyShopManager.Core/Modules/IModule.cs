@@ -32,7 +32,7 @@ public sealed record NavItem(string Title, string Href, string Icon, int Order =
 /// <summary>Sidebar groups, so rarely used pages fold away under one heading.</summary>
 public static class NavGroups
 {
-    public const string Admin = "Admin";
+    public const string Settings = "Settings";
 }
 
 /// <summary>The loaded modules, available to the UI and host.</summary>

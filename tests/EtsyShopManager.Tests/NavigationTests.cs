@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Components;
 
 namespace EtsyShopManager.Tests;
 
-/// <summary>The sidebar stays short: templates share one entry, and admin pages fold under one heading.</summary>
+/// <summary>The sidebar stays short: templates share one entry, and admin pages fold under one Settings heading.</summary>
 public class NavigationTests
 {
     private static readonly ModuleRegistry Registry = new(
@@ -20,13 +20,13 @@ public class NavigationTests
     ]);
 
     [Fact]
-    public void Top_level_sidebar_has_one_Templates_entry_and_admin_pages_sit_in_the_Admin_group()
+    public void Top_level_sidebar_has_one_Templates_entry_and_admin_pages_sit_under_Settings()
     {
         Assert.Equal(["Shops", "Orders", "Listings", "Templates", "Lookups"],
             Registry.NavItems.Where(i => i.Group is null).Select(i => i.Title));
-        Assert.Equal(["Jobs", "Users", "Audit log", "API keys", "Etsy writes", "Order colors", "Photo order test", "Settings"],
-            Registry.NavItems.Where(i => i.Group == NavGroups.Admin).Select(i => i.Title));
-        Assert.All(Registry.NavItems.Where(i => i.Roles == Roles.Admin), i => Assert.Equal(NavGroups.Admin, i.Group));
+        Assert.Equal(["General", "Jobs", "Users", "Audit log", "API keys", "Etsy writes", "Order colors", "Photo order test"],
+            Registry.NavItems.Where(i => i.Group == NavGroups.Settings).Select(i => i.Title));
+        Assert.All(Registry.NavItems.Where(i => i.Roles == Roles.Admin), i => Assert.Equal(NavGroups.Settings, i.Group));
     }
 
     [Fact]
