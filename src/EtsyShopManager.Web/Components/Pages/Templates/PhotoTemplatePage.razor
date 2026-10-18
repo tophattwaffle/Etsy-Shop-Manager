@@ -1,3 +1,6 @@
+@page "/templates/photos/new"
+@page "/templates/photos/{Id:int}"
+@* The old addresses, from before the Templates page. *@
 @page "/photo-templates/new"
 @page "/photo-templates/{Id:int}"
 @attribute [Authorize(Roles = "Admin,Editor")]
@@ -12,7 +15,7 @@
 
 <PageTitle>@(_saved?.Name ?? "New photo template") · Etsy Shop Manager</PageTitle>
 
-<MudLink Href="photo-templates" Class="d-inline-flex align-center mb-2">
+<MudLink Href="templates/photos" Class="d-inline-flex align-center mb-2">
     <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> All photo templates
 </MudLink>
 
@@ -312,7 +315,7 @@ else
     {
         var (id, error) = await Templates.SaveAsync(_saved?.Id, _name, _file, _alt, _rank, await User());
         if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
-        if (_saved is null) { Nav.NavigateTo($"photo-templates/{id}"); return; }
+        if (_saved is null) { Nav.NavigateTo($"templates/photos/{id}"); return; }
         await LoadAsync();
         Snackbar.Add(WithChanges > 0
             ? $"Template saved. {WithChanges} listing{(WithChanges == 1 ? "" : "s")} would change; apply it when you're ready."
@@ -325,7 +328,7 @@ else
             $"Delete \"{_saved!.Name}\"? Listings keep the photo; they're only no longer linked.", yesText: "Delete template", cancelText: "Cancel");
         if (ok != true) return;
         await Templates.DeleteAsync(_saved.Id, await User());
-        Nav.NavigateTo("photo-templates");
+        Nav.NavigateTo("templates/photos");
     }
 
     private async Task ApplyAsync()

@@ -156,18 +156,18 @@ public sealed class TextBlockService(IDbContextFactory<AppDbContext> dbFactory, 
         name = (name ?? "").Trim();
         text = Normalize(text);
         slug = string.IsNullOrWhiteSpace(slug) ? TextBlockMarkup.MakeSlug(name) : slug.Trim().ToLowerInvariant();
-        if (name.Length == 0) return (null, "Give the block a name.");
+        if (name.Length == 0) return (null, "Give the template a name.");
         if (name.Length > MaxNameLength) return (null, $"The name is {name.Length} characters; keep it to {MaxNameLength}.");
         if (!TextBlockMarkup.IsValidSlug(slug) || slug.Length > MaxSlugLength)
             return (null, $"The placeholder name can only have lowercase letters, numbers and single hyphens (up to {MaxSlugLength}), like \"pla-care\".");
-        if (text.Length == 0) return (null, "The block needs some text.");
-        if (TextBlockMarkup.Slugs(text).Count > 0) return (null, "A block can't contain another block's placeholder.");
+        if (text.Length == 0) return (null, "The template needs some text.");
+        if (TextBlockMarkup.Slugs(text).Count > 0) return (null, "A template can't contain another template's placeholder.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        if (await db.TextBlocks.AnyAsync(b => b.Id != id && b.Name == name, ct)) return (null, $"There's already a block called \"{name}\".");
-        if (await db.TextBlocks.AnyAsync(b => b.Id != id && b.Slug == slug, ct)) return (null, $"Another block already uses {TextBlockMarkup.Token(slug)}.");
+        if (await db.TextBlocks.AnyAsync(b => b.Id != id && b.Name == name, ct)) return (null, $"There's already a template called \"{name}\".");
+        if (await db.TextBlocks.AnyAsync(b => b.Id != id && b.Slug == slug, ct)) return (null, $"Another template already uses {TextBlockMarkup.Token(slug)}.");
         var now = time.GetUtcNow().UtcDateTime;
         var block = id is { } existing ? await db.TextBlocks.FirstOrDefaultAsync(b => b.Id == existing, ct) : null;
-        if (id is not null && block is null) return (null, "That block no longer exists.");
+        if (id is not null && block is null) return (null, "That template no longer exists.");
         if (block is null)
         {
             block = new TextBlock { CreatedAtUtc = now };
@@ -480,7 +480,7 @@ public static class LineDiff
     }
 }
 
-/// <summary>Phase 4: templates (text blocks, shared variation lists, photo templates).</summary>
+/// <summary>Phase 4: templates (text templates, variation templates, photo templates).</summary>
 public sealed class TemplatesModule : IModule
 {
     public string Name => "Templates";
@@ -496,8 +496,7 @@ public sealed class TemplatesModule : IModule
 
     public IEnumerable<NavItem> NavItems =>
     [
-        new("Text blocks", "text-blocks", Icons.Material.Filled.ShortText, Order: 25, Roles: "Admin,Editor"),
-        new("Variation lists", "variation-lists", Icons.Material.Filled.Palette, Order: 26, Roles: "Admin,Editor"),
-        new("Photo templates", "photo-templates", Icons.Material.Filled.Collections, Order: 27, Roles: "Admin,Editor"),
+        // One entry; the Templates page has a tab each for text, variation and photo templates.
+        new("Templates", "templates", Icons.Material.Filled.DashboardCustomize, Order: 25, Roles: "Admin,Editor"),
     ];
 }

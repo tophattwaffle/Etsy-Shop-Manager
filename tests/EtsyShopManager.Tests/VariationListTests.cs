@@ -70,8 +70,8 @@ public class VariationListTests
         Assert.Empty(await Lists(shop).CandidatesAsync(listId));
         Assert.Equal(VariationListUseStatus.UpToDate, Assert.Single(await Lists(shop).UsesAsync(listId)).Status);
 
-        Assert.Equal("\"Black\" is in the list twice.", (await Lists(shop).SaveAsync(listId, "PLA Colors", [new(1, "Black", true), new(0, "black", true)], "tophattwaffle")).Error);
-        Assert.Equal("There's already a list called \"pla colors\".", (await Lists(shop).SaveAsync(null, "pla colors", [new(0, "X", true)], "tophattwaffle")).Error);
+        Assert.Equal("\"Black\" is in the template twice.", (await Lists(shop).SaveAsync(listId, "PLA Colors", [new(1, "Black", true), new(0, "black", true)], "tophattwaffle")).Error);
+        Assert.Equal("There's already a template called \"pla colors\".", (await Lists(shop).SaveAsync(null, "pla colors", [new(0, "X", true)], "tophattwaffle")).Error);
         Assert.Empty(shop.Writes);
     }
 
@@ -177,7 +177,7 @@ public class VariationListTests
         Assert.Empty(inventory["price_on_property"]!.AsArray()); // one price for every color
         var use = Assert.Single(await Lists(shop).UsesAsync(listId), u => u.ListingId == test);
         Assert.Equal((VariationListUseStatus.UpToDate, true), (use.Status, use.InventoryPending));
-        Assert.Equal("Test listing already uses this list.", (await Lists(shop).AddToListingAsync(listId, test, "Color", "tophattwaffle")).Error);
+        Assert.Equal("Test listing already uses this template.", (await Lists(shop).AddToListingAsync(listId, test, "Color", "tophattwaffle")).Error);
 
         var review = Assert.Single(await Lists(shop).ReviewAsync(listId));
         Assert.True(review.Preview.CanPush, string.Join("; ", review.Preview.Blockers));
@@ -218,7 +218,7 @@ public class VariationListTests
             (await Lists(shop).PreviewAddAsync(other, colored, "Fit")).Error);
         var many = (await Lists(shop).SaveAsync(null, "Many", [.. Enumerable.Range(1, 71).Select(i => new VariationListOption(0, $"Option {i}", true))], "tophattwaffle")).Id!.Value;
         var test = await AddListingWithoutVariationsAsync(shop);
-        Assert.Equal("The list has 71 options switched on; Etsy allows at most 70 in a variation.", (await Lists(shop).PreviewAddAsync(many, test, "Option")).Error);
+        Assert.Equal("The template has 71 options switched on; Etsy allows at most 70 in a variation.", (await Lists(shop).PreviewAddAsync(many, test, "Option")).Error);
         Assert.Empty(shop.Writes);
     }
 
@@ -234,7 +234,7 @@ public class VariationListTests
         var (poor, poorError) = await Lists(shop).PreviewLinkAsync(colors, plain, 100);
         Assert.Null(poorError);
         Assert.Equal((0, 2), (poor!.InList, poor.Values));
-        Assert.Equal("None of Size's values are in PLA Colors; applying it adds all of the list's options next to them.", poor.Warning);
+        Assert.Equal("None of Size's values are in PLA Colors; applying it adds all of the template's options next to them.", poor.Warning);
         Assert.Equal(["Size:", "Adds Black", "Adds White", "Adds Red"], poor.Changes);
 
         var (good, _) = await Lists(shop).PreviewLinkAsync(colors, colored, Color);
@@ -278,7 +278,7 @@ public class VariationListTests
         await Lists(shop).SaveAsync(listId, "PLA Colors", [list.Options[0] with { Name = "Jet Black" }, list.Options[1]], "tophattwaffle");
         var use = Assert.Single(await Lists(shop).UsesAsync(listId));
         Assert.Equal(VariationListUseStatus.UpToDate, use.Status);
-        Assert.Equal(["Black was removed from this listing by hand, so the list leaves it out."], use.Notes);
+        Assert.Equal(["Black was removed from this listing by hand, so the template leaves it out."], use.Notes);
         Assert.Equal(0, await Lists(shop).ApplyAsync(listId, "tophattwaffle"));
         Assert.Contains("Red", Colors(await InventoryAsync(shop, colored))); // dropped from the list, kept on the listing
 

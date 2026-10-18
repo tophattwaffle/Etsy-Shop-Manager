@@ -1,19 +1,8 @@
-@page "/text-blocks"
-@attribute [Authorize(Roles = "Admin,Editor")]
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Modules.Templates
 @inject TextBlockService Blocks
 
-<PageTitle>Text blocks · Etsy Shop Manager</PageTitle>
-
-<PageHeader Title="Text blocks">
-    <Summary>Reusable description text, such as care instructions, placed in descriptions as a placeholder like {{text.pla-care}}. Change a block once and update every listing that uses it.</Summary>
-    <Actions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="text-blocks/new">New text block</MudButton>
-    </Actions>
-</PageHeader>
-
-<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+<div>
     @if (_blocks is null)
     {
         <MudProgressLinear Indeterminate="true" />
@@ -21,7 +10,7 @@
     else if (_blocks.Count == 0)
     {
         <MudText Typo="Typo.body2" Class="muted">
-            No text blocks yet. Create one from text you use in several descriptions; the app finds the listings that already
+            No text templates yet. Create one from text you use in several descriptions; the app finds the listings that already
             contain it.
         </MudText>
     }
@@ -42,7 +31,7 @@
                 @foreach (var b in _sort.Apply(_blocks))
                 {
                     <tr>
-                        <td><a href="@($"text-blocks/{b.Id}")">@b.Name</a></td>
+                        <td><a href="@($"templates/text/{b.Id}")">@b.Name</a></td>
                         <td><code>@TextBlockMarkup.Token(b.Slug)</code></td>
                         <td>@b.Listings</td>
                         <td>@(b.WillChange == 0 ? "—" : b.WillChange.ToString())</td>
@@ -53,7 +42,7 @@
             </tbody>
         </MudSimpleTable>
     }
-</MudPaper>
+</div>
 
 @code {
     private IReadOnlyList<TextBlockSummary>? _blocks;

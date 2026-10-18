@@ -1,19 +1,8 @@
-@page "/photo-templates"
-@attribute [Authorize(Roles = "Admin,Editor")]
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Modules.Templates
 @inject PhotoTemplateService Templates
 
-<PageTitle>Photo templates · Etsy Shop Manager</PageTitle>
-
-<PageHeader Title="Photo templates">
-    <Summary>Photos shared by many listings, such as a color swatch chart, kept at the end of each listing's photos.</Summary>
-    <Actions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="photo-templates/new">New photo template</MudButton>
-    </Actions>
-</PageHeader>
-
-<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+<div>
     @if (_templates is null)
     {
         <MudProgressLinear Indeterminate="true" />
@@ -44,7 +33,7 @@
                 {
                     <tr>
                         <td><div class="esm-photo-thumb esm-template-thumb"><img src="@ImageStore.UrlFor(t.FileName)" alt="" /></div></td>
-                        <td><a href="@($"photo-templates/{t.Id}")">@t.Name</a></td>
+                        <td><a href="@($"templates/photos/{t.Id}")">@t.Name</a></td>
                         <td>@PhotoTemplatePage.PositionText(t.RankFromEnd)</td>
                         <td>@t.Listings</td>
                         <td>@(t.WithChanges == 0 ? "—" : t.WithChanges.ToString())</td>
@@ -55,7 +44,7 @@
             </tbody>
         </MudSimpleTable>
     }
-</MudPaper>
+</div>
 
 @code {
     private IReadOnlyList<PhotoTemplateSummary>? _templates;

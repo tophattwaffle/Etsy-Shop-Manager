@@ -97,7 +97,7 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             var current = Has(before.Name);
             if (current is null)
             {
-                notes.Add($"{before.Name} was removed from this listing by hand, so the list leaves it out.");
+                notes.Add($"{before.Name} was removed from this listing by hand, so the template leaves it out.");
                 continue;
             }
             if (option.Name != current)
@@ -171,17 +171,17 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     {
         name = (name ?? "").Trim();
         var opts = options.Select(o => o with { Name = (o.Name ?? "").Trim() }).ToList();
-        if (name.Length == 0) return (null, "Give the list a name.");
+        if (name.Length == 0) return (null, "Give the template a name.");
         if (name.Length > MaxNameLength) return (null, $"The name is {name.Length} characters; keep it to {MaxNameLength}.");
-        if (opts.Count == 0) return (null, "The list needs at least one option.");
+        if (opts.Count == 0) return (null, "The template needs at least one option.");
         if (opts.Any(o => o.Name.Length == 0)) return (null, "Every option needs a name.");
         if (opts.GroupBy(o => o.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } dup)
-            return (null, $"\"{dup.Key}\" is in the list twice.");
+            return (null, $"\"{dup.Key}\" is in the template twice.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        if (await db.VariationLists.AnyAsync(l => l.Id != id && l.Name == name, ct)) return (null, $"There's already a list called \"{name}\".");
+        if (await db.VariationLists.AnyAsync(l => l.Id != id && l.Name == name, ct)) return (null, $"There's already a template called \"{name}\".");
         var now = time.GetUtcNow().UtcDateTime;
         var list = id is { } existing ? await db.VariationLists.FirstOrDefaultAsync(l => l.Id == existing, ct) : null;
-        if (id is not null && list is null) return (null, "That list no longer exists.");
+        if (id is not null && list is null) return (null, "That template no longer exists.");
         if (list is null)
         {
             list = new VariationList { CreatedAtUtc = now };
@@ -304,8 +304,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             throw new ArgumentException($"This listing already has {VariationEditor.MaxVariations} variations " +
                 $"({string.Join(" and ", variations.Select(v => v.Name))}); remove one in the editor first.");
         var options = list.Options.Where(o => o.Enabled).ToList();
-        if (options.Count == 0) throw new ArgumentException("Every option in the list is switched off.");
-        if (options.Count > MaxOptions) throw new ArgumentException($"The list has {options.Count} options switched on; Etsy allows at most {MaxOptions} in a variation.");
+        if (options.Count == 0) throw new ArgumentException("Every option in the template is switched off.");
+        if (options.Count > MaxOptions) throw new ArgumentException($"The template has {options.Count} options switched on; Etsy allows at most {MaxOptions} in a variation.");
         var inventory = VariationEditor.AddVariation(localInventory, variationName, options.Select(o => o.Name));
         var added = VariationEditor.Variations(inventory).Single(v => variations.All(o => o.PropertyId != v.PropertyId));
         var combinations = inventory["products"]?.AsArray().Count ?? 0;
@@ -382,11 +382,11 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         CancellationToken ct)
     {
         var list = await db.VariationLists.AsNoTracking().FirstOrDefaultAsync(l => l.Id == listId, ct);
-        if (list is null) return (null, null, "That list no longer exists.");
+        if (list is null) return (null, null, "That template no longer exists.");
         var listing = await db.Listings.AsNoTracking().Include(l => l.EtsyState).FirstOrDefaultAsync(l => l.Id == listingId, ct);
         if (listing?.EtsyState is null) return (null, null, "That listing hasn't been imported.");
         if (await db.ListingVariationLists.AnyAsync(l => l.ListingId == listingId && l.VariationListId == listId, ct))
-            return (null, null, $"{listing.Title} already uses this list.");
+            return (null, null, $"{listing.Title} already uses this template.");
         var model = ListingEditModel.Parse(listing.EtsyState.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         if (model.DriftFields.Contains(ListingFields.Inventory))
             return (null, null, $"The variations of {listing.Title} changed on Etsy; resolve that in the editor first.");
@@ -420,7 +420,7 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         var link = new ListingVariationList { PropertyId = propertyId, AppliedOptions = InitialApplied(list, propertyId, inventory!) };
         var plan = Plan(list, link, inventory!);
         string? warning = inList >= MinOverlap && inList * 2 >= variation.Values.Count ? null
-            : inList == 0 ? $"None of {variation.Name}'s values are in {list.Name}; applying it adds all of the list's options next to them."
+            : inList == 0 ? $"None of {variation.Name}'s values are in {list.Name}; applying it adds all of the template's options next to them."
             : $"Only {inList} of {variation.Values.Count} values are in {list.Name}; the others stay as the listing's own.";
         return (new VariationListLinkPreview(inList, variation.Values.Count, warning, plan.Changes, plan.Notes), null);
     }

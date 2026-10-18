@@ -1,0 +1,58 @@
+@page "/templates"
+@page "/templates/{Tab}"
+@page "/text-blocks"
+@page "/variation-lists"
+@page "/photo-templates"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@inject NavigationManager Nav
+
+<PageTitle>@Current.Title · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Templates">
+    <Summary>@Current.Summary</Summary>
+    <Actions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"templates/{Current.Slug}/new")">@Current.NewLabel</MudButton>
+    </Actions>
+</PageHeader>
+
+<MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4"
+         ActivePanelIndex="_index" ActivePanelIndexChanged="OnTabChanged">
+    <MudTabPanel Text="@Kinds[0].Title"><TextTemplatesTab /></MudTabPanel>
+    <MudTabPanel Text="@Kinds[1].Title"><VariationTemplatesTab /></MudTabPanel>
+    <MudTabPanel Text="@Kinds[2].Title"><PhotoTemplatesTab /></MudTabPanel>
+</MudTabs>
+
+@code {
+    /// <summary>The tab in the address (templates/text, templates/variations, templates/photos).</summary>
+    [Parameter] public string? Tab { get; set; }
+
+    private sealed record Kind(string Slug, string Title, string NewLabel, string Summary, string OldRoute);
+
+    private static readonly Kind[] Kinds =
+    [
+        new("text", "Text templates", "New text template", "Reusable description text, such as care instructions, placed in descriptions as a placeholder like {{text.pla-care}}. Change it once and update every listing that uses it.", "text-blocks"),
+        new("variations", "Variation templates", "New variation template", "Shared option lists, such as filament colors. Add or retire an option once and update every listing that uses it.", "variation-lists"),
+        new("photos", "Photo templates", "New photo template", "Photos shared by many listings, such as a color swatch chart, kept at the end of each listing's photos.", "photo-templates"),
+    ];
+
+    private int _index;
+
+    private Kind Current => Kinds[_index];
+
+    protected override void OnParametersSet()
+    {
+        // The old list addresses (text-blocks, variation-lists, photo-templates) open their tab here.
+        var path = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].TrimEnd('/');
+        var i = Array.FindIndex(Kinds, k => string.Equals(k.Slug, Tab, StringComparison.OrdinalIgnoreCase)
+                                            || string.Equals(k.OldRoute, path, StringComparison.OrdinalIgnoreCase));
+        _index = Math.Max(i, 0);
+        if (Tab is null && i >= 0) Nav.NavigateTo($"templates/{Current.Slug}", replace: true);
+    }
+
+    // Keep the address on the open tab, so reloading or going back lands on it.
+    private void OnTabChanged(int index)
+    {
+        _index = index;
+        Nav.NavigateTo($"templates/{Kinds[index].Slug}", replace: true);
+    }
+}

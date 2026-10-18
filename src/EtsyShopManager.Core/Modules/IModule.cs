@@ -25,7 +25,15 @@ public interface IModule
 
 /// <param name="Icon">Icon identifier understood by the UI (MudBlazor SVG icon string).</param>
 /// <param name="Roles">Comma-separated roles allowed to see the item; null means any signed-in user.</param>
-public sealed record NavItem(string Title, string Href, string Icon, int Order = 100, string? Roles = null, bool MatchAll = false);
+/// <param name="Group">Collapsible sidebar group the item sits in (see <see cref="NavGroups"/>); null shows it at the top level.</param>
+public sealed record NavItem(string Title, string Href, string Icon, int Order = 100, string? Roles = null, bool MatchAll = false,
+    string? Group = null);
+
+/// <summary>Sidebar groups, so rarely used pages fold away under one heading.</summary>
+public static class NavGroups
+{
+    public const string Admin = "Admin";
+}
 
 /// <summary>The loaded modules, available to the UI and host.</summary>
 public sealed class ModuleRegistry(IReadOnlyList<IModule> modules)

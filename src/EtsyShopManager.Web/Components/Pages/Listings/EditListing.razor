@@ -144,10 +144,10 @@ else
                 @if (_allBlocks.Count > 0)
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-3" Wrap="Wrap.Wrap">
-                        <MudSelect T="int?" @bind-Value="_blockToInsert" Label="Text block" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                        <MudSelect T="int?" @bind-Value="_blockToInsert" Label="Text template" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
                             @foreach (var b in _allBlocks) { <MudSelectItem T="int?" Value="b.Id">@b.Name</MudSelectItem> }
                         </MudSelect>
-                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_blockToInsert is null)" OnClick="InsertBlockAsync">Insert text block</MudButton>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_blockToInsert is null)" OnClick="InsertBlockAsync">Insert text template</MudButton>
                     </MudStack>
                 }
                 @if (_listingBlocks.Count > 0)
@@ -156,7 +156,7 @@ else
                         Uses:
                         @foreach (var (block, status) in _listingBlocks)
                         {
-                            <a href="@($"text-blocks/{block.Id}")" class="mr-2">@block.Name</a>
+                            <a href="@($"templates/text/{block.Id}")" class="mr-2">@block.Name</a>
                             @if (status != EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.UpToDate)
                             {
                                 <span class="mr-2">(@BlockStatus(status))</span>
@@ -200,23 +200,23 @@ else
                             var link = _links.FirstOrDefault(k => k.PropertyId == v.PropertyId);
                             var propertyId = v.PropertyId;
                             <div class="esm-variation">
-                                <div class="esm-variation-name">@v.Name: variation list</div>
+                                <div class="esm-variation-name">@v.Name: variation template</div>
                                 @if (link is not null)
                                 {
                                     <div class="esm-variation-add">
-                                        <span>Follows <a href="@($"variation-lists/{link.ListId}")">@link.ListName</a>.</span>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyLinkedAsync(link))">Apply list now</MudButton>
+                                        <span>Follows <a href="@($"templates/variations/{link.ListId}")">@link.ListName</a>.</span>
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyLinkedAsync(link))">Apply template now</MudButton>
                                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkListAsync(link))">Unlink</MudButton>
                                     </div>
                                     <div class="small muted">
-                                        Apply list now brings this listing in line with the list as unpushed edits. Unlink keeps the values as they are.
+                                        Apply template now brings this listing in line with the template as unpushed edits. Unlink keeps the values as they are.
                                     </div>
                                 }
                                 else
                                 {
                                     <div class="esm-variation-add">
                                         <MudSelect T="int?" Value="@_linkPick.GetValueOrDefault(propertyId)" ValueChanged="@(id => PickLinkAsync(propertyId, id))"
-                                                   Label="Link to variation list" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                                                   Label="Link to variation template" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
                                             @foreach (var (listId, listName) in _variationLists)
                                             {
                                                 <MudSelectItem T="int?" Value="@listId">@listName</MudSelectItem>
@@ -235,7 +235,7 @@ else
                                         else if (lp.Preview is { } p)
                                         {
                                             <div class="small">
-                                                @p.InList of @p.Values value@(p.Values == 1 ? " is" : "s are") in the list.
+                                                @p.InList of @p.Values value@(p.Values == 1 ? " is" : "s are") in the template.
                                                 @(p.Changes.Count == 0 ? "Applying it changes nothing now." : $"Applying it then: {string.Join(", ", p.Changes.Skip(1))}.")
                                                 Linking only records the link.
                                             </div>
@@ -252,9 +252,9 @@ else
                     @if (_variationLists.Count > 0 && VariationEditor.Variations(inventoryNode).Count < VariationEditor.MaxVariations)
                     {
                         <div class="esm-variation">
-                            <div class="esm-variation-name">Add from variation list</div>
+                            <div class="esm-variation-name">Add from variation template</div>
                             <div class="esm-variation-add">
-                                <MudSelect T="int?" Value="@_fromList" ValueChanged="PickFromListAsync" Label="Variation list" Variant="Variant.Outlined"
+                                <MudSelect T="int?" Value="@_fromList" ValueChanged="PickFromListAsync" Label="Variation template" Variant="Variant.Outlined"
                                            Margin="Margin.Dense" Class="esm-w-sm">
                                     @foreach (var (listId, listName) in _variationLists)
                                     {
@@ -264,11 +264,11 @@ else
                                 <MudTextField T="string" @bind-Value="_fromListName" Label="Variation name" Variant="Variant.Outlined" Margin="Margin.Dense"
                                               Class="esm-w-sm" />
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_fromList is null || string.IsNullOrWhiteSpace(_fromListName))"
-                                           OnClick="AddFromListAsync">Add from list</MudButton>
+                                           OnClick="AddFromListAsync">Add from template</MudButton>
                             </div>
                             <div class="small muted">
-                                Adds the list's switched-on options as a new variation and links the listing to the list, so later changes
-                                to the list follow. The price doesn't vary by it and stock stays shared.
+                                Adds the template's switched-on options as a new variation and links the listing to the template, so later changes
+                                to the template follow. The price doesn't vary by it and stock stays shared.
                             </div>
                         </div>
                     }
@@ -546,7 +546,7 @@ else
 
     private static string BlockStatus(EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus s) => s switch
     {
-        EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.WillChange => "the block changed; apply it from the block's page",
+        EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus.WillChange => "the template changed; apply it from the template's page",
         _ => "changed on Etsy",
     };
 
@@ -556,9 +556,9 @@ else
     private IReadOnlyList<string> DescriptionUnknown => RenderDescription(_description).Unknown;
 
     private string? DescriptionHelp => DescriptionUnknown.Count > 0
-        ? $"No text block called {string.Join(", ", DescriptionUnknown.Select(EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Token))}. Fix the placeholder or create the block."
+        ? $"No text template called {string.Join(", ", DescriptionUnknown.Select(EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Token))}. Fix the placeholder or create the template."
         : EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Slugs(_description).Count > 0
-            ? $"Text blocks show as placeholders here and are filled in on Etsy; their text is changed on the block's page. {Pending("description")}"
+            ? $"Text templates show as placeholders here and are filled in on Etsy; their text is changed on the template's page. {Pending("description")}"
             : Pending("description");
 
     /// <summary>The description as written (placeholders kept); the form gets the text Etsy will show.</summary>
@@ -725,7 +725,7 @@ else
         _linkPick.Remove(propertyId);
         _linkPreview.Remove(propertyId);
         _links = await VariationLists.ListingLinksAsync(Id);
-        Snackbar.Add(changes > 0 ? "Linked. Use Apply list now (or Apply on the list's page) to bring it in line with the list." : "Linked.", Severity.Success);
+        Snackbar.Add(changes > 0 ? "Linked. Use Apply template now (or Apply on the template's page) to bring it in line with the template." : "Linked.", Severity.Success);
     }
 
     private async Task ApplyLinkedAsync(EtsyShopManager.Web.Modules.Templates.VariationListLink link)

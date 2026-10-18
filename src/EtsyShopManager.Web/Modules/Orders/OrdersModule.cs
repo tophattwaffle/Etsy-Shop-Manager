@@ -71,8 +71,8 @@ public sealed class OrdersModule : IModule
     public IEnumerable<NavItem> NavItems =>
     [
         new("Orders", "orders", Icons.Material.Filled.LocalShipping, Order: 15),
-        new("API keys", "admin/api-keys", Icons.Material.Filled.Key, Order: 925, Roles: Roles.Admin),
-        new("Order colors", "admin/order-colors", Icons.Material.Filled.Palette, Order: 926, Roles: Roles.Admin),
+        new("API keys", "admin/api-keys", Icons.Material.Filled.Key, Order: 925, Roles: Roles.Admin, Group: NavGroups.Admin),
+        new("Order colors", "admin/order-colors", Icons.Material.Filled.Palette, Order: 926, Roles: Roles.Admin, Group: NavGroups.Admin),
     ];
 }
 
