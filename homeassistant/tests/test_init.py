@@ -54,7 +54,7 @@ async def test_config_flow_reports_bad_key_and_unreachable(hass: HomeAssistant, 
 
 
 async def test_sensor_per_shop_with_card_attributes(hass: HomeAssistant, aioclient_mock) -> None:
-    await _setup(hass, aioclient_mock)
+    entry = await _setup(hass, aioclient_mock)
 
     one = hass.states.get("sensor.shopone_open_orders")
     two = hass.states.get("sensor.shoptwo_open_orders")
@@ -65,9 +65,7 @@ async def test_sensor_per_shop_with_card_attributes(hass: HomeAssistant, aioclie
     assert one.attributes["total_items_needed"] == 1
     assert one.attributes["items_needed"][0]["title"] == "Galaxy vase"
 
-    names = {
-        d.name for d in dr.async_get(hass).devices.values() if any(i[0] == DOMAIN for i in d.identifiers)
-    }
+    names = {d.name for d in dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)}
     assert names == {"ShopOne", "ShopTwo"}
 
 

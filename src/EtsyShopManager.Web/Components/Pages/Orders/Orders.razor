@@ -590,7 +590,7 @@
     {
         if (utc is null) return "never";
         var minutes = (Time.GetUtcNow().UtcDateTime - utc.Value).TotalMinutes;
-        return minutes < 1 ? "just now" : minutes < 60 ? $"{minutes:0} min ago" : ListingFormat.Local(utc, "HH:mm");
+        return minutes < 1 ? "just now" : minutes < 60 ? $"{(int)minutes} min ago" : ListingFormat.Local(utc, "HH:mm");
     }
 
     private static string StatusTooltip(OrderShopStatus s) =>

@@ -43,11 +43,11 @@ class EtsyShopManagerApi:
 
     async def _get(self, path: str) -> dict[str, Any]:
         try:
-            async with asyncio.timeout(30):
-                response = await self._session.get(
-                    f"{self._url}{API_PREFIX}{path}",
-                    headers={"Authorization": f"Bearer {self._api_key}", "Accept": "application/json"},
-                )
+            # "async with" releases the connection on every path, including the error replies below.
+            async with asyncio.timeout(30), self._session.get(
+                f"{self._url}{API_PREFIX}{path}",
+                headers={"Authorization": f"Bearer {self._api_key}", "Accept": "application/json"},
+            ) as response:
                 if response.status == 401:
                     raise InvalidAuth("The API key was rejected")
                 if response.status != 200:
