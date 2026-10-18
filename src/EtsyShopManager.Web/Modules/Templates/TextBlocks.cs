@@ -312,7 +312,7 @@ public static class LineDiff
     }
 }
 
-/// <summary>Phase 4: templates (text blocks, shared variation lists).</summary>
+/// <summary>Phase 4: templates (text blocks, shared variation lists, photo templates).</summary>
 public sealed class TemplatesModule : IModule
 {
     public string Name => "Templates";
@@ -321,11 +321,14 @@ public sealed class TemplatesModule : IModule
     {
         services.AddSingleton<TextBlockService>();
         services.AddSingleton<VariationListService>();
+        services.AddSingleton<PhotoTemplateService>();
+        services.AddScoped<EtsyShopManager.Core.Events.IDomainEventHandler<EtsyShopManager.Core.Events.ListingPushed>, PhotoTemplatesOnListingPushed>();
     }
 
     public IEnumerable<NavItem> NavItems =>
     [
         new("Text blocks", "text-blocks", Icons.Material.Filled.ShortText, Order: 25, Roles: "Admin,Editor"),
         new("Variation lists", "variation-lists", Icons.Material.Filled.Palette, Order: 26, Roles: "Admin,Editor"),
+        new("Photo templates", "photo-templates", Icons.Material.Filled.Collections, Order: 27, Roles: "Admin,Editor"),
     ];
 }
