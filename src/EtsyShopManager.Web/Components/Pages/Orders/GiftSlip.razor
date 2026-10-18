@@ -52,7 +52,8 @@
         {
             <div class="gift-photo"></div>
         }
-        @if (Order.GiftMessage is { Length: > 0 } message) { <div class="gift-message">@message</div> }
+        @* Etsy prints the message as one paragraph, line breaks the buyer typed included. *@
+        @if (Order.GiftMessage is { Length: > 0 } message) { <div class="gift-message">@string.Join(" ", message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))</div> }
         @if (_sender is not null) { <div class="gift-sender">- @_sender</div> }
         <div class="gift-qr">
             <div>Scan below to shop more from this independent seller.</div>

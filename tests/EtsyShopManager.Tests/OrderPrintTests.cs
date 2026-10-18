@@ -198,6 +198,8 @@ public class OrderPrintTests
         await SeedAsync(db, firstIsGift: true);
         var settings = new InMemorySettings();
         await new OrderPrintService(db, settings, new NullAuditLog()).SetLocationAsync(1, "Testville, California", null);
+        await using (var ctx = db.CreateDbContext()) // a line break typed by the buyer, which Etsy's slip doesn't keep
+            await ctx.Orders.Where(o => o.Id == 1).ExecuteUpdateAsync(s => s.SetProperty(o => o.GiftMessage, "Happy birthday!\r\nLove you"));
 
         var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
         Assert.Equal((1, 1), (CountOf(slips, "<section class=\"gift-slip\""), CountOf(slips, "<section class=\"slip\"")));
@@ -206,7 +208,7 @@ public class OrderPrintTests
         gift = gift[..(gift.IndexOf("</section>", StringComparison.Ordinal) + 10)];
         foreach (var text in new[] { "SampleShop", "Little things, made well", "4321 Sales", "Order #1001", "Shipped to: Sample Buyer",
                      "Mini Caution Sign | desk decor | gift", "Color: Yellow", "Personalization: Bob", "Quantity: 2", "Quantity: 1",
-                     "A gift for you", "Happy birthday!", "- Grandma Sample", "Scan below to shop more from this independent seller.", "<svg" })
+                     "A gift for you", "Happy birthday! Love you", "- Grandma Sample", "Scan below to shop more from this independent seller.", "<svg" })
             Assert.Contains(text, gift);
         Assert.DoesNotContain("$", gift); // no prices on a gift slip
         Assert.DoesNotContain("1 Example Street", gift); // the address goes on the shipping label
