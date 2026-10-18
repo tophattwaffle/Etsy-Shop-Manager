@@ -77,6 +77,9 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>The shop's receipts (Etsy's shape). Paged by offset, filtered by min_last_modified, sorted as asked.</summary>
     public List<JsonObject> Receipts { get; } = [];
 
+    /// <summary>What getShopReceipt (one receipt) returns where it differs from the receipt in the list.</summary>
+    public Dictionary<long, JsonObject> ReceiptDetails { get; } = [];
+
     /// <summary>Runs after each receipts page is served (to change receipts in the middle of a poll).</summary>
     public Action<int>? AfterReceiptsPage { get; set; }
 
@@ -301,6 +304,12 @@ internal sealed class FakeEtsyShop : IDisposable
             var response = Page(matching.Skip(offset).Take(limit), matching.Count);
             AfterReceiptsPage?.Invoke(offset);
             return response;
+        }
+        if (path.StartsWith($"{shop}/receipts/") && long.TryParse(path[$"{shop}/receipts/".Length..], out var receiptId))
+        {
+            if (ReceiptDetails.TryGetValue(receiptId, out var detail)) return Json(detail.DeepClone());
+            return Receipts.FirstOrDefault(r => (long)r["receipt_id"]! == receiptId) is { } listed
+                ? Json(listed.DeepClone()) : new HttpResponseMessage(HttpStatusCode.NotFound);
         }
         if (path == "/v3/application/listings/batch")
         {

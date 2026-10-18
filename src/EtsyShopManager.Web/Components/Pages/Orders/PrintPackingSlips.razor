@@ -5,7 +5,6 @@
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Modules.Orders
 @inject OrderPrintService Print
-@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
 
 @* Static SSR printout: one packing slip per selected order, each on its own page, laid out like Etsy's own packing slip
    (shop header; ship-to and order details on the left; the shop's note, items and totals on the right). Gift orders get
@@ -23,7 +22,7 @@ else
         {
             if (o.IsGift)
             {
-                <GiftSlip Order="o" Accent="@_accents.GetValueOrDefault(o.ShopId)" />
+                <GiftSlip Order="o" Location="@_locations.GetValueOrDefault(o.ShopId)" />
                 continue;
             }
             var address = OrderPrintService.Address(o);
@@ -36,6 +35,7 @@ else
                     <div>
                         <div class="slip-shop-name">@o.Shop.Name</div>
                         <div class="slip-shop-url">@OrderPrintService.ShopAddress(o.Shop)</div>
+                        @if (_locations.TryGetValue(o.ShopId, out var location)) { <div>@location</div> }
                     </div>
                 </header>
 
@@ -128,13 +128,13 @@ else
 
     private List<EtsyShopManager.Core.Domain.Order> _orders = [];
     private Dictionary<int, string> _notes = [];
-    private Dictionary<int, string> _accents = [];
+    private Dictionary<int, string> _locations = [];
 
     protected override async Task OnInitializedAsync()
     {
         _orders = await Print.GetOrdersAsync(OrderPrintService.ParseIds(Ids));
         var shopIds = _orders.Select(o => o.ShopId).Distinct().ToList();
         _notes = await Print.GetNotesAsync(shopIds);
-        if (_orders.Any(o => o.IsGift)) _accents = await ShopAccents.GetEffectiveAsync(shopIds);
+        _locations = await Print.GetLocationsAsync(shopIds);
     }
 }

@@ -12,6 +12,22 @@ namespace EtsyShopManager.Tests;
 
 public class AttributePersonalizationTests
 {
+    [Fact]
+    public void Questions_read_from_Etsy_are_plain_text()
+    {
+        // Etsy returns personalization text HTML-encoded; the listing page shows the parsed questions.
+        var questions = ManagedPersonalizationQuestion.Parse("""
+            [{"question_id":1,"question_type":"text_input","question_text":"Name &amp; date","instructions":"We&#39;ll engrave it",
+              "required":true,"max_allowed_characters":48}]
+            """);
+
+        var q = Assert.Single(questions);
+        Assert.Equal("Name & date", q.QuestionText);
+        Assert.Equal("We'll engrave it", q.Instructions);
+        Assert.True(q.Required);
+        Assert.Equal(48, q.MaxAllowedCharacters);
+    }
+
     /// <summary>
     /// Listing 1 in category 1001 with Primary color Black and Height 0.75 inches, and one required personalization
     /// question (instructions HTML-encoded, as Etsy returns them). The category offers Primary color (one value),

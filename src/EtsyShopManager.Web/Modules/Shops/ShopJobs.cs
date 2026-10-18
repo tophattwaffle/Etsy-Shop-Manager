@@ -96,3 +96,28 @@ public sealed class AuditShopNeedsReauth(IAuditLog audit) : IDomainEventHandler<
     public Task HandleAsync(ShopNeedsReauth e, CancellationToken ct) =>
         audit.WriteAsync("shop.needs-reauth", "Shop", e.ShopId.ToString(), e.Reason, "system", ct);
 }
+
+/// <summary>
+/// Refreshes, at startup, any connected shop whose details lack something added since it was last refreshed (the sales
+/// count for slips), instead of waiting up to a day for the scheduled refresh.
+/// </summary>
+public sealed class ShopDetailsStartup(IDbContextFactory<AppDbContext> dbFactory, ShopService shops,
+    ILogger<ShopDetailsStartup> logger) : IHostedService
+{
+    public async Task StartAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var stale = await db.Shops.Where(s => s.IsActive && s.Token != null && !s.Token.NeedsReauth && s.TransactionSoldCount == null)
+                .Select(s => s.Id).ToListAsync(ct);
+            foreach (var shopId in stale) await shops.RequestRefreshAsync(shopId, "system", ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Could not queue shop detail refreshes at startup");
+        }
+    }
+
+    public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+}

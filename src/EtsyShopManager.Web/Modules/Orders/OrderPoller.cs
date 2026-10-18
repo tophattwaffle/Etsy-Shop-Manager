@@ -72,7 +72,7 @@ public sealed class OrderPoller(
         while (true)
         {
             var page = await etsy.GetShopReceiptsAsync(etsyShopId, since, offset, PageSize, auth, ct);
-            created += await UpsertPageAsync(shopId, page.Results, raiseEvents: !backfill, ct);
+            created += await UpsertPageAsync(shopId, etsyShopId, page.Results, raiseEvents: !backfill, ct);
             received += page.Results.Count;
 
             offset += page.Results.Count;
@@ -113,7 +113,7 @@ public sealed class OrderPoller(
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<int> UpsertPageAsync(int shopId, List<EtsyRaw<EtsyReceipt>> page, bool raiseEvents,
+    private async Task<int> UpsertPageAsync(int shopId, long etsyShopId, List<EtsyRaw<EtsyReceipt>> page, bool raiseEvents,
         CancellationToken ct)
     {
         if (page.Count == 0) return 0;
@@ -127,8 +127,9 @@ public sealed class OrderPoller(
 
         var received = new List<Order>();
         var created = 0;
-        foreach (var (receipt, raw) in page)
+        foreach (var listed in page)
         {
+            var (receipt, raw) = await WithGiftSenderAsync(shopId, etsyShopId, listed, ct);
             var isNew = !existing.TryGetValue(receipt.ReceiptId, out var order);
             if (order is null)
             {
@@ -149,6 +150,69 @@ public sealed class OrderPoller(
             foreach (var order in received)
                 await events.PublishAsync(new OrderReceived(shopId, order.Id, order.EtsyReceiptId), ct);
         return created;
+    }
+
+    /// <summary>
+    /// A gift receipt that came without the gift sender ("- Name" under the gift message) is read again on its own
+    /// (getShopReceipt), and that copy is kept when it has the sender. Anything else is returned as it came.
+    /// </summary>
+    private async Task<EtsyRaw<EtsyReceipt>> WithGiftSenderAsync(int shopId, long etsyShopId, EtsyRaw<EtsyReceipt> listed,
+        CancellationToken ct)
+    {
+        if (!listed.Value.IsGift || !string.IsNullOrWhiteSpace(listed.Value.GiftSender)) return listed;
+        try
+        {
+            var single = await etsy.GetShopReceiptAsync(etsyShopId, listed.Value.ReceiptId, EtsyAuth.ForShop(shopId), ct);
+            return string.IsNullOrWhiteSpace(single.Value.GiftSender) ? listed : single;
+        }
+        catch (EtsyApiException ex)
+        {
+            // The sender is cosmetic: keep the order as listed, it is tried again when the receipt next changes.
+            logger.LogWarning("Could not re-read gift receipt {ReceiptId} for its sender: {Message}", listed.Value.ReceiptId, ex.Message);
+            return listed;
+        }
+    }
+
+    /// <summary>
+    /// One-time fix for gift orders stored without the gift sender (<see cref="GiftSenderBackfillJob"/>): each one is read
+    /// again from Etsy (GET only) and updated. Returns how many were read and how many now have a sender.
+    /// </summary>
+    public async Task<(int Read, int WithSender)> BackfillGiftSendersAsync(int shopId, CancellationToken ct)
+    {
+        long etsyShopId;
+        List<long> receiptIds;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            etsyShopId = await db.Shops.Where(s => s.Id == shopId).Select(s => s.EtsyShopId).FirstAsync(ct);
+            var gifts = await db.Orders.AsNoTracking().Where(o => o.ShopId == shopId && o.IsGift).ToListAsync(ct);
+            receiptIds = [.. gifts.Where(o => OrderPrintService.GiftSender(o) is null).Select(o => o.EtsyReceiptId)];
+        }
+
+        var withSender = 0;
+        foreach (var receiptId in receiptIds)
+        {
+            EtsyReceipt receipt;
+            string raw;
+            try
+            {
+                (receipt, raw) = await etsy.GetShopReceiptAsync(etsyShopId, receiptId, EtsyAuth.ForShop(shopId), ct);
+            }
+            catch (EtsyApiException ex)
+            {
+                // One receipt Etsy won't return doesn't stop the others; that order keeps what it has.
+                logger.LogWarning("Could not re-read gift receipt {ReceiptId} for its sender: {Message}", receiptId, ex.Message);
+                continue;
+            }
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var order = await db.Orders.Include(o => o.Items).FirstAsync(o => o.ShopId == shopId && o.EtsyReceiptId == receiptId, ct);
+            OrderMapper.Apply(order, receipt, raw, time.GetUtcNow().UtcDateTime);
+            await db.SaveChangesAsync(ct);
+            if (!string.IsNullOrWhiteSpace(receipt.GiftSender)) withSender++;
+        }
+        if (receiptIds.Count > 0)
+            logger.LogInformation("Gift sender backfill for shop {ShopId}: {Read} gift order(s) read again, {WithSender} with a sender",
+                shopId, receiptIds.Count, withSender);
+        return (receiptIds.Count, withSender);
     }
 
     /// <summary>

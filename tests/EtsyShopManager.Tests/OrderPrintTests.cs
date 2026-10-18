@@ -119,6 +119,20 @@ public class OrderPrintTests
     }
 
     [Fact]
+    public async Task Slip_location_lines_are_kept_per_shop_and_blank_means_none()
+    {
+        using var db = new TestDb();
+        var settings = new InMemorySettings();
+        var print = new OrderPrintService(db, settings, new NullAuditLog());
+        Assert.Null(await print.SetLocationAsync(1, "  Testville,   California ", "tophattwaffle"));
+        Assert.Null(await print.SetLocationAsync(2, "Somewhere", "tophattwaffle"));
+        Assert.Null(await print.SetLocationAsync(2, "   ", "tophattwaffle"));
+        Assert.Equal("Keep the location line to 100 characters.", await print.SetLocationAsync(1, new string('x', 101), "tophattwaffle"));
+        Assert.Equal(new Dictionary<int, string> { [1] = "Testville, California" }, await print.GetLocationsAsync([1, 2]));
+        Assert.Empty(await print.GetNotesAsync([1, 2])); // kept apart from the packing slip note
+    }
+
+    [Fact]
     public async Task Completed_and_shipped_orders_still_print_from_history()
     {
         using var db = new TestDb();
@@ -183,17 +197,26 @@ public class OrderPrintTests
         using var db = new TestDb();
         await SeedAsync(db, firstIsGift: true);
         var settings = new InMemorySettings();
+        await new OrderPrintService(db, settings, new NullAuditLog()).SetLocationAsync(1, "Testville, California", null);
+        await using (var ctx = db.CreateDbContext()) // a line break typed by the buyer, which Etsy's slip doesn't keep
+            await ctx.Orders.Where(o => o.Id == 1).ExecuteUpdateAsync(s => s.SetProperty(o => o.GiftMessage, "Happy birthday!\r\nLove you"));
 
         var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
         Assert.Equal((1, 1), (CountOf(slips, "<section class=\"gift-slip\""), CountOf(slips, "<section class=\"slip\"")));
+        Assert.Equal(2, CountOf(slips, "Testville, California")); // the location line, on the gift slip and the normal one
         var gift = slips[slips.IndexOf("<section class=\"gift-slip\"", StringComparison.Ordinal)..];
         gift = gift[..(gift.IndexOf("</section>", StringComparison.Ordinal) + 10)];
         foreach (var text in new[] { "SampleShop", "Little things, made well", "4321 Sales", "Order #1001", "Shipped to: Sample Buyer",
                      "Mini Caution Sign | desk decor | gift", "Color: Yellow", "Personalization: Bob", "Quantity: 2", "Quantity: 1",
-                     "A gift for you", "Happy birthday!", "- Grandma Sample", "Scan to see more from SampleShop.", "<svg" })
+                     "A gift for you", "Happy birthday! Love you", "- Grandma Sample", "Scan below to shop more from this independent seller.", "<svg" })
             Assert.Contains(text, gift);
         Assert.DoesNotContain("$", gift); // no prices on a gift slip
         Assert.DoesNotContain("1 Example Street", gift); // the address goes on the shipping label
+        // The gift side opens with "A gift for you", not the shop's name (which read as if the gift were for the shop).
+        var giftSide = gift[gift.IndexOf("class=\"gift-right\"", StringComparison.Ordinal)..];
+        Assert.DoesNotContain("SampleShop", giftSide);
+        Assert.True(giftSide.IndexOf("Happy birthday!", StringComparison.Ordinal) < giftSide.IndexOf("- Grandma Sample", StringComparison.Ordinal));
+        Assert.Equal(5, CountOf(giftSide, "class=\"gift-sparkle "));
 
         var qr = OrderPrintService.ShopQrSvg(new Shop { Name = "SampleShop" });
         Assert.StartsWith("<svg", qr);

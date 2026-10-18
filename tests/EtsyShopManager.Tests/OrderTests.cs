@@ -306,6 +306,92 @@ public class OrderPollerTests
         Assert.NotNull(await queries.HaOpenOrdersAsync(42));
         Assert.Null(await queries.HaOpenOrdersAsync(43));
     }
+
+    private static JsonObject Gift(long id, long updated, string? sender)
+    {
+        var receipt = Receipt(id, updated);
+        receipt["is_gift"] = true;
+        receipt["gift_message"] = "Happy birthday!";
+        if (sender is not null) receipt["gift_sender"] = sender;
+        return receipt;
+    }
+
+    private static async Task<string?> StoredSenderAsync(FakeEtsyShop shop, long receiptId)
+    {
+        await using var db = shop.Db.CreateDbContext();
+        return OrderPrintService.GiftSender(await db.Orders.SingleAsync(o => o.EtsyReceiptId == receiptId));
+    }
+
+    [Fact]
+    public async Task A_gift_receipt_listed_without_its_sender_is_read_again_for_it()
+    {
+        using var shop = new FakeEtsyShop();
+        var now = shop.Time.Now.ToUnixTimeSeconds();
+        shop.Receipts.Add(Gift(1, now - 100, sender: null));
+        shop.ReceiptDetails[1] = Gift(1, now - 100, sender: "Grandma Sample");
+        shop.Receipts.Add(Gift(2, now - 90, sender: "Aunt Sample"));
+        shop.Receipts.Add(Receipt(3, now - 80));
+
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        Assert.Equal("Grandma Sample", await StoredSenderAsync(shop, 1));
+        Assert.Equal("Aunt Sample", await StoredSenderAsync(shop, 2));
+        // Only the gift that came without a sender is asked for on its own.
+        Assert.Equal(["/v3/application/shops/42/receipts/1"],
+            shop.RequestedPaths.Where(p => p.Contains("/receipts/")).Select(p => p.Split('?')[0]));
+        Assert.Empty(shop.Writes);
+    }
+
+    [Fact]
+    public async Task Gift_sender_backfill_reads_older_gift_orders_again_once()
+    {
+        using var shop = new FakeEtsyShop();
+        var now = shop.Time.Now.ToUnixTimeSeconds();
+        shop.Receipts.Add(Gift(1, now - 100, sender: null));
+        shop.Receipts.Add(Gift(2, now - 90, sender: null));
+        shop.Receipts.Add(Receipt(3, now - 80));
+        var poller = shop.Provider.GetRequiredService<OrderPoller>();
+        await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+        Assert.Null(await StoredSenderAsync(shop, 1));
+
+        // Etsy now gives receipt 1's sender; receipt 2 is gone (404), which skips it without failing the job.
+        shop.ReceiptDetails[1] = Gift(1, now - 100, sender: "Grandma Sample");
+        shop.Receipts.RemoveAt(1);
+        var settings = shop.Provider.GetRequiredService<EtsyShopManager.Core.Services.ISettingsStore>();
+        var context = new JobExecutionContext { JobId = 1, JobType = GiftSenderBackfillJob.Type, Attempt = 1, PayloadJson = "{}" };
+        await new GiftSenderBackfillJob(shop.Db, poller, settings).HandleAsync(context, CancellationToken.None);
+
+        Assert.Equal("2 gift order(s) read again, 1 with a sender", context.Result);
+        Assert.Equal("Grandma Sample", await StoredSenderAsync(shop, 1));
+        Assert.Null(await StoredSenderAsync(shop, 2));
+        Assert.True(await settings.HasValueAsync(GiftSenderBackfillJob.DoneKey));
+        Assert.Empty(shop.Writes);
+    }
+
+    [Fact]
+    public async Task Startup_queues_the_gift_sender_backfill_and_shop_refreshes_for_missing_sales_counts()
+    {
+        using var shop = new FakeEtsyShop();
+        var queue = shop.Provider.GetRequiredService<RecordingJobQueue>();
+        var settings = shop.Provider.GetRequiredService<EtsyShopManager.Core.Services.ISettingsStore>();
+        var shops = ActivatorUtilities.CreateInstance<EtsyShopManager.Web.Modules.Shops.ShopService>(shop.Provider);
+
+        // The seeded shop has never had its sales count read: it is refreshed now rather than at the daily refresh.
+        await new EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup(shop.Db, shops,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup>.Instance).StartAsync(CancellationToken.None);
+        await new GiftSenderBackfillStartup(queue, settings, Microsoft.Extensions.Logging.Abstractions.NullLogger<GiftSenderBackfillStartup>.Instance).StartAsync(CancellationToken.None);
+        Assert.Equal([EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type, GiftSenderBackfillJob.Type], queue.Requests.Select(r => r.JobType));
+
+        // Once the backfill has run and the count is known, nothing more is queued.
+        queue.Requests.Clear();
+        await settings.SetAsync(GiftSenderBackfillJob.DoneKey, "1");
+        await using (var db = shop.Db.CreateDbContext())
+            await db.Shops.ExecuteUpdateAsync(s => s.SetProperty(x => x.TransactionSoldCount, 12));
+        await new EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup(shop.Db, shops,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup>.Instance).StartAsync(CancellationToken.None);
+        await new GiftSenderBackfillStartup(queue, settings, Microsoft.Extensions.Logging.Abstractions.NullLogger<GiftSenderBackfillStartup>.Instance).StartAsync(CancellationToken.None);
+        Assert.Empty(queue.Requests);
+    }
 }
 
 public class ApiKeyTests

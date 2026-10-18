@@ -117,26 +117,29 @@ public class JobProcessorEventTests
             return Task.CompletedTask;
         }, TimeSpan.FromMilliseconds(10));
 
+        // TestDb is one in-memory SQLite connection, which isn't safe to use from two threads at once: queue the job
+        // before the processor starts and read the database only after it stops, so the test never races its loop.
+        var id = await provider.GetRequiredService<IJobQueue>().EnqueueAsync(new JobRequest { JobType = "sample", CreatedBy = "tophattwaffle" });
         var processor = provider.GetRequiredService<JobProcessor>();
         await processor.StartAsync(CancellationToken.None);
+        JobChanged done;
         try
         {
-            var id = await provider.GetRequiredService<IJobQueue>().EnqueueAsync(new JobRequest { JobType = "sample", CreatedBy = "tophattwaffle" });
-            var done = await finished.Task.WaitAsync(TimeSpan.FromSeconds(10));
-
-            Assert.Equal(id, done.JobId);
-            Assert.Equal(JobStatus.Succeeded, done.Status);
-            Assert.Equal("Sample job", done.DisplayName);
-            Assert.Equal("3 things done", done.Result);
-            Assert.Equal("tophattwaffle", done.CreatedBy);
-            lock (seen) Assert.Contains(seen, c => c.JobId == id && c.Status == JobStatus.Running);
-            await using var ctx = db.CreateDbContext();
-            Assert.Equal("3 things done", (await ctx.Jobs.SingleAsync()).Result);
+            done = await finished.Task.WaitAsync(TimeSpan.FromSeconds(10));
         }
         finally
         {
             await processor.StopAsync(CancellationToken.None);
         }
+
+        Assert.Equal(id, done.JobId);
+        Assert.Equal(JobStatus.Succeeded, done.Status);
+        Assert.Equal("Sample job", done.DisplayName);
+        Assert.Equal("3 things done", done.Result);
+        Assert.Equal("tophattwaffle", done.CreatedBy);
+        lock (seen) Assert.Contains(seen, c => c.JobId == id && c.Status == JobStatus.Running);
+        await using var ctx = db.CreateDbContext();
+        Assert.Equal("3 things done", (await ctx.Jobs.SingleAsync()).Result);
     }
 }
 
