@@ -22,6 +22,27 @@ public static class OrderDue
         return (seconds < 0 ? $"{span} late" : span, hours < RedHours, FormattableString.Invariant($"--due-hue: {hue}"));
     }
 
+    /// <summary>
+    /// The status pill shown on History cards where open cards show the ship-by pill, in the same pill style: green when
+    /// shipped or completed, amber while open, red when canceled or refunded (orange when partly), grey otherwise.
+    /// </summary>
+    public static (string Text, string? Style) Status(Order order)
+    {
+        static string Hue(int hue) => FormattableString.Invariant($"--due-hue: {hue}");
+        return order.Status.Trim().ToLowerInvariant() switch
+        {
+            "canceled" or "cancelled" => ("Canceled", Hue(0)),
+            "fully refunded" => ("Refunded", Hue(0)),
+            "partially refunded" => ("Partly refunded", Hue(30)),
+            _ when order.IsShipped => ("Shipped", Hue(120)),
+            "completed" => ("Completed", Hue(120)),
+            _ when order.IsOpen => ("Open", Hue(45)),
+            "" => ("Unknown", null),
+            var s => (char.ToUpperInvariant(s[0]) + s[1..], null),
+        };
+    }
+
+
     private static string Span(double seconds)
     {
         var d = (long)(seconds / 86400);
