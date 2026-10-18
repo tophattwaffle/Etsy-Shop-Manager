@@ -35,6 +35,14 @@ public sealed class EtsyMe
     [JsonPropertyName("shop_id")] public long? ShopId { get; set; }
 }
 
+/// <summary>GET /v3/application/users/{user_id} (the names; primary_email needs a permission Etsy grants case by case).</summary>
+public sealed class EtsyUser
+{
+    [JsonPropertyName("user_id")] public long UserId { get; set; }
+    [JsonPropertyName("first_name")] public string? FirstName { get; set; }
+    [JsonPropertyName("last_name")] public string? LastName { get; set; }
+}
+
 /// <summary>GET /v3/application/shops/{shop_id} (subset used so far).</summary>
 public sealed class EtsyShop
 {

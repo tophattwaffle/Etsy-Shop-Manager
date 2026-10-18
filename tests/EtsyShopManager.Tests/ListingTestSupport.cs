@@ -77,8 +77,8 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>The shop's receipts (Etsy's shape). Paged by offset, filtered by min_last_modified, sorted as asked.</summary>
     public List<JsonObject> Receipts { get; } = [];
 
-    /// <summary>What getShopReceipt (one receipt) returns where it differs from the receipt in the list.</summary>
-    public Dictionary<long, JsonObject> ReceiptDetails { get; } = [];
+    /// <summary>Buyers' first names for getUser (a buyer not listed is a 404, a null name comes back without one).</summary>
+    public Dictionary<long, string?> BuyerFirstNames { get; } = [];
 
     /// <summary>Runs after each receipts page is served (to change receipts in the middle of a poll).</summary>
     public Action<int>? AfterReceiptsPage { get; set; }
@@ -305,12 +305,10 @@ internal sealed class FakeEtsyShop : IDisposable
             AfterReceiptsPage?.Invoke(offset);
             return response;
         }
-        if (path.StartsWith($"{shop}/receipts/") && long.TryParse(path[$"{shop}/receipts/".Length..], out var receiptId))
-        {
-            if (ReceiptDetails.TryGetValue(receiptId, out var detail)) return Json(detail.DeepClone());
-            return Receipts.FirstOrDefault(r => (long)r["receipt_id"]! == receiptId) is { } listed
-                ? Json(listed.DeepClone()) : new HttpResponseMessage(HttpStatusCode.NotFound);
-        }
+        if (path.StartsWith("/v3/application/users/") && long.TryParse(path["/v3/application/users/".Length..], out var userId))
+            return BuyerFirstNames.TryGetValue(userId, out var firstName)
+                ? Json(new JsonObject { ["user_id"] = userId, ["first_name"] = firstName })
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
         if (path == "/v3/application/listings/batch")
         {
             var ids = (query["listing_ids"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(long.Parse).ToHashSet();

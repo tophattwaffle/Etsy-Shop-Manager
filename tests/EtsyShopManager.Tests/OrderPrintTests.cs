@@ -224,6 +224,36 @@ public class OrderPrintTests
     }
 
     [Fact]
+    public async Task Star_sellers_print_the_badge_on_both_slips_and_gifts_fall_back_to_the_buyers_first_name()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        await using (var ctx = db.CreateDbContext()) // as Etsy sends it: gift_sender empty, so the buyer's first name is used
+        {
+            var order = await ctx.Orders.SingleAsync(o => o.Id == 1);
+            order.RawJson = order.RawJson.Replace("\"gift_sender\":\"Grandma Sample\"", "\"gift_sender\":\"\"");
+            order.GiftFromName = "Kate";
+            await ctx.SaveChangesAsync();
+        }
+        var settings = new InMemorySettings();
+        var print = new OrderPrintService(db, settings, new NullAuditLog());
+
+        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.DoesNotContain("Star seller", slips);
+        Assert.Contains("- Kate", slips);
+
+        await print.SetStarSellerAsync(1, true, "tophattwaffle");
+        Assert.Equal([1], await print.GetStarSellersAsync([1, 2]));
+        slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.Equal(2, CountOf(slips, "class=\"star-seller\""));
+        var gift = slips[slips.IndexOf("<section class=\"gift-slip\"", StringComparison.Ordinal)..];
+        Assert.True(gift.IndexOf("Star seller", StringComparison.Ordinal) < gift.IndexOf("4321 Sales", StringComparison.Ordinal)); // as on Etsy's
+
+        await print.SetStarSellerAsync(1, false, "tophattwaffle");
+        Assert.Empty(await print.GetStarSellersAsync([1]));
+    }
+
+    [Fact]
     public async Task History_can_show_gift_orders_only()
     {
         using var db = new TestDb();

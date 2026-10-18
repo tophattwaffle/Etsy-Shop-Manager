@@ -75,6 +75,21 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         return null;
     }
 
+    /// <summary>
+    /// Whether the shop prints Etsy's Star Seller badge on its slips. Set on the Shops page: Etsy's API doesn't say whether
+    /// a shop is a Star Seller (Etsy reviews it each month).
+    /// </summary>
+    public static string StarSellerKey(int shopId) => $"Shops.StarSeller.{shopId}";
+
+    public async Task<HashSet<int>> GetStarSellersAsync(IEnumerable<int> shopIds, CancellationToken ct = default) =>
+        [.. (await GetPerShopAsync(shopIds, StarSellerKey, ct)).Keys];
+
+    public async Task SetStarSellerAsync(int shopId, bool isStarSeller, string? user, CancellationToken ct = default)
+    {
+        await settings.SetAsync(StarSellerKey(shopId), isStarSeller ? "1" : null, updatedBy: user, ct: ct);
+        await audit.WriteAsync("shop.star-seller", nameof(Shop), shopId.ToString(), isStarSeller ? "on" : "off", user, ct);
+    }
+
     public async Task<string?> SetNoteAsync(int shopId, string? text, string? user, CancellationToken ct = default)
     {
         var value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
@@ -134,8 +149,11 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     /// <summary>The destination country's ISO code from the receipt (upper case; null when missing).</summary>
     public static string? CountryIso(Order order) => Text(Receipt(order)?["country_iso"])?.ToUpperInvariant();
 
-    /// <summary>Who the gift is from, as the buyer wrote it at checkout (the receipt's gift_sender; null when not given).</summary>
-    public static string? GiftSender(Order order) => Text(Receipt(order)?["gift_sender"]);
+    /// <summary>
+    /// Who the gift is from, printed under the message ("- Kate"): the receipt's gift_sender when Etsy fills it in, otherwise
+    /// the buyer's first name as Etsy's own gift slip prints it (<see cref="Order.GiftFromName"/>). Null when neither is known.
+    /// </summary>
+    public static string? GiftSender(Order order) => Text(Receipt(order)?["gift_sender"]) ?? order.GiftFromName;
 
     /// <summary>
     /// A QR code (inline SVG, sized by CSS) linking to the shop's Etsy page, for the bottom of gift slips. Drawn here, so

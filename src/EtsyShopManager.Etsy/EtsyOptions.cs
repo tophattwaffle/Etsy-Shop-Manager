@@ -10,7 +10,7 @@ public sealed class EtsyOptions
     public string TokenUrl { get; set; } = "https://api.etsy.com/v3/public/oauth/token";
 
     /// <summary>Space-separated OAuth scopes requested when a shop is connected.</summary>
-    public string Scopes { get; set; } = "listings_r listings_w listings_d shops_r shops_w transactions_r profile_r";
+    public string Scopes { get; set; } = "listings_r listings_w listings_d shops_r shops_w transactions_r profile_r email_r";
 
     /// <summary>Requests per second allowed across both shops (the limit is per API key).</summary>
     public int RequestsPerSecond { get; set; } = 5;

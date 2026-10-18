@@ -307,12 +307,12 @@ public class OrderPollerTests
         Assert.Null(await queries.HaOpenOrdersAsync(43));
     }
 
-    private static JsonObject Gift(long id, long updated, string? sender)
+    private static JsonObject Gift(long id, long updated)
     {
         var receipt = Receipt(id, updated);
         receipt["is_gift"] = true;
         receipt["gift_message"] = "Happy birthday!";
-        if (sender is not null) receipt["gift_sender"] = sender;
+        receipt["gift_sender"] = ""; // as Etsy sends it
         return receipt;
     }
 
@@ -322,74 +322,107 @@ public class OrderPollerTests
         return OrderPrintService.GiftSender(await db.Orders.SingleAsync(o => o.EtsyReceiptId == receiptId));
     }
 
+    private static async Task GrantBuyerNamesAsync(FakeEtsyShop shop)
+    {
+        await using var db = shop.Db.CreateDbContext();
+        await db.ShopTokens.ExecuteUpdateAsync(t => t.SetProperty(x => x.Scopes, $"listings_r transactions_r {OrderPoller.BuyerNameScope}"));
+    }
+
+    private static List<string> UserCalls(FakeEtsyShop shop) => [.. shop.RequestedPaths.Where(p => p.Contains("/users/"))];
+
     [Fact]
-    public async Task A_gift_receipt_listed_without_its_sender_is_read_again_for_it()
+    public async Task Gift_orders_get_the_buyers_first_name_once_per_buyer()
     {
         using var shop = new FakeEtsyShop();
+        await GrantBuyerNamesAsync(shop);
         var now = shop.Time.Now.ToUnixTimeSeconds();
-        shop.Receipts.Add(Gift(1, now - 100, sender: null));
-        shop.ReceiptDetails[1] = Gift(1, now - 100, sender: "Grandma Sample");
-        shop.Receipts.Add(Gift(2, now - 90, sender: "Aunt Sample"));
-        shop.Receipts.Add(Receipt(3, now - 80));
+        shop.Receipts.Add(Gift(1, now - 100));                   // buyer 501
+        shop.Receipts.Add(Gift(2, now - 90));                    // buyer 502, whom Etsy won't show (404)
+        shop.Receipts.Add(Receipt(3, now - 80));                 // not a gift
+        var repeat = Gift(4, now - 70);
+        repeat["buyer_user_id"] = 501;                           // the same buyer again
+        shop.Receipts.Add(repeat);
+        shop.BuyerFirstNames[501] = " Kate ";
 
         await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
 
-        Assert.Equal("Grandma Sample", await StoredSenderAsync(shop, 1));
-        Assert.Equal("Aunt Sample", await StoredSenderAsync(shop, 2));
-        // Only the gift that came without a sender is asked for on its own.
-        Assert.Equal(["/v3/application/shops/42/receipts/1"],
-            shop.RequestedPaths.Where(p => p.Contains("/receipts/")).Select(p => p.Split('?')[0]));
+        Assert.Equal("Kate", await StoredSenderAsync(shop, 1));
+        Assert.Equal("Kate", await StoredSenderAsync(shop, 4));
+        Assert.Null(await StoredSenderAsync(shop, 2));
+        Assert.Equal(["/v3/application/users/501", "/v3/application/users/502"], UserCalls(shop));
         Assert.Empty(shop.Writes);
+
+        // Seen again, the named buyer isn't looked up again; the one Etsy wouldn't show is tried again.
+        shop.Receipts[0] = Gift(1, now + 60);
+        shop.Api.Requests.Clear();
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+        Assert.Equal(["/v3/application/users/502"], UserCalls(shop));
     }
 
     [Fact]
-    public async Task Gift_sender_backfill_reads_older_gift_orders_again_once()
+    public async Task Buyer_names_need_the_shop_reconnected_with_the_scope_then_the_job_fills_older_gift_orders()
     {
-        using var shop = new FakeEtsyShop();
+        using var shop = new FakeEtsyShop(); // token from before email_r was asked for
         var now = shop.Time.Now.ToUnixTimeSeconds();
-        shop.Receipts.Add(Gift(1, now - 100, sender: null));
-        shop.Receipts.Add(Gift(2, now - 90, sender: null));
+        shop.Receipts.Add(Gift(1, now - 100));
         shop.Receipts.Add(Receipt(3, now - 80));
+        shop.BuyerFirstNames[501] = "Kate";
         var poller = shop.Provider.GetRequiredService<OrderPoller>();
         await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
         Assert.Null(await StoredSenderAsync(shop, 1));
+        Assert.Empty(UserCalls(shop)); // nothing is asked without the scope
 
-        // Etsy now gives receipt 1's sender; receipt 2 is gone (404), which skips it without failing the job.
-        shop.ReceiptDetails[1] = Gift(1, now - 100, sender: "Grandma Sample");
-        shop.Receipts.RemoveAt(1);
-        var settings = shop.Provider.GetRequiredService<EtsyShopManager.Core.Services.ISettingsStore>();
-        var context = new JobExecutionContext { JobId = 1, JobType = GiftSenderBackfillJob.Type, Attempt = 1, PayloadJson = "{}" };
-        await new GiftSenderBackfillJob(shop.Db, poller, settings).HandleAsync(context, CancellationToken.None);
+        var job = new GiftBuyerNamesJob(shop.Db, poller);
+        var context = new JobExecutionContext { JobId = 1, JobType = GiftBuyerNamesJob.Type, Attempt = 1, PayloadJson = "{}" };
+        await job.HandleAsync(context, CancellationToken.None);
+        Assert.Equal("0 of 1 gift order(s) named; reconnect TestShop to allow buyer names", context.Result);
 
-        Assert.Equal("2 gift order(s) read again, 1 with a sender", context.Result);
-        Assert.Equal("Grandma Sample", await StoredSenderAsync(shop, 1));
-        Assert.Null(await StoredSenderAsync(shop, 2));
-        Assert.True(await settings.HasValueAsync(GiftSenderBackfillJob.DoneKey));
+        // Reconnecting grants the scope and queues the job, which names the older order.
+        await GrantBuyerNamesAsync(shop);
+        var queue = new RecordingJobQueue();
+        await new GiftBuyerNamesOnShopConnected(queue).HandleAsync(
+            new ShopConnected(FakeEtsyShop.ShopId, FakeEtsyShop.EtsyShopId, "TestShop", IsReconnect: true), CancellationToken.None);
+        Assert.Equal(GiftBuyerNamesJob.Type, Assert.Single(queue.Requests).JobType);
+        await job.HandleAsync(context, CancellationToken.None);
+        Assert.Equal("1 of 1 gift order(s) named", context.Result);
+        Assert.Equal("Kate", await StoredSenderAsync(shop, 1));
+
+        await job.HandleAsync(context, CancellationToken.None);
+        Assert.Equal("every gift order has a buyer name", context.Result);
+        Assert.Single(UserCalls(shop));
         Assert.Empty(shop.Writes);
     }
 
     [Fact]
-    public async Task Startup_queues_the_gift_sender_backfill_and_shop_refreshes_for_missing_sales_counts()
+    public async Task Startup_queues_buyer_names_and_shop_refreshes_only_when_something_is_missing()
     {
         using var shop = new FakeEtsyShop();
         var queue = shop.Provider.GetRequiredService<RecordingJobQueue>();
-        var settings = shop.Provider.GetRequiredService<EtsyShopManager.Core.Services.ISettingsStore>();
         var shops = ActivatorUtilities.CreateInstance<EtsyShopManager.Web.Modules.Shops.ShopService>(shop.Provider);
-
-        // The seeded shop has never had its sales count read: it is refreshed now rather than at the daily refresh.
-        await new EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup(shop.Db, shops,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup>.Instance).StartAsync(CancellationToken.None);
-        await new GiftSenderBackfillStartup(queue, settings, Microsoft.Extensions.Logging.Abstractions.NullLogger<GiftSenderBackfillStartup>.Instance).StartAsync(CancellationToken.None);
-        Assert.Equal([EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type, GiftSenderBackfillJob.Type], queue.Requests.Select(r => r.JobType));
-
-        // Once the backfill has run and the count is known, nothing more is queued.
+        var now = shop.Time.Now.ToUnixTimeSeconds();
+        shop.Receipts.Add(Gift(1, now - 100));
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
         queue.Requests.Clear();
-        await settings.SetAsync(GiftSenderBackfillJob.DoneKey, "1");
+
+        async Task StartAsync()
+        {
+            await new EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup(shop.Db, shops,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup>.Instance).StartAsync(CancellationToken.None);
+            await new GiftBuyerNamesStartup(shop.Db, queue,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<GiftBuyerNamesStartup>.Instance).StartAsync(CancellationToken.None);
+        }
+
+        // The shop's sales count was never read and a gift order has no buyer name: both are queued.
+        await StartAsync();
+        Assert.Equal([EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type, GiftBuyerNamesJob.Type], queue.Requests.Select(r => r.JobType));
+
+        queue.Requests.Clear();
         await using (var db = shop.Db.CreateDbContext())
+        {
             await db.Shops.ExecuteUpdateAsync(s => s.SetProperty(x => x.TransactionSoldCount, 12));
-        await new EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup(shop.Db, shops,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<EtsyShopManager.Web.Modules.Shops.ShopDetailsStartup>.Instance).StartAsync(CancellationToken.None);
-        await new GiftSenderBackfillStartup(queue, settings, Microsoft.Extensions.Logging.Abstractions.NullLogger<GiftSenderBackfillStartup>.Instance).StartAsync(CancellationToken.None);
+            await db.Orders.ExecuteUpdateAsync(s => s.SetProperty(x => x.GiftFromName, "Kate"));
+        }
+        await StartAsync();
         Assert.Empty(queue.Requests);
     }
 }

@@ -17,6 +17,12 @@ public class Order
     public bool IsShipped { get; set; }
     public bool IsGift { get; set; }
     public string? GiftMessage { get; set; }
+
+    /// <summary>
+    /// The buyer's first name, printed under the gift message as Etsy's gift slip does ("- Kate"). From Etsy's buyer
+    /// profile (getUser): receipts carry gift_sender, but Etsy leaves it empty.
+    /// </summary>
+    public string? GiftFromName { get; set; }
     public string? MessageFromBuyer { get; set; }
 
     /// <summary>Money in minor units with the divisor Etsy sent (usually 100).</summary>

@@ -28,9 +28,10 @@ public sealed class OrdersModule : IModule
 
         services.AddJobHandler<PollShopOrdersJob>();
         services.AddJobHandler<PollAllOrdersJob>();
-        services.AddJobHandler<GiftSenderBackfillJob>();
-        services.AddHostedService<GiftSenderBackfillStartup>();
+        services.AddJobHandler<GiftBuyerNamesJob>();
+        services.AddHostedService<GiftBuyerNamesStartup>();
         services.AddScoped<IDomainEventHandler<ShopConnected>, PollOrdersOnShopConnected>();
+        services.AddScoped<IDomainEventHandler<ShopConnected>, GiftBuyerNamesOnShopConnected>();
 
         services.AddRecurringJob(new RecurringJobDefinition("Poll orders (all shops)", PollAllOrdersJob.Type, DefaultPollInterval)
         {
@@ -168,57 +169,63 @@ public sealed class PollOrdersOnShopConnected(OrderPollQueue queue) : IDomainEve
 }
 
 /// <summary>
-/// One-time fix: gift orders stored before the gift sender was read get their receipt read again from Etsy (GET only),
-/// so their gift slips print "- Name" like Etsy's. Queued once by <see cref="GiftSenderBackfillStartup"/>; marked done
-/// in <see cref="DoneKey"/> when every connected shop has been gone through.
+/// Reads the buyer's first name for gift orders stored without one, so their gift slips print "- Kate" like Etsy's
+/// (getUser, GET only). Queued at startup by <see cref="GiftBuyerNamesStartup"/> and whenever a shop is (re)connected,
+/// which is how a shop's token gets the scope this needs. Orders that already have a name are left alone, so running it
+/// again only costs calls for buyers Etsy didn't name before.
 /// </summary>
-public sealed class GiftSenderBackfillJob(IDbContextFactory<AppDbContext> dbFactory, OrderPoller poller,
-    EtsyShopManager.Core.Services.ISettingsStore settings) : IJobHandler
+public sealed class GiftBuyerNamesJob(IDbContextFactory<AppDbContext> dbFactory, OrderPoller poller) : IJobHandler
 {
-    public const string Type = "etsy.orders.gift-sender-backfill";
-    public const string DoneKey = "Orders.GiftSenderBackfillDone";
+    public const string Type = "etsy.orders.gift-buyer-names";
     public string JobType => Type;
-    public string DisplayName => "Read gift senders for older gift orders";
+    public string DisplayName => "Read buyer names for gift slips";
+
+    public static JobRequest Request(string createdBy) => new() { JobType = Type, DedupeKey = Type, CreatedBy = createdBy };
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
-        List<int> shopIds;
+        List<(int Id, string Name)> shops;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
-            shopIds = await db.Shops.Where(s => s.IsActive && s.Token != null && !s.Token.NeedsReauth).Select(s => s.Id).ToListAsync(ct);
+            shops = [.. (await db.Shops.Where(s => s.IsActive && s.Token != null && !s.Token.NeedsReauth)
+                .Select(s => new { s.Id, s.Name }).ToListAsync(ct)).Select(s => (s.Id, s.Name))];
 
-        int read = 0, withSender = 0;
-        foreach (var shopId in shopIds)
+        int orders = 0, named = 0;
+        var needReconnect = new List<string>();
+        foreach (var (id, name) in shops)
         {
-            var (r, w) = await poller.BackfillGiftSendersAsync(shopId, ct);
-            read += r;
-            withSender += w;
+            var result = await poller.FillGiftBuyerNamesAsync(id, ct);
+            orders += result.Orders;
+            named += result.Named;
+            if (!result.CanRead && result.Orders > 0) needReconnect.Add(name);
         }
-        await settings.SetAsync(DoneKey, "1", updatedBy: "system", ct: ct);
-        context.Result = read == 0 ? "no gift orders without a sender" : $"{read} gift order(s) read again, {withSender} with a sender";
+        context.Result = (orders == 0 ? "every gift order has a buyer name" : $"{named} of {orders} gift order(s) named")
+            + (needReconnect.Count == 0 ? "" : $"; reconnect {string.Join(" and ", needReconnect)} to allow buyer names");
     }
 }
 
-/// <summary>Queues <see cref="GiftSenderBackfillJob"/> at startup until it has run once.</summary>
-public sealed class GiftSenderBackfillStartup(IJobQueue queue, EtsyShopManager.Core.Services.ISettingsStore settings,
-    ILogger<GiftSenderBackfillStartup> logger) : IHostedService
+/// <summary>Queues <see cref="GiftBuyerNamesJob"/> at startup when gift orders lack a buyer name.</summary>
+public sealed class GiftBuyerNamesStartup(IDbContextFactory<AppDbContext> dbFactory, IJobQueue queue,
+    ILogger<GiftBuyerNamesStartup> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken ct)
     {
         try
         {
-            if (await settings.HasValueAsync(GiftSenderBackfillJob.DoneKey, ct)) return;
-            await queue.EnqueueAsync(new JobRequest
-            {
-                JobType = GiftSenderBackfillJob.Type,
-                DedupeKey = GiftSenderBackfillJob.Type,
-                CreatedBy = "system",
-            }, ct);
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            if (await db.Orders.AnyAsync(o => o.IsGift && o.GiftFromName == null && o.BuyerUserId > 0, ct))
+                await queue.EnqueueAsync(GiftBuyerNamesJob.Request("system"), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Could not queue the gift sender backfill; it is tried again at the next start");
+            logger.LogError(ex, "Could not queue reading buyer names for gift slips; it is tried again at the next start");
         }
     }
 
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+}
+
+/// <summary>A (re)connected shop may now have the scope to read buyer names: fill in the ones missing.</summary>
+public sealed class GiftBuyerNamesOnShopConnected(IJobQueue queue) : IDomainEventHandler<ShopConnected>
+{
+    public Task HandleAsync(ShopConnected e, CancellationToken ct) => queue.EnqueueAsync(GiftBuyerNamesJob.Request("shop-connected"), ct);
 }
