@@ -328,6 +328,9 @@ internal sealed class FakeEtsyShop : IDisposable
                 ["values"] = new JsonArray("Black"),
             }]);
         }
+        if (parts.Length == 6 && parts[2] == "seller-taxonomy" && parts[5] == "properties"
+            && TaxonomiesWithoutProperties.Contains(long.Parse(parts[4])))
+            return Page([]);
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/images"))
             return Page(ShownImages(long.Parse(parts[3])).Select(n => (JsonObject)n!.DeepClone()));
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/inventory"))
@@ -665,6 +668,9 @@ internal sealed class FakeEtsyShop : IDisposable
 
     /// <summary>Listings whose getListingProperties call returns 404.</summary>
     public HashSet<long> ListingsWithoutProperties { get; } = [];
+
+    /// <summary>Categories (taxonomy ids) Etsy offers no properties for: their properties call returns an empty list.</summary>
+    public HashSet<long> TaxonomiesWithoutProperties { get; } = [];
 
     public void Dispose()
     {

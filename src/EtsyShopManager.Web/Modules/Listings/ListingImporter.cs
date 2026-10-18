@@ -68,7 +68,7 @@ public sealed class ListingImporter(
             await SaveCursorAsync(shopId, cursor, ct);
         }
 
-        var missing = await CompleteRunAsync(shopId, runId, ct);
+        var missing = await CompleteRunAsync(shopId, etsyShopId, runId, ct);
         logger.LogInformation("Listing import {RunId} for shop {ShopId} done: {Seen} listings, {Missing} newly missing on Etsy",
             runId, shopId, cursor.Seen, missing);
         return new ShopImportResult(runId, resumed, cursor.Seen, missing);
@@ -132,12 +132,24 @@ public sealed class ListingImporter(
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.CursorJson, json), ct);
     }
 
-    private async Task<int> CompleteRunAsync(int shopId, string runId, CancellationToken ct)
+    private async Task<int> CompleteRunAsync(int shopId, long etsyShopId, string runId, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var now = time.GetUtcNow().UtcDateTime;
 
-        // Every state was pulled completely, so a listing this run did not see is no longer on Etsy.
+        // Every state was pulled completely, so a listing this run did not see is normally gone from Etsy. But pages are
+        // read by offset, so a listing that changed state mid-run (sold out, deactivated) shifts the pages after it and
+        // another one can be skipped: ask Etsy about the unseen ones by id before flagging them.
+        var unseen = await db.Listings.Where(l => l.ShopId == shopId && !l.IsMissingOnEtsy && l.LastSeenRunId != runId)
+            .Select(l => l.EtsyListingId).ToListAsync(ct);
+        if (unseen.Count > 0 && await StillOnEtsyAsync(shopId, etsyShopId, unseen, ct) is { Count: > 0 } stillThere)
+        {
+            logger.LogInformation("Listing import {RunId} for shop {ShopId}: {Count} listing(s) skipped by paging are still on Etsy ({Ids})",
+                runId, shopId, stillThere.Count, string.Join(", ", stillThere));
+            await db.Listings.Where(l => l.ShopId == shopId && stillThere.Contains(l.EtsyListingId))
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.LastSeenRunId, runId), ct);
+        }
+
         var missing = await db.Listings
             .Where(l => l.ShopId == shopId && !l.IsMissingOnEtsy && l.LastSeenRunId != runId)
             .ExecuteUpdateAsync(s => s.SetProperty(l => l.IsMissingOnEtsy, true), ct);
@@ -150,6 +162,21 @@ public sealed class ListingImporter(
             .SetProperty(x => x.LastError, (string?)null)
             .SetProperty(x => x.LastErrorAtUtc, (DateTime?)null), ct);
         return missing;
+    }
+
+    /// <summary>
+    /// Which of these listings Etsy still has in the shop in a state a seller sees (one batch call per 100). Their details
+    /// are refreshed by the next import.
+    /// </summary>
+    private async Task<List<long>> StillOnEtsyAsync(int shopId, long etsyShopId, List<long> etsyListingIds, CancellationToken ct)
+    {
+        var found = new List<long>();
+        foreach (var chunk in etsyListingIds.Chunk(EtsyApiClient.MaxBatchListingIds))
+        {
+            var listings = await etsy.GetListingsByIdsAsync(chunk, EtsyAuth.ForShop(shopId), ct);
+            found.AddRange(listings.Where(l => l.ShopId == etsyShopId && EtsyListingStates.All.Contains(l.State)).Select(l => l.ListingId));
+        }
+        return found;
     }
 
     private async Task UpsertPageAsync(int shopId, long etsyShopId, List<EtsyRaw<EtsyListing>> page, string runId,
