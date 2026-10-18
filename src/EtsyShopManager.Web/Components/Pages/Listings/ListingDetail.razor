@@ -351,20 +351,15 @@ else
         catch (JsonException) { return json; }
     }
 
+    // Etsy sends the question text HTML-encoded ("you&#39;re"); the managed form decodes it, as the editor shows it.
     private static List<Question> ParseQuestions(string? json)
     {
-        if (string.IsNullOrEmpty(json)) return [];
         try
         {
-            using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.EnumerateArray().Select(q => new Question(
-                q.TryGetProperty("question_text", out var t) ? t.GetString() ?? "" : "",
-                q.TryGetProperty("instructions", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString() : null,
-                q.TryGetProperty("required", out var r) && r.ValueKind == JsonValueKind.True,
-                q.TryGetProperty("max_allowed_characters", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt32() : null))
-                .ToList();
+            return [.. EtsyShopManager.Core.Listings.ManagedPersonalizationQuestion.Parse(json).Select(q =>
+                new Question(q.QuestionText, q.Instructions, q.Required, (int?)q.MaxAllowedCharacters))];
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException or OverflowException)
         {
             return [];
         }
