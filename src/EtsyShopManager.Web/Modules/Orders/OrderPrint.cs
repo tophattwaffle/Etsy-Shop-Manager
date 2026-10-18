@@ -87,8 +87,7 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
             "other" => "Paid another way",
             _ => "Paid via Etsy Payments", // cards, Apple/Google Pay, Klarna, iDEAL, Sofort, bank transfer
         };
-        var transactions = receipt?["transactions"] as JsonArray ?? [];
-        var shipping = transactions.Select(t => Text(t?["shipping_upgrade"]) ?? Text(t?["shipping_method"])).FirstOrDefault(s => s is not null);
+        var shipping = ShippingMethod(receipt);
 
         string? Money(string key, bool negative = false) => receipt?[key] is JsonObject m && (long?)m["amount"] is long amount and > 0
             ? (negative ? "-" : "") + Listings.ListingFormat.PriceWithSymbol(amount, (int?)m["divisor"] ?? order.Divisor, (string?)m["currency_code"] ?? order.CurrencyCode)
@@ -102,6 +101,15 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         var grand = Money("grandtotal") ?? (order.Grandtotal is { } g ? Listings.ListingFormat.PriceWithSymbol(g, order.Divisor, order.CurrencyCode) : itemTotal);
         return new SlipDetails(payment, shipping, totals, grand);
     }
+
+    /// <summary>The shipping method chosen at checkout: a transaction's shipping upgrade or method (null when Etsy sent neither).</summary>
+    public static string? ShippingMethod(Order order) => ShippingMethod(Receipt(order));
+
+    private static string? ShippingMethod(JsonObject? receipt) => (receipt?["transactions"] as JsonArray ?? [])
+        .Select(t => Text(t?["shipping_upgrade"]) ?? Text(t?["shipping_method"])).FirstOrDefault(s => s is not null);
+
+    /// <summary>The destination country's ISO code from the receipt (upper case; null when missing).</summary>
+    public static string? CountryIso(Order order) => Text(Receipt(order)?["country_iso"])?.ToUpperInvariant();
 
     /// <summary>Who the gift is from, as the buyer wrote it at checkout (the receipt's gift_sender; null when not given).</summary>
     public static string? GiftSender(Order order) => Text(Receipt(order)?["gift_sender"]);
@@ -139,7 +147,7 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     }
 
     /// <summary>"US" → "United States" (as Etsy prints it); unknown codes as they are.</summary>
-    private static string? CountryName(string? iso)
+    public static string? CountryName(string? iso)
     {
         if (iso is null) return null;
         try { return new System.Globalization.RegionInfo(iso).EnglishName; }
