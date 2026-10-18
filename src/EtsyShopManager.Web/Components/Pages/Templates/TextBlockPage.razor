@@ -7,6 +7,7 @@
 @inject NavigationManager Nav
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
+@inject IJSRuntime Js
 
 <PageTitle>@(_saved?.Name ?? "New text block") · Etsy Shop Manager</PageTitle>
 
@@ -48,10 +49,16 @@ else
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" Class="mb-2">Block</MudText>
-        <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
+        <MudTextField T="string" Value="_name" ValueChanged="NameChanged" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
                       Counter="TextBlockService.MaxNameLength" MaxLength="TextBlockService.MaxNameLength" />
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3" Wrap="Wrap.Wrap">
+            <MudTextField T="string" @bind-Value="_slug" Label="Placeholder name" Variant="Variant.Outlined" Immediate="true" Class="esm-w-lg"
+                          Counter="TextBlockService.MaxSlugLength" MaxLength="TextBlockService.MaxSlugLength"
+                          HelperText="@($"Put {TextBlockMarkup.Token(SlugOrDefault)} in a description to show this block there. Lowercase letters, numbers and hyphens.")" />
+            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopyTokenAsync">Copy placeholder</MudButton>
+        </MudStack>
         <MudTextField T="string" @bind-Value="_text" Label="Text" Lines="8" Variant="Variant.Outlined" Immediate="true"
-                      HelperText="Exactly as it should appear in descriptions. Trailing spaces and blank lines around it are dropped." />
+                      HelperText="Exactly as it appears in every description that uses the block; it can only be changed here. Trailing spaces and blank lines around it are dropped." />
     </MudPaper>
 
     @if (_saved is not null)
@@ -69,13 +76,12 @@ else
                 </MudStack>
             </MudStack>
             <MudText Typo="Typo.body2" Class="muted mb-2">
-                Applying puts the block's text into each listing's description as an unpushed edit; nothing is sent to Etsy until
-                you review and push. Listings whose copy of the block was edited by hand, or whose description changed on Etsy,
-                are left alone.
+                Applying puts the block's new text into each listing's description as an unpushed edit; nothing is sent to Etsy
+                until you review and push. Listings whose description changed on Etsy are left alone until that's resolved.
             </MudText>
             @if (_uses.Count == 0)
             {
-                <MudText Typo="Typo.body2" Class="muted">No listings yet. Link the ones below, or insert the block from a listing's editor.</MudText>
+                <MudText Typo="Typo.body2" Class="muted">No listings yet. Use it in the listings below, or insert it from a listing's editor.</MudText>
             }
             else
             {
@@ -104,11 +110,7 @@ else
                                     }
                                 </td>
                                 <td class="text-right">
-                                    @if (u.Status == TextBlockUseStatus.EditedByHand)
-                                    {
-                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => RelinkAsync(u))">Link again</MudButton>
-                                    }
-                                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkAsync(u))">Unlink</MudButton>
+                                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => DetachAsync(u))">Stop using</MudButton>
                                 </td>
                             </tr>
                             @if (_open.Contains(u.ListingId))
@@ -171,7 +173,8 @@ else
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
                 <MudText Typo="Typo.h6" Class="mb-2">Listings that already contain this text</MudText>
                 <MudText Typo="Typo.body2" Class="muted mb-2">
-                    Their description has the block's text word for word. Link them so they get the block's changes too.
+                    Their description has the block's text word for word. Using the block there puts its placeholder in place of the
+                    text (nothing changes on Etsy); from then on they follow the block.
                 </MudText>
                 <MudSimpleTable Dense="true">
                     <thead>
@@ -195,7 +198,7 @@ else
                     </tbody>
                 </MudSimpleTable>
                 <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
-                    Link @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
+                    Use the block in @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
                 </MudButton>
             </MudPaper>
         }
@@ -208,7 +211,7 @@ else
 
     private TextBlock? _saved;
     private bool _loaded, _pushing;
-    private string _name = "", _text = "";
+    private string _name = "", _text = "", _slug = "";
     private IReadOnlyList<TextBlockUse> _uses = [];
     private IReadOnlyList<TextBlockCandidate> _candidates = [];
     private IReadOnlyList<TextBlockPushItem>? _review;
@@ -217,7 +220,8 @@ else
 
     private bool Dirty => _saved is null
         ? _name.Trim().Length > 0 || _text.Trim().Length > 0
-        : _name.Trim() != _saved.Name || TextBlockService.Normalize(_text) != _saved.Text;
+        : _name.Trim() != _saved.Name || SlugOrDefault != _saved.Slug || TextBlockService.Normalize(_text) != _saved.Text;
+    private string SlugOrDefault => string.IsNullOrWhiteSpace(_slug) ? TextBlockMarkup.MakeSlug(_name) : _slug.Trim().ToLowerInvariant();
     private int WillChange => _uses.Count(u => u.Status == TextBlockUseStatus.WillChange);
     private int Pending => _uses.Count(u => u.DescriptionPending);
     private int Ready => _review?.Count(r => r.Preview.CanPush) ?? 0;
@@ -249,7 +253,7 @@ else
             _saved = await Blocks.GetAsync(id);
             if (_saved is not null)
             {
-                (_name, _text) = (_saved.Name, _saved.Text);
+                (_name, _text, _slug) = (_saved.Name, _saved.Text, _saved.Slug);
                 _uses = await Blocks.UsesAsync(id);
                 _candidates = await Blocks.CandidatesAsync(id);
                 _picked.Clear();
@@ -265,7 +269,6 @@ else
     {
         TextBlockUseStatus.UpToDate => u.DescriptionPending ? "Up to date, not pushed yet" : "Up to date",
         TextBlockUseStatus.WillChange => "Has the old text",
-        TextBlockUseStatus.EditedByHand => "Edited by hand: the block's text isn't in the description any more",
         _ => "Changed on Etsy: resolve it in the listing's editor first",
     };
 
@@ -294,7 +297,7 @@ else
 
     private async Task SaveAsync()
     {
-        var (id, error) = await Blocks.SaveAsync(_saved?.Id, _name, _text, await User());
+        var (id, error) = await Blocks.SaveAsync(_saved?.Id, _name, SlugOrDefault, _text, await User());
         if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
         if (_saved is null) { Nav.NavigateTo($"text-blocks/{id}"); return; }
         await LoadAsync();
@@ -354,17 +357,26 @@ else
         Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} linked.", Severity.Success);
     }
 
-    private async Task RelinkAsync(TextBlockUse u)
+    /// <summary>A new block's placeholder name follows its name until it's typed in.</summary>
+    private void NameChanged(string? name)
     {
-        var count = await Blocks.LinkAsync(_saved!.Id, [u.ListingId], await User());
-        await LoadAsync();
-        Snackbar.Add(count == 1 ? "Linked again." : "The description doesn't contain the block's text; edit it in the listing first, or unlink it.",
-            count == 1 ? Severity.Success : Severity.Warning);
+        if (_saved is null && (string.IsNullOrWhiteSpace(_slug) || _slug == TextBlockMarkup.MakeSlug(_name))) _slug = TextBlockMarkup.MakeSlug(name ?? "");
+        _name = name ?? "";
     }
 
-    private async Task UnlinkAsync(TextBlockUse u)
+    private async Task CopyTokenAsync()
     {
-        await Blocks.UnlinkAsync(_saved!.Id, u.ListingId, await User());
+        var ok = await Js.InvokeAsync<bool>("esm.copy", TextBlockMarkup.Token(SlugOrDefault));
+        Snackbar.Add(ok ? $"Copied {TextBlockMarkup.Token(SlugOrDefault)}" : "Couldn't copy; select the placeholder and copy it.", ok ? Severity.Success : Severity.Warning);
+    }
+
+    private async Task DetachAsync(TextBlockUse u)
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Stop using the block",
+            $"Replace the placeholder in \"{u.Title}\" with the block's text? The listing keeps the text and can edit it, but no longer follows the block.",
+            yesText: "Stop using", cancelText: "Cancel");
+        if (ok != true) return;
+        await Blocks.DetachAsync(_saved!.Id, u.ListingId, await User());
         await LoadAsync();
     }
 }

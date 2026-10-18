@@ -96,6 +96,33 @@ window.esm = {
         }
     },
 
+    // Remembers where the cursor (or selection) is in the text area inside the element with this id, on every change,
+    // so a button tap that takes the focus away (phones blur the field first) still knows where to insert.
+    trackSelection: function (containerId) {
+        const el = document.querySelector("#" + containerId + " textarea, #" + containerId + " input");
+        if (!el || el.dataset.esmTracked) return;
+        el.dataset.esmTracked = "1";
+        const save = () => { el.dataset.selStart = el.selectionStart; el.dataset.selEnd = el.selectionEnd; };
+        ["select", "keyup", "click", "input", "focus", "blur", "touchend", "selectionchange"].forEach(e => el.addEventListener(e, save));
+        document.addEventListener("selectionchange", () => { if (document.activeElement === el) save(); });
+    },
+
+    // Inserts text at the remembered cursor (replacing a selection; at the end if the field was never used), puts the
+    // cursor after it and returns the new value, which the page stores (the field then shows the same text).
+    insertAtSelection: function (containerId, text) {
+        const el = document.querySelector("#" + containerId + " textarea, #" + containerId + " input");
+        if (!el) return null;
+        const value = el.value ?? "";
+        const start = Math.min(value.length, Number(el.dataset.selStart ?? value.length));
+        const end = Math.max(start, Math.min(value.length, Number(el.dataset.selEnd ?? start)));
+        const result = value.slice(0, start) + text + value.slice(end);
+        el.value = result;
+        const caret = start + text.length;
+        el.dataset.selStart = el.dataset.selEnd = String(caret);
+        try { el.focus({ preventScroll: true }); el.setSelectionRange(caret, caret); } catch { }
+        return result;
+    },
+
     // Per-browser UI preferences (e.g. grid or list view). Storage can be blocked, so failures are ignored.
     getPref: function (key) {
         try { return localStorage.getItem("esm." + key); } catch { return null; }

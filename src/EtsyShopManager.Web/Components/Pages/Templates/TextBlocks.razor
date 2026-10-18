@@ -7,7 +7,7 @@
 <PageTitle>Text blocks · Etsy Shop Manager</PageTitle>
 
 <PageHeader Title="Text blocks">
-    <Summary>Reusable description text, such as care instructions. Change a block once and update every listing that uses it.</Summary>
+    <Summary>Reusable description text, such as care instructions, placed in descriptions as a placeholder like {{text.pla-care}}. Change a block once and update every listing that uses it.</Summary>
     <Actions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="text-blocks/new">New text block</MudButton>
     </Actions>
@@ -31,6 +31,7 @@
             <thead>
                 <tr>
                     <SortHeader Sort="_sort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                    <SortHeader Sort="_sort" Column="slug" Changed="StateHasChanged">Placeholder</SortHeader>
                     <SortHeader Sort="_sort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
                     <SortHeader Sort="_sort" Column="update" Changed="StateHasChanged">Waiting for the new text</SortHeader>
                     <SortHeader Sort="_sort" Column="attention" Changed="StateHasChanged">Need a look</SortHeader>
@@ -42,6 +43,7 @@
                 {
                     <tr>
                         <td><a href="@($"text-blocks/{b.Id}")">@b.Name</a></td>
+                        <td><code>@TextBlockMarkup.Token(b.Slug)</code></td>
                         <td>@b.Listings</td>
                         <td>@(b.WillChange == 0 ? "—" : b.WillChange.ToString())</td>
                         <td>@(b.NeedAttention == 0 ? "—" : b.NeedAttention.ToString())</td>
@@ -59,6 +61,7 @@
     private readonly TableSort<TextBlockSummary> _sort = new()
     {
         ["name"] = b => b.Name,
+        ["slug"] = b => b.Slug,
         ["listings"] = b => b.Listings,
         ["update"] = b => b.WillChange,
         ["attention"] = b => b.NeedAttention,
