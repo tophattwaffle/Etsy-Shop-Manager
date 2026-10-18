@@ -27,51 +27,18 @@
 
 <div class="esm-orders">
 
-<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
-        <MudSelect T="int?" Value="_shopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined"
-                   Margin="Margin.Dense" Class="esm-minw-md">
-            <MudSelectItem T="int?" Value="null">All shops</MudSelectItem>
-            @foreach (var s in _status)
-            {
-                <MudSelectItem T="int?" Value="s.ShopId">@s.ShopName</MudSelectItem>
-            }
-        </MudSelect>
-        @foreach (var s in _status.Where(s => _shopId is null || s.ShopId == _shopId))
-        {
-            <MudTooltip Text="@StatusTooltip(s)">
-                <MudChip T="string" Size="Size.Small" Color="@(s.LastError is null ? Color.Default : Color.Error)">
-                    @s.ShopName: @s.OpenOrders open · synced @Ago(s.LastPolledAtUtc)
-                </MudChip>
-            </MudTooltip>
-        }
-        <MudSpacer />
-        <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
-            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="PollNowAsync">
-                Check for orders now
-            </MudButton>
-        </AuthorizeView>
-    </MudStack>
-</MudPaper>
-
+@* The tabs come first; each tab's shop picker, sync status and filters sit in the panel beside it (above it, folded, on phones). *@
 <MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
     <MudTabPanel Text="@($"Open ({_open.Count})")">
+        <div class="lp-layout">
+        <section class="lp-main" aria-label="Open orders">
         @if (_open.Count == 0)
         {
             <MudText Class="muted">No open orders. 🎉</MudText>
         }
         else
         {
-        <div class="lp-layout">
-        <section class="lp-main" aria-label="Open orders">
             <div class="lp-toolbar">
-                <MudSelect T="string" Value="_openFilter.Sort" ValueChanged="OnOpenSortChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
-                           ToStringFunc="@SortLabel" Class="lp-sort" aria-label="Sort open orders">
-                    @foreach (var (key, label) in OpenOrderFilter.SortOptions)
-                    {
-                        <MudSelectItem T="string" Value="key">@label</MudSelectItem>
-                    }
-                </MudSelect>
                 @if (_openFilter.IsFiltered)
                 {
                     <span class="muted small">@_shown.Count of @_open.Count orders</span>
@@ -164,66 +131,15 @@
                 </div>
             }
         </div>
-        </section>
-
-        @* Etsy's Seller app filters that apply to open orders and that the stored receipts can answer. *@
-        <aside class="lp-rail" aria-label="Filters">
-            <fieldset class="lp-facets">
-                <legend>Show only</legend>
-                <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.HasNote)"
-                        @onclick="() => SetOpenFilter(_openFilter with { HasNote = !_openFilter.HasNote })">
-                    <span class="lp-facet-label">Has note from buyer</span>
-                    <span class="lp-count">@OpenCount(_openFilter with { HasNote = true })</span>
-                </button>
-                <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Gift)"
-                        @onclick="() => SetOpenFilter(_openFilter with { Gift = !_openFilter.Gift })">
-                    <span class="lp-facet-label">Marked as gift</span>
-                    <span class="lp-count">@OpenCount(_openFilter with { Gift = true })</span>
-                </button>
-                <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Personalized)"
-                        @onclick="() => SetOpenFilter(_openFilter with { Personalized = !_openFilter.Personalized })">
-                    <span class="lp-facet-label">Personalized</span>
-                    <span class="lp-count">@OpenCount(_openFilter with { Personalized = true })</span>
-                </button>
-            </fieldset>
-
-            @if (_shippingMethods.Count > 0)
-            {
-                <fieldset class="lp-facets">
-                    <legend>Shipping method</legend>
-                    <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Shipping is null)"
-                            @onclick="() => SetOpenFilter(_openFilter with { Shipping = null })">
-                        <span class="lp-facet-label">Any shipping</span>
-                        <span class="lp-count">@OpenCount(_openFilter with { Shipping = null })</span>
-                    </button>
-                    @foreach (var method in _shippingMethods)
-                    {
-                        <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Shipping == method)"
-                                @onclick="() => SetOpenFilter(_openFilter with { Shipping = method })">
-                            <span class="lp-facet-label">@method</span>
-                            <span class="lp-count">@OpenCount(_openFilter with { Shipping = method })</span>
-                        </button>
-                    }
-                </fieldset>
-            }
-
-            <fieldset class="lp-facets">
-                <legend>Destination</legend>
-                @foreach (var (key, label) in DestinationOptions)
-                {
-                    <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Destination == key)"
-                            @onclick="() => SetOpenFilter(_openFilter with { Destination = key })">
-                        <span class="lp-facet-label">@label</span>
-                        <span class="lp-count">@OpenCount(_openFilter with { Destination = key })</span>
-                    </button>
-                }
-            </fieldset>
-        </aside>
-        </div>
         }
+        </section>
+        @FilterRail(OpenTab)
+        </div>
     </MudTabPanel>
 
     <MudTabPanel Text="@($"To make ({_toMakeTotal})")">
+        <div class="lp-layout">
+        <section class="lp-main" aria-label="Items to make">
         @if (_toMake.Count == 0)
         {
             <MudText Class="muted">Nothing to make.</MudText>
@@ -265,14 +181,18 @@
                 </tbody>
             </MudSimpleTable>
         }
+        </section>
+        @FilterRail(ToMakeTab)
+        </div>
     </MudTabPanel>
 
     <MudTabPanel Text="History">
+        <div class="lp-layout">
+        <section class="lp-main" aria-label="Order history">
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Wrap="Wrap.Wrap" Class="mb-2">
             <MudTextField T="string" Value="_historyText" ValueChanged="OnHistoryTextChanged" Label="Search buyer, item, SKU or receipt #"
                           Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true" Class="esm-w-lg"
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
-            <MudCheckBox T="bool" Value="_historyGifts" ValueChanged="OnHistoryGiftsChanged" Label="Gift orders" Dense="true" />
             <MudSpacer />
             @if (_historyPicked.Count > 0)
             {
@@ -322,6 +242,9 @@
             <NoRecordsContent><MudText>No orders yet. The first poll pulls the shop's order history.</MudText></NoRecordsContent>
             <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100, 200 }" /></PagerContent>
         </MudTable>
+        </section>
+        @FilterRail(HistoryTab)
+        </div>
     </MudTabPanel>
 </MudTabs>
 </div>
@@ -460,6 +383,120 @@
             if (await PollQueue.PollShopAsync(s.ShopId, user) is not null) queued++;
         Snackbar.Add(queued == 0 ? "A check is already queued" : "Checking Etsy for orders…", Severity.Info);
     }
+
+    private const int OpenTab = 0, ToMakeTab = 1, HistoryTab = 2;
+
+    // Phones only: the filter panel starts folded (on wider screens it is always open beside the list).
+    private bool _filtersOpen;
+
+    /// <summary>
+    /// The panel beside each tab: shop picker and sync status for every tab, then that tab's own sort and filters. Single
+    /// choices are dropdowns and on/off filters are switches, so the two don't look alike.
+    /// </summary>
+    private RenderFragment FilterRail(int tab) => __builder =>
+    {
+        var active = ActiveFilterCount(tab);
+        <aside class="lp-rail esm-filter-rail" aria-label="Shop and filters">
+            <button type="button" class="esm-filter-toggle" aria-expanded="@Pressed(_filtersOpen)" @onclick="() => _filtersOpen = !_filtersOpen">
+                <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
+                <span class="esm-filter-toggle-label">Shop and filters</span>
+                @if (active > 0) { <span class="lp-count">@active on</span> }
+                <MudIcon Icon="@(_filtersOpen ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" Size="Size.Small" />
+            </button>
+            <div class="esm-filter-body @(_filtersOpen ? "is-open" : "")">
+                <fieldset class="esm-filter-group">
+                    <legend>Shop</legend>
+                    <MudSelect T="int?" Value="_shopId" ValueChanged="OnShopChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               ToStringFunc="@ShopLabel" aria-label="Shop">
+                        <MudSelectItem T="int?" Value="null">All shops</MudSelectItem>
+                        @foreach (var s in _status)
+                        {
+                            <MudSelectItem T="int?" Value="s.ShopId">@s.ShopName</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @foreach (var s in _status.Where(s => _shopId is null || s.ShopId == _shopId))
+                    {
+                        <MudTooltip Text="@StatusTooltip(s)">
+                            <div class="esm-sync-line @(s.LastError is null ? "" : "is-error")">
+                                @s.ShopName: @s.OpenOrders open · synced @Ago(s.LastPolledAtUtc)@(s.LastError is null ? "" : " · check failed")
+                            </div>
+                        </MudTooltip>
+                    }
+                    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="PollNowAsync"
+                                   Class="align-self-start">
+                            Check for orders now
+                        </MudButton>
+                    </AuthorizeView>
+                </fieldset>
+
+                @if (tab == OpenTab && _open.Count > 0)
+                {
+                    <fieldset class="esm-filter-group">
+                        <legend>Sort by</legend>
+                        <MudSelect T="string" Value="_openFilter.Sort" ValueChanged="OnOpenSortChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   ToStringFunc="@SortLabel" aria-label="Sort open orders">
+                            @foreach (var (key, label) in OpenOrderFilter.SortOptions)
+                            {
+                                <MudSelectItem T="string" Value="key">@label</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </fieldset>
+
+                    @* Etsy's Seller app filters that apply to open orders and that the stored receipts can answer. *@
+                    <fieldset class="esm-filter-group">
+                        <legend>Filter</legend>
+                        <MudSelect T="string" Value="_openFilter.Destination" ValueChanged="@(v => SetOpenFilter(_openFilter with { Destination = v }))"
+                                   Label="Destination" Variant="Variant.Outlined" Margin="Margin.Dense" ToStringFunc="@DestinationLabel">
+                            @foreach (var (key, label) in DestinationOptions)
+                            {
+                                <MudSelectItem T="string" Value="key">@label (@OpenCount(_openFilter with { Destination = key }))</MudSelectItem>
+                            }
+                        </MudSelect>
+                        @if (_shippingMethods.Count > 0)
+                        {
+                            <MudSelect T="string" Value="_openFilter.Shipping" ValueChanged="@(v => SetOpenFilter(_openFilter with { Shipping = v }))"
+                                       Label="Shipping method" Variant="Variant.Outlined" Margin="Margin.Dense" ToStringFunc="@(v => v ?? "Any")">
+                                <MudSelectItem T="string" Value="null">Any (@OpenCount(_openFilter with { Shipping = null }))</MudSelectItem>
+                                @foreach (var method in _shippingMethods)
+                                {
+                                    <MudSelectItem T="string" Value="method">@method (@OpenCount(_openFilter with { Shipping = method }))</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                        <MudSwitch T="bool" Value="_openFilter.HasNote" ValueChanged="@(on => SetOpenFilter(_openFilter with { HasNote = on }))"
+                                   Color="Color.Primary" Label="@($"Has note from buyer ({OpenCount(_openFilter with { HasNote = true })})")" />
+                        <MudSwitch T="bool" Value="_openFilter.Gift" ValueChanged="@(on => SetOpenFilter(_openFilter with { Gift = on }))"
+                                   Color="Color.Primary" Label="@($"Marked as gift ({OpenCount(_openFilter with { Gift = true })})")" />
+                        <MudSwitch T="bool" Value="_openFilter.Personalized" ValueChanged="@(on => SetOpenFilter(_openFilter with { Personalized = on }))"
+                                   Color="Color.Primary" Label="@($"Personalized ({OpenCount(_openFilter with { Personalized = true })})")" />
+                        @if (_openFilter.IsFiltered)
+                        {
+                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ClearOpenFilters" Class="align-self-start">Clear filters</MudButton>
+                        }
+                    </fieldset>
+                }
+                @if (tab == HistoryTab)
+                {
+                    <fieldset class="esm-filter-group">
+                        <legend>Filter</legend>
+                        <MudSwitch T="bool" Value="_historyGifts" ValueChanged="OnHistoryGiftsChanged" Color="Color.Primary" Label="Gift orders only" />
+                    </fieldset>
+                }
+            </div>
+        </aside>
+    };
+
+    private int ActiveFilterCount(int tab) => (_shopId is null ? 0 : 1) + tab switch
+    {
+        OpenTab => new[] { _openFilter.Shipping is not null, _openFilter.Destination is not null, _openFilter.HasNote, _openFilter.Gift, _openFilter.Personalized }.Count(on => on),
+        HistoryTab => _historyGifts ? 1 : 0,
+        _ => 0,
+    };
+
+    private string ShopLabel(int? id) => id is null ? "All shops" : _status.FirstOrDefault(s => s.ShopId == id)?.ShopName ?? "Shop";
+
+    private string DestinationLabel(string? key) => DestinationOptions.FirstOrDefault(o => o.Key == key).Label ?? "All";
 
     // Sort and filters of the Open tab (ship-by date first, as before); the To make tab still counts every open order.
     private OpenOrderFilter _openFilter = new();

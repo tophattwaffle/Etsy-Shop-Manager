@@ -398,6 +398,25 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .lp-status { font-size: 0.8rem; color: var(--esm-muted); text-decoration: none; }
 .lp-status-busy { color: var(--mud-palette-info); }
 .lp-status-warn { color: var(--mud-palette-warning); }
+
+/* Orders: shop picker, sync status and filters beside each tab; on phones folded behind a button above the list */
+.esm-filter-rail { gap: 0; }
+.esm-filter-body { display: flex; flex-direction: column; gap: 24px; }
+.esm-filter-group { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.esm-filter-group legend { font-weight: 600; font-size: 1rem; padding: 0; margin-bottom: 8px; }
+.esm-filter-group .mud-input-control { margin: 0; }
+.esm-sync-line { font-size: 0.8rem; color: var(--esm-muted); }
+.esm-sync-line.is-error { color: var(--esm-error); }
+.esm-filter-toggle { display: none; }
+@media (max-width: 959.98px) {
+    .esm-filter-toggle {
+        display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 14px; border: 1px solid var(--esm-line);
+        border-radius: 999px; background: transparent; color: var(--esm-ink); font: inherit; font-size: 0.9rem; cursor: pointer;
+    }
+    .esm-filter-toggle-label { flex: 1; text-align: left; }
+    .esm-filter-body { display: none; padding: 16px 4px 4px; }
+    .esm-filter-body.is-open { display: flex; }
+}
 .lp-status-error { color: var(--mud-palette-error); }
 a.lp-status-error:hover { text-decoration: underline; }
 
