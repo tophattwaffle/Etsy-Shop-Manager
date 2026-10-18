@@ -5,6 +5,7 @@
 @inject ListingQueries Queries
 @inject EtsyShopManager.Core.Jobs.IJobEvents JobEvents
 @inject EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService ShopLinks
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
 @implements IDisposable
 
 <PageTitle>@(_listing?.Title ?? "Listing") · Etsy Shop Manager</PageTitle>
@@ -72,7 +73,7 @@ else
 
     <RefillPanel ListingId="l.Id" ShopId="l.ShopId" />
 
-    <MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
+    <MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true" Style="@_tabStyle">
         <MudTabPanel Text="Details">
             <MudGrid>
                 <MudItem xs="12" md="6">
@@ -254,6 +255,7 @@ else
 
 @code {
     private string? _shopBrowser; // the shop's Etsy browser template (Shops page), null for this browser
+    private string? _tabStyle; // the shop's accent (--shop) for the selected tab, when the shop has one
     [Parameter] public int Id { get; set; }
 
     private bool _loading = true;
@@ -297,6 +299,8 @@ else
         if (_listing is not null)
         {
             _shopBrowser = (await ShopLinks.GetOverridesAsync([_listing.ShopId])).GetValueOrDefault(_listing.ShopId);
+            _tabStyle = (await ShopAccents.GetEffectiveAsync([_listing.ShopId])).TryGetValue(_listing.ShopId, out var accent)
+                ? $"--shop: {accent}" : null;
             _names = await Queries.GetLookupNamesAsync(_listing);
             _products = _listing.Products.Where(p => !p.IsDeleted)
                 .OrderBy(p => string.Join("|", p.PropertyValues.SelectMany(v => v.Values))).ToList();

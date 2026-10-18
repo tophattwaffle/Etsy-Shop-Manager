@@ -99,6 +99,26 @@ public partial class DesignRulesTests
     }
 
     /// <summary>
+    /// Every tab bar is outlined and rounded, so the shared style in app.css applies: the bar clips the selected tab to
+    /// its corners, and the selected tab gets a wash and an underline in the accent (the shop's, else ink).
+    /// </summary>
+    [Fact]
+    public void Tabs_share_the_rounded_accent_style()
+    {
+        var offenders = RazorFiles()
+            .SelectMany(f => MudTabsTag().Matches(f.Text).Cast<Match>()
+                .Where(t => !(t.Value.Contains("Elevation=\"0\"") && t.Value.Contains("Outlined=\"true\"") && t.Value.Contains("Rounded=\"true\"")))
+                .Select(_ => $"{f.Name}: <MudTabs> needs Elevation=\"0\" Outlined=\"true\" Rounded=\"true\" (see docs/DESIGN.md, Panels)"))
+            .ToList();
+        Assert.True(offenders.Count == 0, string.Join(Environment.NewLine, offenders));
+
+        var css = File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.css"));
+        Assert.Contains(".mud-tabs .mud-tabs-tabbar { border-radius: var(--esm-radius); overflow: hidden; }", css);
+        Assert.Contains("background-color: color-mix(in srgb, var(--shop, var(--esm-ink)) 8%, transparent);", css);
+        Assert.Contains(".mud-tabs .mud-tab-slider { background: var(--shop, var(--esm-ink)); }", css);
+    }
+
+    /// <summary>
     /// Data tables sort by clicking a column header: every labelled header cell is a <c>&lt;SortHeader&gt;</c> (or a
     /// <c>MudTableSortLabel</c> in a MudTable). Header cells without a label (checkboxes, photos, actions) are fine, and an
     /// editing grid whose rows must keep their order opts out with <c>&lt;thead class="esm-fixed-order"&gt;</c>.
@@ -134,6 +154,9 @@ public partial class DesignRulesTests
     // A header cell whose content starts with text (a label) rather than another element.
     [GeneratedRegex("<(?:th|MudTh)\\b[^>]*>\\s*[^\\s<]")]
     private static partial Regex PlainHeaderCell();
+
+    [GeneratedRegex("<MudTabs\\b[^>]*>", RegexOptions.Singleline)]
+    private static partial Regex MudTabsTag();
 
     [GeneratedRegex("Typo=\"Typo\\.h[1-4]\"")]
     private static partial Regex HeadingTypo();

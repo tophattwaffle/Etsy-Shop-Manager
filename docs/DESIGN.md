@@ -41,7 +41,9 @@ holds, or a count) and `<Actions>` (the page's main buttons). Pages never style 
 (`Typo.h6`) titles a panel and `h5` titles a larger section. *(checked)*
 
 **Panels.** Bordered, not shadowed: `<MudPaper Elevation="0" Outlined="true">`, 12px corners. Tabs use
-`Elevation="0" Outlined="true"`. No drop shadows anywhere in page content. *(checked)*
+`Elevation="0" Outlined="true" Rounded="true"`; the tab bar is a rounded box that clips the selected tab to its corners,
+and the selected tab gets a light wash and an underline in the accent: the shop's (`--shop` on the `MudTabs`) on a page
+about one shop, such as a listing, otherwise ink. No drop shadows anywhere in page content. *(checked)*
 
 **Buttons.** Pill shaped. The main action on a page is filled `Color.Primary`, which is black in light mode and white in
 dark mode. Secondary actions are `Variant.Outlined` (2px border) or `Variant.Text`. Destructive actions use
