@@ -1,4 +1,3 @@
-using System.Text.Json;
 using EtsyShopManager.Etsy.Models;
 using Microsoft.AspNetCore.WebUtilities;
 
@@ -32,15 +31,11 @@ public sealed partial class EtsyApiClient
     }
 
     /// <summary>
-    /// One receipt (getShopReceipt). Used to re-read gift orders whose receipt in the list came without the gift sender.
+    /// A buyer's profile (getUser): the shop's token may read the buyers who bought from it, and needs the email_r scope.
+    /// Used for the buyer's first name on gift slips ("- Kate"), which Etsy's receipts leave out (gift_sender is empty).
     /// </summary>
-    public async Task<EtsyRaw<EtsyReceipt>> GetShopReceiptAsync(long etsyShopId, long receiptId, EtsyAuth auth, CancellationToken ct = default)
-    {
-        var element = await GetAsync<JsonElement>($"/v3/application/shops/{etsyShopId}/receipts/{receiptId}", auth, ct);
-        return new EtsyRaw<EtsyReceipt>(
-            element.Deserialize<EtsyReceipt>(EtsyJson.Options) ?? throw new JsonException($"Empty receipt {receiptId}"),
-            element.GetRawText());
-    }
+    public Task<EtsyUser> GetUserAsync(long userId, EtsyAuth auth, CancellationToken ct = default) =>
+        GetAsync<EtsyUser>($"/v3/application/users/{userId}", auth, ct);
 
     /// <summary>Up to 100 listings by id (any state the seller can see), with images.</summary>
     public async Task<List<EtsyListing>> GetListingsByIdsAsync(IReadOnlyCollection<long> listingIds, EtsyAuth auth,

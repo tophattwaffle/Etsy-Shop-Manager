@@ -17,7 +17,13 @@
                 <div class="gift-shop-name">@Order.Shop.Name</div>
                 @if (Order.Shop.Title is { Length: > 0 } title) { <div>@title</div> }
                 @if (Location is { Length: > 0 }) { <div>@Location</div> }
-                @if (Order.Shop.TransactionSoldCount is > 0 and var sales) { <div>@sales Sales</div> }
+                @if (StarSeller || Order.Shop.TransactionSoldCount is > 0)
+                {
+                    <div class="gift-shop-stats">
+                        @if (StarSeller) { <StarSellerBadge /> }
+                        @if (Order.Shop.TransactionSoldCount is > 0 and var sales) { <span>@sales Sales</span> }
+                    </div>
+                }
             </div>
         </div>
         <div class="gift-order">
@@ -67,6 +73,9 @@
 
     /// <summary>The shop's location line from the Shops page (none when empty).</summary>
     [Parameter] public string? Location { get; set; }
+
+    /// <summary>Whether the shop prints Etsy's Star Seller badge (Shops page), before its sales count as Etsy does.</summary>
+    [Parameter] public bool StarSeller { get; set; }
 
     // A hand-drawn asterisk (six uneven rays), like the gold sparkles around the heading on Etsy's gift slip.
     private const string Sparkle = "M12.4 2 L11.6 22 M3.2 7.4 L20.6 16.2 M3.8 17 L20.2 6.6";

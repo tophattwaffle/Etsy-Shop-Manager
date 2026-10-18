@@ -10,6 +10,9 @@ namespace EtsyShopManager.Web.Modules.Orders;
 
 public sealed record OrderPollResult(int Received, int New, bool WasBackfill);
 
+/// <summary>Gift orders without a buyer name, how many got one, and whether the shop's token may read buyers at all.</summary>
+public sealed record GiftBuyerNames(int Orders, int Named, bool CanRead);
+
 /// <summary>
 /// Pulls a shop's receipts changed since the last poll (all of them the first time) into the local DB.
 /// <para>
@@ -72,7 +75,7 @@ public sealed class OrderPoller(
         while (true)
         {
             var page = await etsy.GetShopReceiptsAsync(etsyShopId, since, offset, PageSize, auth, ct);
-            created += await UpsertPageAsync(shopId, etsyShopId, page.Results, raiseEvents: !backfill, ct);
+            created += await UpsertPageAsync(shopId, page.Results, raiseEvents: !backfill, ct);
             received += page.Results.Count;
 
             offset += page.Results.Count;
@@ -113,7 +116,7 @@ public sealed class OrderPoller(
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<int> UpsertPageAsync(int shopId, long etsyShopId, List<EtsyRaw<EtsyReceipt>> page, bool raiseEvents,
+    private async Task<int> UpsertPageAsync(int shopId, List<EtsyRaw<EtsyReceipt>> page, bool raiseEvents,
         CancellationToken ct)
     {
         if (page.Count == 0) return 0;
@@ -127,9 +130,8 @@ public sealed class OrderPoller(
 
         var received = new List<Order>();
         var created = 0;
-        foreach (var listed in page)
+        foreach (var (receipt, raw) in page)
         {
-            var (receipt, raw) = await WithGiftSenderAsync(shopId, etsyShopId, listed, ct);
             var isNew = !existing.TryGetValue(receipt.ReceiptId, out var order);
             if (order is null)
             {
@@ -143,6 +145,7 @@ public sealed class OrderPoller(
             if (order.IsPaid && !wasPaid) received.Add(order);
         }
 
+        await FillBuyerNamesAsync(db, shopId, [.. existing.Values.Where(o => o.IsGift && o.GiftFromName is null && o.BuyerUserId > 0)], ct);
         await ResolveImagesAsync(db, shopId, existing.Values.SelectMany(o => o.Items).Where(i => i.ImageUrl is null).ToList(), ct);
         await db.SaveChangesAsync(ct);
 
@@ -152,67 +155,56 @@ public sealed class OrderPoller(
         return created;
     }
 
+    /// <summary>The OAuth scope Etsy asks for to read a buyer's profile (getUser), for the buyer's name on gift slips.</summary>
+    public const string BuyerNameScope = "email_r";
+
     /// <summary>
-    /// A gift receipt that came without the gift sender ("- Name" under the gift message) is read again on its own
-    /// (getShopReceipt), and that copy is kept when it has the sender. Anything else is returned as it came.
+    /// Gives the shop's gift orders that lack it the buyer's first name, printed under the gift message as on Etsy's
+    /// gift slip ("- Kate"). Run by <see cref="GiftBuyerNamesJob"/> for orders stored before names were read.
+    /// <see cref="GiftBuyerNames.CanRead"/> is false when the shop's token predates <see cref="BuyerNameScope"/>.
     /// </summary>
-    private async Task<EtsyRaw<EtsyReceipt>> WithGiftSenderAsync(int shopId, long etsyShopId, EtsyRaw<EtsyReceipt> listed,
-        CancellationToken ct)
+    public async Task<GiftBuyerNames> FillGiftBuyerNamesAsync(int shopId, CancellationToken ct)
     {
-        if (!listed.Value.IsGift || !string.IsNullOrWhiteSpace(listed.Value.GiftSender)) return listed;
-        try
-        {
-            var single = await etsy.GetShopReceiptAsync(etsyShopId, listed.Value.ReceiptId, EtsyAuth.ForShop(shopId), ct);
-            return string.IsNullOrWhiteSpace(single.Value.GiftSender) ? listed : single;
-        }
-        catch (EtsyApiException ex)
-        {
-            // The sender is cosmetic: keep the order as listed, it is tried again when the receipt next changes.
-            logger.LogWarning("Could not re-read gift receipt {ReceiptId} for its sender: {Message}", listed.Value.ReceiptId, ex.Message);
-            return listed;
-        }
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var orders = await db.Orders.Where(o => o.ShopId == shopId && o.IsGift && o.GiftFromName == null && o.BuyerUserId > 0)
+            .ToListAsync(ct);
+        var canRead = await FillBuyerNamesAsync(db, shopId, orders, ct);
+        await db.SaveChangesAsync(ct);
+        var result = new GiftBuyerNames(orders.Count, orders.Count(o => o.GiftFromName is not null), canRead);
+        if (orders.Count > 0)
+            logger.LogInformation("Gift buyer names for shop {ShopId}: {Named} of {Orders} gift order(s) named{Scope}",
+                shopId, result.Named, result.Orders, canRead ? "" : $" (the shop's token lacks {BuyerNameScope}: reconnect it)");
+        return result;
     }
 
     /// <summary>
-    /// One-time fix for gift orders stored without the gift sender (<see cref="GiftSenderBackfillJob"/>): each one is read
-    /// again from Etsy (GET only) and updated. Returns how many were read and how many now have a sender.
+    /// Looks up each buyer of <paramref name="orders"/> once (getUser, GET only) and sets their first name on the orders.
+    /// Nothing is called when the shop's token lacks <see cref="BuyerNameScope"/> (returns false); a buyer Etsy won't
+    /// show is skipped and tried again the next time.
     /// </summary>
-    public async Task<(int Read, int WithSender)> BackfillGiftSendersAsync(int shopId, CancellationToken ct)
+    private async Task<bool> FillBuyerNamesAsync(AppDbContext db, int shopId, IReadOnlyCollection<Order> orders, CancellationToken ct)
     {
-        long etsyShopId;
-        List<long> receiptIds;
-        await using (var db = await dbFactory.CreateDbContextAsync(ct))
-        {
-            etsyShopId = await db.Shops.Where(s => s.Id == shopId).Select(s => s.EtsyShopId).FirstAsync(ct);
-            var gifts = await db.Orders.AsNoTracking().Where(o => o.ShopId == shopId && o.IsGift).ToListAsync(ct);
-            receiptIds = [.. gifts.Where(o => OrderPrintService.GiftSender(o) is null).Select(o => o.EtsyReceiptId)];
-        }
+        if (orders.Count == 0) return true;
+        var scopes = await db.ShopTokens.Where(t => t.ShopId == shopId).Select(t => t.Scopes).FirstOrDefaultAsync(ct) ?? "";
+        if (!scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(BuyerNameScope)) return false;
 
-        var withSender = 0;
-        foreach (var receiptId in receiptIds)
+        foreach (var buyer in orders.GroupBy(o => o.BuyerUserId))
         {
-            EtsyReceipt receipt;
-            string raw;
+            string? name;
             try
             {
-                (receipt, raw) = await etsy.GetShopReceiptAsync(etsyShopId, receiptId, EtsyAuth.ForShop(shopId), ct);
+                name = (await etsy.GetUserAsync(buyer.Key, EtsyAuth.ForShop(shopId), ct)).FirstName?.Trim();
             }
             catch (EtsyApiException ex)
             {
-                // One receipt Etsy won't return doesn't stop the others; that order keeps what it has.
-                logger.LogWarning("Could not re-read gift receipt {ReceiptId} for its sender: {Message}", receiptId, ex.Message);
+                // The name is cosmetic: the slip prints without it.
+                logger.LogWarning("Could not read buyer {BuyerUserId} for a gift slip name: {Message}", buyer.Key, ex.Message);
                 continue;
             }
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var order = await db.Orders.Include(o => o.Items).FirstAsync(o => o.ShopId == shopId && o.EtsyReceiptId == receiptId, ct);
-            OrderMapper.Apply(order, receipt, raw, time.GetUtcNow().UtcDateTime);
-            await db.SaveChangesAsync(ct);
-            if (!string.IsNullOrWhiteSpace(receipt.GiftSender)) withSender++;
+            if (string.IsNullOrEmpty(name)) continue;
+            foreach (var order in buyer) order.GiftFromName = name;
         }
-        if (receiptIds.Count > 0)
-            logger.LogInformation("Gift sender backfill for shop {ShopId}: {Read} gift order(s) read again, {WithSender} with a sender",
-                shopId, receiptIds.Count, withSender);
-        return (receiptIds.Count, withSender);
+        return true;
     }
 
     /// <summary>

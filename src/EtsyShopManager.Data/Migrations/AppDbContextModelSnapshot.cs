@@ -869,6 +869,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<DateTime>("FirstSeenAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("GiftFromName")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("GiftMessage")
                         .HasColumnType("TEXT");
 

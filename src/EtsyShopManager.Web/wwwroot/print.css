@@ -93,6 +93,12 @@ body { font-family: var(--esm-font, system-ui, sans-serif); font-size: 11pt; lin
 .gift-shop { display: flex; gap: 6pt; align-items: flex-start; margin-bottom: 18pt; }
 .gift-shop img { width: 45pt; height: 45pt; object-fit: cover; }
 .gift-shop-name { font-size: 9.5pt; line-height: 13pt; font-weight: 600; }
+/* Etsys Star Seller badge and the sales count, on one line as on Etsys gift slip. */
+.gift-shop-stats { display: flex; align-items: center; gap: 6pt; }
+.star-seller { display: inline-flex; align-items: center; gap: 4pt; white-space: nowrap; }
+.star-seller svg { width: 9pt; height: 9pt; flex: none; }
+.star-seller circle { fill: var(--print-ink); }
+.star-seller path { fill: var(--print-paper); }
 .gift-strong { font-weight: 600; }
 .gift-order { margin-bottom: 6pt; }
 .gift-item { break-inside: avoid; }

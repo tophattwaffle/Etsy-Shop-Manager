@@ -22,7 +22,7 @@ else
         {
             if (o.IsGift)
             {
-                <GiftSlip Order="o" Location="@_locations.GetValueOrDefault(o.ShopId)" />
+                <GiftSlip Order="o" Location="@_locations.GetValueOrDefault(o.ShopId)" StarSeller="@_starSellers.Contains(o.ShopId)" />
                 continue;
             }
             var address = OrderPrintService.Address(o);
@@ -36,6 +36,7 @@ else
                         <div class="slip-shop-name">@o.Shop.Name</div>
                         <div class="slip-shop-url">@OrderPrintService.ShopAddress(o.Shop)</div>
                         @if (_locations.TryGetValue(o.ShopId, out var location)) { <div>@location</div> }
+                        @if (_starSellers.Contains(o.ShopId)) { <div><StarSellerBadge /></div> }
                     </div>
                 </header>
 
@@ -129,6 +130,7 @@ else
     private List<EtsyShopManager.Core.Domain.Order> _orders = [];
     private Dictionary<int, string> _notes = [];
     private Dictionary<int, string> _locations = [];
+    private HashSet<int> _starSellers = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -136,5 +138,6 @@ else
         var shopIds = _orders.Select(o => o.ShopId).Distinct().ToList();
         _notes = await Print.GetNotesAsync(shopIds);
         _locations = await Print.GetLocationsAsync(shopIds);
+        _starSellers = await Print.GetStarSellersAsync(shopIds);
     }
 }
