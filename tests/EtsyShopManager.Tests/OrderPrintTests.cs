@@ -118,7 +118,20 @@ public class OrderPrintTests
         Assert.Equal(new Dictionary<int, string> { [1] = "Thanks for shopping small!" }, await print.GetNotesAsync([1, 2]));
     }
 
-    private static async Task SeedAsync(TestDb db, bool firstIsGift)
+    [Fact]
+    public async Task Completed_and_shipped_orders_still_print_from_history()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true, closed: true);
+        var settings = new InMemorySettings();
+
+        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.Equal((1, 1), (CountOf(slips, "<section class=\"gift-slip\""), CountOf(slips, "<section class=\"slip\"")));
+        Assert.Contains("Happy birthday!", slips);
+        Assert.Contains("Mini Caution Sign", await RenderAsync<PrintPickList>(db, settings, "orders/print/pick?ids=1"));
+    }
+
+    private static async Task SeedAsync(TestDb db, bool firstIsGift, bool closed = false)
     {
         await using var ctx = db.CreateDbContext();
         ctx.Shops.Add(new Shop
@@ -128,6 +141,12 @@ public class OrderPrintTests
         });
         var orders = SampleOrders();
         orders[0].IsGift = firstIsGift;
+        if (closed)
+        {
+            (orders[0].Status, orders[0].IsShipped) = ("completed", true);
+            orders[1].Status = "canceled";
+            Assert.DoesNotContain(orders, o => o.IsOpen);
+        }
         foreach (var o in orders) ctx.Orders.Add(o);
         await ctx.SaveChangesAsync();
     }
