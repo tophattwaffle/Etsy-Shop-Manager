@@ -58,16 +58,26 @@ public class OpenOrderFilterTests
         Assert.Empty(new OpenOrderFilter { Gift = true, HasNote = true }.Apply(Orders()));
     }
 
+
     [Fact]
-    public void Shipping_and_destination_come_from_the_stored_receipt()
+    public void Shipping_method_and_destination_come_from_the_stored_receipt()
     {
         Assert.Equal([4L, 1], Receipts(new OpenOrderFilter { Shipping = "Standard" }.Apply(Orders())));
-        Assert.Equal([1L, 3], Receipts(new OpenOrderFilter { Destination = "US" }.Apply(Orders())));
-        Assert.Equal([2L], Receipts(new OpenOrderFilter { Destination = "CA" }.Apply(Orders())));
         Assert.Equal("CA", OrderPrintService.CountryIso(Orders()[1]));
         Assert.Null(OrderPrintService.ShippingMethod(Orders()[2]));
-        Assert.True(new OpenOrderFilter { Destination = "US" }.IsFiltered);
+        Assert.True(new OpenOrderFilter { Destination = OpenOrderFilter.Destinations.Domestic }.IsFiltered);
         Assert.False(new OpenOrderFilter { Sort = OpenOrderFilter.Sorts.Newest }.IsFiltered);
+    }
+
+    [Fact]
+    public void Destination_is_the_shops_own_country_or_international_like_Etsys_app()
+    {
+        // No origin country on file: the shop counts as US-based.
+        Assert.Equal([1L, 3], Receipts(new OpenOrderFilter { Destination = OpenOrderFilter.Destinations.Domestic }.Apply(Orders())));
+        Assert.Equal([2L, 4], Receipts(new OpenOrderFilter { Destination = OpenOrderFilter.Destinations.International }.Apply(Orders())));
+
+        var canadian = new Dictionary<int, string> { [1] = "CA" };
+        Assert.Equal([2L], Receipts(new OpenOrderFilter { Destination = OpenOrderFilter.Destinations.Domestic, HomeCountries = canadian }.Apply(Orders())));
     }
 
     [Fact]
@@ -76,6 +86,27 @@ public class OpenOrderFilterTests
         var broken = Sample(5, createdDay: 9, shipByDay: 18);
         broken.RawJson = "not json";
         Assert.Equal(5L, new OpenOrderFilter().Apply([broken]).Single().EtsyReceiptId);
-        Assert.Empty(new OpenOrderFilter { Destination = "US" }.Apply([broken]));
+        Assert.Empty(new OpenOrderFilter { Destination = OpenOrderFilter.Destinations.Domestic }.Apply([broken]));
+        Assert.Empty(new OpenOrderFilter { Destination = OpenOrderFilter.Destinations.International }.Apply([broken]));
+    }
+
+    [Fact]
+    public async Task A_shops_home_country_is_where_most_of_its_shipping_profiles_ship_from()
+    {
+        using var db = new TestDb();
+        await using (var ctx = db.CreateDbContext())
+        {
+            ctx.Shops.AddRange(new Shop { Id = 1, EtsyShopId = 11, Name = "ShopOne" }, new Shop { Id = 2, EtsyShopId = 22, Name = "ShopTwo" },
+                new Shop { Id = 3, EtsyShopId = 33, Name = "ShopThree" });
+            ctx.ShippingProfiles.AddRange(
+                new ShippingProfile { ShopId = 1, EtsyShippingProfileId = 1, OriginCountryIso = "us" },
+                new ShippingProfile { ShopId = 1, EtsyShippingProfileId = 2, OriginCountryIso = "US" },
+                new ShippingProfile { ShopId = 1, EtsyShippingProfileId = 3, OriginCountryIso = "CA" },
+                new ShippingProfile { ShopId = 2, EtsyShippingProfileId = 4, OriginCountryIso = "GB" },
+                new ShippingProfile { ShopId = 3, EtsyShippingProfileId = 5, OriginCountryIso = null });
+            await ctx.SaveChangesAsync();
+        }
+        var homes = await new OrderQueries(db, TimeProvider.System).GetHomeCountriesAsync();
+        Assert.Equal(new Dictionary<int, string> { [1] = "US", [2] = "GB" }, homes);
     }
 }

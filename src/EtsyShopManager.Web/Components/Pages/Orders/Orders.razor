@@ -190,7 +190,7 @@
             @if (_shippingMethods.Count > 0)
             {
                 <fieldset class="lp-facets">
-                    <legend>Shipping</legend>
+                    <legend>Shipping method</legend>
                     <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Shipping is null)"
                             @onclick="() => SetOpenFilter(_openFilter with { Shipping = null })">
                         <span class="lp-facet-label">Any shipping</span>
@@ -207,25 +207,17 @@
                 </fieldset>
             }
 
-            @if (_destinations.Count > 0)
-            {
-                <fieldset class="lp-facets">
-                    <legend>Destination</legend>
-                    <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Destination is null)"
-                            @onclick="() => SetOpenFilter(_openFilter with { Destination = null })">
-                        <span class="lp-facet-label">Anywhere</span>
-                        <span class="lp-count">@OpenCount(_openFilter with { Destination = null })</span>
+            <fieldset class="lp-facets">
+                <legend>Destination</legend>
+                @foreach (var (key, label) in DestinationOptions)
+                {
+                    <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Destination == key)"
+                            @onclick="() => SetOpenFilter(_openFilter with { Destination = key })">
+                        <span class="lp-facet-label">@label</span>
+                        <span class="lp-count">@OpenCount(_openFilter with { Destination = key })</span>
                     </button>
-                    @foreach (var iso in _destinations)
-                    {
-                        <button type="button" class="lp-facet" aria-pressed="@Pressed(_openFilter.Destination == iso)"
-                                @onclick="() => SetOpenFilter(_openFilter with { Destination = iso })">
-                            <span class="lp-facet-label">@OrderPrintService.CountryName(iso)</span>
-                            <span class="lp-count">@OpenCount(_openFilter with { Destination = iso })</span>
-                        </button>
-                    }
-                </fieldset>
-            }
+                }
+            </fieldset>
         </aside>
         </div>
         }
@@ -388,6 +380,7 @@
         _accents = await ShopAccents.GetEffectiveAsync(shopIds);
         _orderLinks = await ShopOrderLinks.GetOverridesAsync(shopIds);
         _open = await Queries.GetOpenOrdersAsync(_shopId);
+        _openFilter = _openFilter with { HomeCountries = await Queries.GetHomeCountriesAsync() };
         RefreshShown();
         var payload = HaPayloadBuilder.OpenOrders(_open, TimeZoneInfo.Local);
         _toMake = payload["items_needed"]!.AsArray().Select(n => n!.AsObject()).ToList();
@@ -472,16 +465,24 @@
     private OpenOrderFilter _openFilter = new();
     private List<Order> _shown = [];
     private List<string> _shippingMethods = [];
-    private List<string> _destinations = [];
 
     private void RefreshShown()
     {
         _shown = _openFilter.Apply(_open);
-        // A chosen value stays listed after its last order ships, so it can still be cleared.
+        // A chosen method stays listed after its last order ships, so it can still be cleared.
         _shippingMethods = [.. _open.Select(OrderPrintService.ShippingMethod).Append(_openFilter.Shipping).OfType<string>()
             .Distinct().Order(StringComparer.OrdinalIgnoreCase)];
-        _destinations = [.. _open.Select(OrderPrintService.CountryIso).Append(_openFilter.Destination).OfType<string>()
-            .Distinct().OrderBy(iso => OrderPrintService.CountryName(iso), StringComparer.OrdinalIgnoreCase)];
+    }
+
+    // As in Etsy's app: "United States" / "International" (or "Domestic" when the shops shown ship from different countries).
+    private IEnumerable<(string? Key, string Label)> DestinationOptions
+    {
+        get
+        {
+            var homes = _status.Where(s => _shopId is null || s.ShopId == _shopId).Select(s => _openFilter.HomeCountry(s.ShopId)).Distinct().ToList();
+            var domestic = homes.Count == 1 ? OrderPrintService.CountryName(homes[0]) ?? "Domestic" : "Domestic";
+            return [(null, "All"), (OpenOrderFilter.Destinations.Domestic, domestic), (OpenOrderFilter.Destinations.International, "International")];
+        }
     }
 
     private void SetOpenFilter(OpenOrderFilter filter)
@@ -492,7 +493,7 @@
 
     private void OnOpenSortChanged(string sort) => SetOpenFilter(_openFilter with { Sort = sort });
 
-    private void ClearOpenFilters() => SetOpenFilter(new OpenOrderFilter { Sort = _openFilter.Sort });
+    private void ClearOpenFilters() => SetOpenFilter(new OpenOrderFilter { Sort = _openFilter.Sort, HomeCountries = _openFilter.HomeCountries });
 
     private int OpenCount(OpenOrderFilter filter) => _open.Count(filter.Matches);
 
