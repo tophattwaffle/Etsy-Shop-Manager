@@ -1,19 +1,19 @@
-/* The built-in gift slip: laid out like Etsy's gift slip (points measured from Etsy's PDF). The top half stays blank for
-   a shipping label; the order is on the left (no prices), the gift side past the fold on the right. The app's colours
-   and fonts are var(--print-ink), --print-muted, --print-line, --print-sunk, --print-paper, --print-sparkle,
-   --print-slip-font and --print-slip-serif. */
+/* The built-in gift slip: laid out like Etsy's gift slip (points measured from Etsy's PDF). It is half a letter page, and
+   two print on one sheet (the app draws the cut line between them); the order is on the left (no prices), the gift side
+   past the fold on the right. The app's colours and fonts are var(--print-ink), --print-muted, --print-line,
+   --print-sunk, --print-paper, --print-sparkle, --print-slip-font and --print-slip-serif. */
 .gift-slip {
-    position: relative; width: 8.5in; height: 11in; box-sizing: border-box; margin: 0 auto 24px; overflow: hidden;
-    font-family: var(--print-slip-font); font-size: 8pt; line-height: 11pt; background: var(--print-paper);
-    box-shadow: 0 0 0 1px var(--print-line);
+    position: relative; width: 8.5in; height: 5.5in; box-sizing: border-box; overflow: hidden;
+    font-family: var(--print-slip-font); font-size: 8pt; line-height: 11pt;
 }
-.gift-cut { position: absolute; left: 14pt; right: 14pt; top: 396pt; border-top: 1pt dashed var(--print-line); }
-.gift-fold { position: absolute; left: 306pt; top: 453pt; height: 283pt; border-left: 1pt dashed var(--print-line); }
+.gift-fold { position: absolute; left: 306pt; top: 64pt; height: 283pt; border-left: 1pt dashed var(--print-line); }
 /* An address the buyer asked to change after checkout (order.address_changed), boxed under a black bar with the address
-   Etsy still has struck through. It sits in the label half, which is cut away, so the recipient never sees it. */
+   Etsy still has struck through. It fills the top half of the gift's own sheet, which is cut away, so the recipient never
+   sees it. */
+.gift-label-half { position: relative; height: 5.5in; }
 .gift-changed {
-    position: absolute; left: 36pt; top: 36pt; width: 200pt; font-size: 9.5pt; line-height: 12.2pt;
-    border: 2pt solid var(--print-ink);
+    position: absolute; left: 36pt; top: 36pt; width: 200pt; font-family: var(--print-slip-font); font-size: 9.5pt;
+    line-height: 12.2pt; border: 2pt solid var(--print-ink);
 }
 .slip-changed-flag {
     background: var(--print-ink); color: var(--print-paper); font-weight: 700; padding: 3pt 6pt;
@@ -22,7 +22,8 @@
 .slip-changed-body { padding: 5pt 6pt 6pt; }
 .slip-changed-hint { margin-top: 6pt; font-weight: 600; }
 .slip-changed-was { color: var(--print-muted); text-decoration: line-through; }
-.gift-left { position: absolute; left: 23pt; top: 407pt; width: 277pt; }
+/* Everything starts at least 18pt (a quarter inch) from the top, so the top slip on a sheet clears a printer's edge. */
+.gift-left { position: absolute; left: 23pt; top: 18pt; width: 277pt; }
 .gift-shop { display: flex; gap: 6pt; align-items: flex-start; margin-bottom: 18pt; }
 .gift-shop img { width: 45pt; height: 45pt; object-fit: cover; }
 .gift-shop-name { font-size: 9.5pt; line-height: 13pt; font-weight: 600; }
@@ -39,7 +40,7 @@
 .gift-item + .gift-item { margin-top: 18pt; }
 .gift-item-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 13pt; }
 .gift-qty { padding-top: 4pt; }
-.gift-right { position: absolute; left: 306pt; right: 0; top: 396pt; bottom: 0; text-align: center; }
+.gift-right { position: absolute; left: 306pt; right: 0; top: 7pt; bottom: 0; text-align: center; }
 /* A small serif headline where Etsy has its wordmark, with five gold hand-drawn sparkles: two beside it, three below. */
 .gift-head { position: relative; width: 190pt; margin: 22pt auto 0; height: 60pt; }
 .gift-headline { padding-top: 4pt; font-family: var(--print-slip-serif); font-size: 16pt; line-height: 20pt; }
@@ -59,7 +60,3 @@
 .gift-qr { position: absolute; left: 12pt; right: 12pt; bottom: 26pt; }
 .gift-qr-code { margin: 10pt auto 0; width: 36pt; height: 36pt; }
 .gift-qr-code svg { display: block; width: 100%; height: 100%; }
-
-@media print {
-    .gift-slip { margin: 0; box-shadow: none; }
-}
