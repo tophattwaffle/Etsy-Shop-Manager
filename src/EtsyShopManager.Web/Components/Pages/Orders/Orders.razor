@@ -63,7 +63,7 @@
         <div class="order-grid">
             @foreach (var o in _open)
             {
-                var due = Due(o.ShipByUtc);
+                var due = OrderDue.For(o.ShipByUtc, Time.GetUtcNow().UtcDateTime);
                 <div class="order-card @(due.Urgent ? "urgent" : "")" style="@ShopStyle(o.ShopId)">
                     <div class="order-head">
                         <div>
@@ -74,7 +74,7 @@
                             </div>
                         </div>
                         <div class="text-right">
-                            <MudChip T="string" Size="Size.Small" Color="@due.Color">@due.Text</MudChip>
+                            <span class="esm-due" style="@due.Style">@due.Text</span>
                             <div class="small muted">@OrderTotal(o)</div>
                         </div>
                     </div>
@@ -340,16 +340,6 @@
     private static string OrderTotal(Order o) =>
         o.Grandtotal is { } g ? ListingFormat.Price(g, o.Divisor, o.CurrencyCode)
         : ListingFormat.Price(o.Items.Sum(i => i.PriceAmount * Math.Max(1, i.Quantity)), o.Items.FirstOrDefault()?.PriceDivisor ?? 100, o.CurrencyCode);
-
-    private (string Text, Color Color, bool Urgent) Due(DateTime? shipBy)
-    {
-        if (shipBy is null) return ("no ship-by", Color.Default, false);
-        var hours = (shipBy.Value - Time.GetUtcNow().UtcDateTime).TotalHours;
-        var text = hours < 0 ? $"overdue {Span(-hours)}" : $"ship in {Span(hours)}";
-        return hours <= 12 ? (text, Color.Error, true) : hours <= 72 ? (text, Color.Warning, false) : (text, Color.Success, false);
-    }
-
-    private static string Span(double hours) => hours >= 48 ? $"{hours / 24:0}d" : hours >= 1 ? $"{hours:0}h" : $"{hours * 60:0}m";
 
     private string Ago(DateTime? utc)
     {

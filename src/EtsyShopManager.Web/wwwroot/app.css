@@ -214,6 +214,16 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
     box-shadow: inset 4px 0 0 var(--shop, var(--esm-error));
 }
 .order-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+/* Ship-by pill, as on the Home Assistant card: a see-through fill and an outline running from green (--due: 100%, set
+   by OrderDue) through yellow to red (0%), mixed from the success and error tokens. Grey without a ship-by date. */
+.esm-due {
+    --due-colour: color-mix(in hsl shorter hue, var(--esm-success) var(--due, 0%), var(--esm-error));
+    display: inline-block; flex: none; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+    font-size: 0.75rem; font-weight: 600; line-height: 1.5; color: var(--esm-ink);
+    background: color-mix(in srgb, var(--due-colour) 30%, transparent);
+    border: 1px solid color-mix(in srgb, var(--due-colour) 80%, transparent);
+}
+.esm-due:not([style]) { --due-colour: var(--esm-muted); }
 .order-buyer { font-weight: 600; }
 .order-item { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--esm-line); }
 .order-item img, .order-item .noimg { width: 56px; height: 56px; object-fit: cover; border-radius: var(--esm-radius-sm); flex: none; }
