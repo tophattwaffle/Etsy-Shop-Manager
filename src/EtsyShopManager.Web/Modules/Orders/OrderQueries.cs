@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace EtsyShopManager.Web.Modules.Orders;
 
 public sealed record OrderShopStatus(int ShopId, long EtsyShopId, string ShopName, bool IsHealthy, int OpenOrders,
-    DateTime? LastPolledAtUtc, bool BackfillDone, string? LastError);
+    DateTime? LastPolledAtUtc, bool BackfillDone, string? LastError, bool HasIcon = false);
 
 /// <summary>Reads behind the Orders page and the Home Assistant API.</summary>
 public sealed class OrderQueries(IDbContextFactory<AppDbContext> dbFactory, TimeProvider time)
@@ -91,7 +91,7 @@ public sealed class OrderQueries(IDbContextFactory<AppDbContext> dbFactory, Time
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var shops = await db.Shops.AsNoTracking().Where(s => s.IsActive).OrderBy(s => s.Name)
-            .Select(s => new { s.Id, s.EtsyShopId, s.Name, Healthy = s.Token != null && !s.Token.NeedsReauth })
+            .Select(s => new { s.Id, s.EtsyShopId, s.Name, Healthy = s.Token != null && !s.Token.NeedsReauth, HasIcon = s.IconUrl != null && s.IconUrl != "" })
             .ToListAsync(ct);
         var sync = await db.ShopOrderSyncStates.AsNoTracking().ToDictionaryAsync(s => s.ShopId, ct);
         var open = (await OpenCandidates(db).Select(o => new { o.ShopId, o.Status }).ToListAsync(ct))
@@ -102,7 +102,7 @@ public sealed class OrderQueries(IDbContextFactory<AppDbContext> dbFactory, Time
         {
             sync.TryGetValue(s.Id, out var st);
             return new OrderShopStatus(s.Id, s.EtsyShopId, s.Name, s.Healthy, open.GetValueOrDefault(s.Id),
-                st?.LastPolledAtUtc, st?.BackfillCompletedAtUtc is not null, st?.LastError);
+                st?.LastPolledAtUtc, st?.BackfillCompletedAtUtc is not null, st?.LastError, s.HasIcon);
         }).ToList();
     }
 

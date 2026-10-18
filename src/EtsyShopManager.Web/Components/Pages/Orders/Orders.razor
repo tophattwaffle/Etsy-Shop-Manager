@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @using System.Text.Json.Nodes
 @using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Components.Pages.Listings
 @using EtsyShopManager.Web.Modules.Orders
 @using EtsyShopManager.Core.Jobs
 @implements IDisposable
@@ -404,24 +405,32 @@
                 <MudIcon Icon="@(_filtersOpen ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" Size="Size.Small" />
             </button>
             <div class="esm-filter-body @(_filtersOpen ? "is-open" : "")">
-                <fieldset class="esm-filter-group">
+                @* The shop list from the Listings page: shop marks, open-order counts and each shop's sync status. *@
+                <fieldset class="lp-facets">
                     <legend>Shop</legend>
-                    <MudSelect T="int?" Value="_shopId" ValueChanged="OnShopChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
-                               ToStringFunc="@ShopLabel" aria-label="Shop">
-                        <MudSelectItem T="int?" Value="null">All shops</MudSelectItem>
-                        @foreach (var s in _status)
-                        {
-                            <MudSelectItem T="int?" Value="s.ShopId">@s.ShopName</MudSelectItem>
-                        }
-                    </MudSelect>
-                    @foreach (var s in _status.Where(s => _shopId is null || s.ShopId == _shopId))
+                    <button type="button" class="lp-facet" aria-pressed="@Pressed(_shopId is null)" @onclick="() => OnShopChanged(null)">
+                        <span class="lp-facet-label">All shops</span>
+                        <span class="lp-count">@_status.Sum(s => s.OpenOrders).ToString("N0")</span>
+                    </button>
+                    @foreach (var s in _status)
                     {
-                        <MudTooltip Text="@StatusTooltip(s)">
-                            <div class="esm-sync-line @(s.LastError is null ? "" : "is-error")">
-                                @s.ShopName: @s.OpenOrders open · synced @Ago(s.LastPolledAtUtc)@(s.LastError is null ? "" : " · check failed")
+                        <div class="lp-shop" style="@ShopStyle(s.ShopId)">
+                            <button type="button" class="lp-facet" aria-pressed="@Pressed(_shopId == s.ShopId)" @onclick="() => OnShopChanged(s.ShopId)">
+                                <ShopMark Name="@s.ShopName" Small="true" Decorative="true" IconShopId="@(s.HasIcon ? s.ShopId : null)" />
+                                <span class="lp-facet-label">@s.ShopName</span>
+                                <span class="lp-count">@s.OpenOrders.ToString("N0")</span>
+                            </button>
+                            <div class="lp-shop-status">
+                                <MudTooltip Text="@StatusTooltip(s)">
+                                    <span class="lp-status @(s.LastError is null ? "" : "lp-status-warn")">
+                                        @(s.LastError is null ? $"Synced {Ago(s.LastPolledAtUtc)}" : "Last check failed")
+                                    </span>
+                                </MudTooltip>
                             </div>
-                        </MudTooltip>
+                        </div>
                     }
+                </fieldset>
+                <fieldset class="esm-filter-group">
                     <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
                         <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="PollNowAsync"
                                    Class="align-self-start">
@@ -493,8 +502,6 @@
         HistoryTab => _historyGifts ? 1 : 0,
         _ => 0,
     };
-
-    private string ShopLabel(int? id) => id is null ? "All shops" : _status.FirstOrDefault(s => s.ShopId == id)?.ShopName ?? "Shop";
 
     private string DestinationLabel(string? key) => DestinationOptions.FirstOrDefault(o => o.Key == key).Label ?? "All";
 
