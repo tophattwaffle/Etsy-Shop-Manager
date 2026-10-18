@@ -841,6 +841,9 @@ namespace EtsyShopManager.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("AddressOverride")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("BuyerName")
                         .HasColumnType("TEXT");
 
@@ -962,6 +965,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<int>("OrderId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("PersonalizationOverride")
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("PriceAmount")
                         .HasColumnType("INTEGER");
 
@@ -975,6 +981,10 @@ namespace EtsyShopManager.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Title")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VariationOverrides")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Variations")

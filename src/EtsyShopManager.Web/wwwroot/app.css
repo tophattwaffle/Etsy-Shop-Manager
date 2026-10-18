@@ -259,6 +259,19 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 td > .order-vars { margin-top: 0; min-width: 140px; }
 .esm-colorbox-note { display: block; margin-top: 6px; }
 td > .esm-colorbox-note { margin-top: 0; min-width: 160px; }
+/* Something changed here at the buyers request (OrderOverrides): an edit mark beside it; hover, focus or click shows the
+   buyers own value. The dialog that makes the changes groups each items fields. */
+.esm-changed { display: inline-flex; align-items: center; gap: 2px; }
+.esm-changed-note { display: flex; margin-top: 6px; }
+.esm-changed-note .esm-colorbox-note { margin-top: 0; }
+.esm-changed-mark {
+    display: inline-flex; align-items: center; gap: 4px; padding: 0 2px; border: 0; border-radius: var(--esm-radius-sm);
+    background: none; color: var(--esm-info); font: inherit; font-size: 0.8rem; text-align: left; cursor: pointer;
+}
+.esm-changed-mark:hover { background: var(--esm-hover); }
+.esm-changed-tip { max-width: 280px; white-space: normal; }
+.esm-change-group + .esm-change-group { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--esm-line); }
+.esm-change-title { font-weight: 600; margin-bottom: 8px; }
 .esm-orders .var {
     display: inline-block; font-size: 0.75rem; line-height: 1.5; padding: 1px 8px; max-width: 100%; overflow-wrap: anywhere;
     /* Half of a one-line pill's height: a pill on one line, a rounded box (not a circle) when the text wraps. */

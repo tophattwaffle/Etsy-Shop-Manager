@@ -7,6 +7,22 @@
 <section class="gift-slip">
     <div class="gift-cut" aria-hidden="true"></div>
     <div class="gift-fold" aria-hidden="true"></div>
+    {%- if order.address_changed %}
+    {%- comment %} In the label half, which is cut away, so the gift's recipient never sees it. {% endcomment %}
+    <div class="slip-changed gift-changed">
+        <div class="slip-changed-flag">&#9888; Address changed</div>
+        <div class="slip-changed-body">
+            <div class="gift-strong">Ship to</div>
+            {%- if order.ship_to_name %}<div>{{ order.ship_to_name }}</div>{% endif %}
+            {%- for line in order.address_lines %}<div>{{ line }}</div>{% endfor %}
+            <div class="slip-changed-hint">Change the shipping label. Etsy has:</div>
+            <div class="slip-changed-was">
+                {%- if order.etsy_ship_to_name %}<div>{{ order.etsy_ship_to_name }}</div>{% endif %}
+                {%- for line in order.etsy_address_lines %}<div>{{ line }}</div>{% endfor %}
+            </div>
+        </div>
+    </div>
+    {%- endif %}
 
     <div class="gift-left">
         <div class="gift-shop">

@@ -44,7 +44,7 @@ public sealed record OpenOrderFilter
     public static bool HasBuyerNote(Order o) => !string.IsNullOrWhiteSpace(o.MessageFromBuyer);
 
     public static bool IsPersonalized(Order o) => o.Items.Any(i =>
-        i.Variations.Any(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId && v.Value.Trim().Length > 0));
+        OrderOverrides.Variations(i).Any(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId && v.Value.Trim().Length > 0));
 
     public string HomeCountry(int shopId) => HomeCountries.GetValueOrDefault(shopId) ?? DefaultHomeCountry;
 

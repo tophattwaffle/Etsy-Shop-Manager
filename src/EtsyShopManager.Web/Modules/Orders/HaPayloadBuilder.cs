@@ -38,7 +38,9 @@ public static class HaPayloadBuilder
     {
         var variations = new JsonArray();
         var personalization = new List<string>();
-        foreach (var v in item.Variations)
+        // The seller's changes (OrderOverrides) stand in for the buyer's choices, so the card shows what to make.
+        var all = OrderOverrides.Variations(item);
+        foreach (var v in all)
         {
             if (v.PropertyId == PersonalizationPropertyId)
             {
@@ -52,7 +54,7 @@ public static class HaPayloadBuilder
             variations.Add(new JsonObject { ["property"] = v.Name, ["value"] = v.Value });
         }
 
-        var variationsText = string.Join(", ", item.Variations
+        var variationsText = string.Join(", ", all
             .Where(v => v.PropertyId != PersonalizationPropertyId && v.Value.Length > 0)
             .Select(v => $"{v.Name}: {v.Value}"));
 

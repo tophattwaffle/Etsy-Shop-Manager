@@ -31,6 +31,17 @@
 .slip-totals { display: grid; grid-template-columns: 1fr 138pt; row-gap: 4.2pt; margin-top: 14pt; text-align: right; }
 .slip-total { font-weight: 700; }
 .slip-note { margin-top: 18pt; }
+/* An address the buyer asked to change after checkout (order.address_changed): boxed under a black bar so it can't be
+   missed when the shipping label is printed, with the address Etsy still has struck through. Black and white, for any
+   printer. */
+.slip-changed { border: 2pt solid var(--print-ink); }
+.slip-changed-flag {
+    background: var(--print-ink); color: var(--print-paper); font-weight: 700; padding: 3pt 6pt;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.slip-changed-body { padding: 5pt 6pt 6pt; }
+.slip-changed-hint { margin-top: 6pt; font-weight: 600; }
+.slip-changed-was { color: var(--print-muted); text-decoration: line-through; }
 
 @media print {
     .slip { width: auto; margin: 0; box-shadow: none; }

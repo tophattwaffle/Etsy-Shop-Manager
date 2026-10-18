@@ -46,6 +46,13 @@ public class Order
     public DateTime FirstSeenAtUtc { get; set; }
     public DateTime LastSyncedAtUtc { get; set; }
 
+    /// <summary>
+    /// A shipping address the seller entered here when the buyer asked for a change (Etsy's can't be changed through the
+    /// API): the name, then the address lines, one per line. Null when the order ships to the address on Etsy. Only this
+    /// app knows it: polling never touches it, and the packing slip marks it so the shipping label gets changed too.
+    /// </summary>
+    public string? AddressOverride { get; set; }
+
     public List<OrderItem> Items { get; set; } = [];
 
     /// <summary>Statuses that close an order even when it was never shipped.</summary>
@@ -75,6 +82,18 @@ public class OrderItem
 
     /// <summary>Variations as Etsy formats them, personalization (property 54) included.</summary>
     public List<OrderVariation> Variations { get; set; } = [];
+
+    /// <summary>
+    /// Personalization the seller entered here when the buyer asked for a change, used in place of the buyer's everywhere
+    /// the order is shown (empty: no personalization). Null when the buyer's stands. Polling never touches it.
+    /// </summary>
+    public string? PersonalizationOverride { get; set; }
+
+    /// <summary>
+    /// Variation values the seller chose here in place of the buyer's (one per property, from the listing's own values).
+    /// Polling never touches them.
+    /// </summary>
+    public List<OrderVariation> VariationOverrides { get; set; } = [];
 
     public DateTime? ExpectedShipAtUtc { get; set; }
     public DateTime? EtsyCreatedAtUtc { get; set; }

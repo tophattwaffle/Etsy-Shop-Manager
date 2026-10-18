@@ -1,0 +1,101 @@
+@using EtsyShopManager.Web.Modules.Orders
+@inject OrderOverrideService Overrides
+
+@* Changes a buyer asked for after checkout: another personalization, other variation values, another shipping address.
+   Kept on this app's copy of the order only (Etsy's API can't change an order). *@
+<MudDialog>
+    <DialogContent>
+        @if (_form is null)
+        {
+            <MudText Class="muted">@(_missing ? "This order is no longer in the app." : "Loading…")</MudText>
+        }
+        else
+        {
+            <MudText Class="muted small mb-3">
+                For changes the buyer asked for. They're kept in this app only: the order on Etsy keeps what the buyer entered.
+            </MudText>
+            @foreach (var item in _form.Items)
+            {
+                <section class="esm-change-group">
+                    <div class="esm-change-title">@(item.Quantity > 1 ? $"×{item.Quantity} " : "")@item.Title</div>
+                    @foreach (var v in item.Variations)
+                    {
+                        if (v.Options.Count > 0)
+                        {
+                            <MudSelect T="string" Value="@(v.Value ?? v.BuyersValue)" ValueChanged="@(value => v.Value = value)" Label="@v.Name"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+                                @foreach (var option in v.Options)
+                                {
+                                    <MudSelectItem T="string" Value="option.Value">@option.Value@(option.Value == v.BuyersValue ? " (buyer's choice)" : "")</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                        else
+                        {
+                            <MudText Class="muted small mb-2">@v.Name: @v.BuyersValue (this listing's values aren't in the app, so it can't be changed here)</MudText>
+                        }
+                    }
+                    <MudSwitch T="bool" @bind-Value="item.ChangePersonalization" Color="Color.Primary" Label="Change personalization" />
+                    @if (item.ChangePersonalization)
+                    {
+                        <MudTextField T="string" @bind-Value="item.Personalization" Immediate="true" Label="Personalization" Variant="Variant.Outlined"
+                                      Lines="2" Sizing="InputSizing.Auto" MaxLength="@OrderOverrides.MaxPersonalizationLength"
+                                      HelperText="@($"Buyer entered: {item.BuyersPersonalization ?? "nothing"}")" />
+                    }
+                </section>
+            }
+            <section class="esm-change-group">
+                <div class="esm-change-title">Shipping address</div>
+                <MudSwitch T="bool" @bind-Value="_form.ChangeAddress" Color="Color.Primary" Label="Ship to a different address" />
+                @if (_form.ChangeAddress)
+                {
+                    <MudTextField T="string" @bind-Value="_form.Address" Immediate="true" Label="Ship to (name first, then each line)" Variant="Variant.Outlined"
+                                  Lines="5" Sizing="InputSizing.Auto" MaxLength="@OrderOverrides.MaxAddressLength"
+                                  HelperText="The packing slip marks it, so the shipping label gets the new address too." />
+                    <div class="muted small mt-2">On Etsy: @string.Join(", ", OrderOverrides.Lines(_form.EtsyAddress))</div>
+                }
+            </section>
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_error</MudAlert>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="() => Dialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_form is null || _saving)">Save changes</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    [Parameter, EditorRequired] public int OrderId { get; set; }
+
+    private OrderChangesForm? _form;
+    private bool _missing;
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _form = await Overrides.GetFormAsync(OrderId);
+        _missing = _form is null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_form is null) return;
+        var user = (await AuthState).User;
+        if (!user.IsInRole(Roles.Admin) && !user.IsInRole(Roles.Editor))
+        {
+            _error = "Only admins and editors can change orders.";
+            return;
+        }
+        _saving = true;
+        _error = await Overrides.SaveAsync(_form, user.Identity?.Name);
+        _saving = false;
+        if (_error is null) Dialog.Close(DialogResult.Ok(true));
+    }
+}

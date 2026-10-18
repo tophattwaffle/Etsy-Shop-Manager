@@ -15,6 +15,7 @@
 @inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
 @inject EtsyShopManager.Web.Modules.Shops.ShopOrderLinkService ShopOrderLinks
 @inject IJSRuntime Js
+@inject IDialogService Dialogs
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
 
@@ -83,11 +84,21 @@
                                     <a href="@OrderUrl(o.ShopId, o.EtsyReceiptId)" target="@OrderTarget(o.ShopId, o.EtsyReceiptId)">#@o.EtsyReceiptId</a>
                                     · @o.Shop.Name · @ListingFormat.Local(o.EtsyCreatedAtUtc)
                                 </div>
+                                @if (OrderOverrides.Address(o) is { } shipTo)
+                                {
+                                    <ChangedMark Caption="Address changed" Label="@AddressChangedLabel(o, shipTo)" />
+                                }
                             </div>
                         </div>
                         <div class="text-right">
                             <span class="esm-due" style="@due.Style">@due.Text</span>
                             <div class="small muted">@OrderTotal(o)</div>
+                            <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+                                <MudTooltip Text="Change personalization, variations or address">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => ChangeOrderAsync(o)"
+                                                   aria-label="@($"Change order {o.EtsyReceiptId}")" />
+                                </MudTooltip>
+                            </AuthorizeView>
                         </div>
                     </div>
                     @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
@@ -109,11 +120,36 @@
                                     <div class="order-vars">
                                         @foreach (var (v, vi) in variations.Select((v, n) => (v, n)))
                                         {
-                                            <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                            if (BuyersVariation(i, v) is { } buyers)
+                                            {
+                                                <span class="esm-changed">
+                                                    <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                                    <ChangedMark Label="@($"{v.Name} changed here. The buyer chose {buyers}.")" />
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                            }
                                         }
                                     </div>
                                 }
-                                @if (personalization is not null)
+                                @if (i.PersonalizationOverride is not null)
+                                {
+                                    var buyers = OrderOverrides.BuyersPersonalization(i);
+                                    <div class="esm-changed esm-changed-note">
+                                        @if (personalization is not null)
+                                        {
+                                            <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
+                                        }
+                                        else
+                                        {
+                                            <span class="muted small">No personalization</span>
+                                        }
+                                        <ChangedMark Label="@(buyers is null ? "Personalization changed here. The buyer entered none." : $"Personalization changed here. The buyer entered: {buyers}")" />
+                                    </div>
+                                }
+                                else if (personalization is not null)
                                 {
                                     <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
                                 }
@@ -578,12 +614,37 @@
 
     private string HistoryPrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", _historyPicked.Order())}";
 
+    // Changes the buyer asked for after checkout (kept here only); the open orders reload so every view shows them.
+    private async Task ChangeOrderAsync(Order o)
+    {
+        var dialog = await Dialogs.ShowAsync<OrderChangesDialog>($"Change order #{o.EtsyReceiptId}",
+            new DialogParameters<OrderChangesDialog> { { d => d.OrderId, o.Id } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true });
+        if (await dialog.Result is { Canceled: false })
+        {
+            await LoadAsync();
+            Snackbar.Add("Order changes saved", Severity.Success);
+        }
+    }
+
+    private static string OneLine(ShippingAddress a) => string.Join(", ", a.Name is null ? a.Lines : a.Lines.Prepend(a.Name));
+
+    private static string AddressChangedLabel(Order o, ShippingAddress shipTo) =>
+        $"Ships to {OneLine(shipTo)}. The buyer's address on Etsy: {OneLine(OrderPrintService.EtsyAddress(o))}";
+
+    /// <summary>The buyer's value when this variation was changed here, otherwise null.</summary>
+    private static string? BuyersVariation(OrderItem i, OrderVariation shown) =>
+        i.Variations.FirstOrDefault(b => b.PropertyId == shown.PropertyId && b.Name == shown.Name) is { } b
+        && OrderOverrides.VariationOverride(i, b) is not null ? b.Value : null;
+
+    // With the seller's changes (OrderOverrides), as everywhere else the order is shown.
     private static (List<OrderVariation> Variations, string? Personalization) Split(OrderItem i)
     {
-        var personalization = i.Variations.Where(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0)
+        var all = OrderOverrides.Variations(i);
+        var personalization = all.Where(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0)
             .Select(v => v.Name.Length > 0 && !v.Name.Trim().Equals("personalization", StringComparison.OrdinalIgnoreCase) ? $"{v.Name}: {v.Value}" : v.Value)
             .ToList();
-        return (i.Variations.Where(v => v.PropertyId != HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0).ToList(),
+        return (all.Where(v => v.PropertyId != HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0).ToList(),
             personalization.Count == 0 ? null : string.Join(" | ", personalization));
     }
 

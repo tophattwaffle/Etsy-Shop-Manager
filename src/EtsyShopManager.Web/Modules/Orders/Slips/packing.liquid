@@ -22,11 +22,28 @@
 
     <div class="slip-body">
         <aside class="slip-side">
+            {%- if order.address_changed %}
+            {%- comment %} The buyer asked for another address: Etsy (and so its shipping label) still has the old one. {% endcomment %}
+            <div class="slip-field slip-changed">
+                <div class="slip-changed-flag">&#9888; Address changed</div>
+                <div class="slip-changed-body">
+                    <div class="slip-label">Ship to</div>
+                    {%- if order.ship_to_name %}<div>{{ order.ship_to_name }}</div>{% endif %}
+                    {%- for line in order.address_lines %}<div>{{ line }}</div>{% endfor %}
+                    <div class="slip-changed-hint">Change the shipping label. Etsy has:</div>
+                    <div class="slip-changed-was">
+                        {%- if order.etsy_ship_to_name %}<div>{{ order.etsy_ship_to_name }}</div>{% endif %}
+                        {%- for line in order.etsy_address_lines %}<div>{{ line }}</div>{% endfor %}
+                    </div>
+                </div>
+            </div>
+            {%- else %}
             <div class="slip-field">
                 <div class="slip-label">Ship to</div>
                 {%- if order.ship_to_name %}<div>{{ order.ship_to_name }}</div>{% endif %}
                 {%- for line in order.address_lines %}<div>{{ line }}</div>{% endfor %}
             </div>
+            {%- endif %}
             {%- if order.ship_by %}
             <div class="slip-field">
                 <div class="slip-label">Scheduled to ship by</div>

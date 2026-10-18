@@ -1,0 +1,20 @@
+@* Marks something changed here at the buyer's request (OrderOverrides); hover, focus or click shows what the buyer gave. *@
+<MudTooltip ShowOnClick="true" ShowOnHover="true" ShowOnFocus="true" Arrow="true" Placement="Placement.Top">
+    <ChildContent>
+        <button type="button" class="esm-changed-mark" aria-label="@Label">
+            <MudIcon Icon="@Icons.Material.Filled.ChangeCircle" Size="Size.Small" />
+            @if (Caption is not null) { <span>@Caption</span> }
+        </button>
+    </ChildContent>
+    <TooltipContent>
+        <div class="esm-changed-tip">@Label</div>
+    </TooltipContent>
+</MudTooltip>
+
+@code {
+    /// <summary>What was changed and what the buyer gave ("Changed here. The buyer chose Blue.").</summary>
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    /// <summary>Text beside the icon (none: the icon alone).</summary>
+    [Parameter] public string? Caption { get; set; }
+}
