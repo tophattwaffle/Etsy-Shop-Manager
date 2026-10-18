@@ -22,6 +22,15 @@ def shop_device_identifier(entry: ConfigEntry, shop_id: str) -> tuple[str, str]:
     return (DOMAIN, f"{entry.entry_id}_{shop_id}")
 
 
+def find_shop_device(registry: dr.DeviceRegistry, entry: ConfigEntry, shop_id: str) -> dr.DeviceEntry | None:
+    """The shop's device. HA 2026.10 looks devices up per config entry (async_get_device is deprecated and stops
+    working in 2027.8); older versions only have async_get_device."""
+    identifier = shop_device_identifier(entry, shop_id)
+    if hasattr(registry, "async_get_device_by_identifier"):
+        return registry.async_get_device_by_identifier(identifier, entry.entry_id)
+    return registry.async_get_device(identifiers={identifier})
+
+
 class EtsyShopManagerCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """Fetches every shop's open orders in one request. Data is keyed by Etsy shop id."""
 
@@ -84,7 +93,7 @@ class EtsyShopManagerCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             if not new_ids:
                 continue
             receipts = [o for o in shop.get("open_orders") or [] if str(o.get("receipt_id")) in new_ids]
-            device = registry.async_get_device(identifiers={shop_device_identifier(self.config_entry, shop_id)})
+            device = find_shop_device(registry, self.config_entry, shop_id)
             _LOGGER.debug("New order(s) for %s: %s", shop.get("shop_name"), sorted(new_ids))
             self.hass.bus.async_fire(
                 EVENT_NEW_ORDER,
