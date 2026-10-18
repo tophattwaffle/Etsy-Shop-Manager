@@ -368,6 +368,8 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .lp-list-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--esm-muted); font-size: 0.8rem; }
 .lp-list-check { width: 44px; padding-right: 0 !important; }
 .lp-list tbody tr.is-selected { background: var(--esm-sunk); }
+.lp-list tbody tr.is-selectable { cursor: pointer; user-select: none; }
+.lp-list tbody tr.is-selectable .lp-list-title:hover { text-decoration: none; }
 .lp-bulk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .lp-bulk-fields { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .lp-bulk-fields .mud-input-control { flex: 1 1 160px; margin: 0; }
