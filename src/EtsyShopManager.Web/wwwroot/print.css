@@ -8,7 +8,7 @@
     --print-sunk: #f4f4f4;
     --print-slip-font: "Helvetica Neue", Helvetica, Arial, sans-serif;
     --print-slip-serif: Georgia, "Times New Roman", serif;
-    --print-sparkle: #f5c33b; /* gift slip sparkles, where a shop has no colour */
+    --print-sparkle: #f5c33b; /* gift slip sparkles, Etsy's gold */
 }
 
 /* No page margin: Chrome prints its date, title, URL and page number in the page margin, so with none it has nowhere
@@ -101,16 +101,22 @@ body { font-family: var(--esm-font, system-ui, sans-serif); font-size: 11pt; lin
 .gift-item-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 13pt; }
 .gift-qty { padding-top: 4pt; }
 .gift-right { position: absolute; left: 306pt; right: 0; top: 396pt; bottom: 0; text-align: center; }
-.gift-head { position: relative; width: 190pt; margin: 22pt auto 0; height: 60pt; font-size: 9.5pt; line-height: 13pt; }
-.gift-head-name { font-family: var(--print-slip-serif); font-size: 14pt; line-height: 18pt; }
-.gift-sparkle { position: absolute; width: 11pt; height: 11pt; fill: var(--shop, var(--print-sparkle)); }
-.gift-sparkle-1 { left: 10pt; top: 2pt; }
-.gift-sparkle-2 { right: 6pt; top: -4pt; width: 13pt; height: 13pt; }
-.gift-sparkle-3 { left: -6pt; top: 32pt; width: 9pt; height: 9pt; }
-.gift-sparkle-4 { right: 18pt; top: 34pt; width: 9pt; height: 9pt; }
+/* A small serif headline where Etsy has its wordmark, with five gold hand-drawn sparkles: two beside it, three below. */
+.gift-head { position: relative; width: 190pt; margin: 22pt auto 0; height: 60pt; }
+.gift-headline { padding-top: 4pt; font-family: var(--print-slip-serif); font-size: 16pt; line-height: 20pt; }
+.gift-sparkle {
+    position: absolute; width: 12pt; height: 12pt; overflow: visible;
+    fill: none; stroke: var(--print-sparkle); stroke-width: 3; stroke-linecap: round;
+}
+.gift-sparkle-1 { left: 23pt; top: 4pt; transform: rotate(-8deg); }
+.gift-sparkle-2 { left: 156pt; top: -3pt; width: 13pt; height: 13pt; transform: rotate(14deg); }
+.gift-sparkle-3 { left: 10pt; top: 31pt; width: 10pt; height: 10pt; transform: rotate(-20deg); }
+.gift-sparkle-4 { left: 152pt; top: 31pt; width: 10pt; height: 10pt; transform: rotate(24deg); }
+.gift-sparkle-5 { left: 189pt; top: 28pt; transform: rotate(40deg); }
 .gift-photo { display: block; width: 113pt; height: 113pt; margin: 31pt auto 0; object-fit: cover; border-radius: 6pt; background: var(--print-sunk); }
-.gift-message { margin: 10pt 24pt 0; font-family: var(--print-slip-serif); font-style: italic; font-size: 12pt; line-height: 15pt; white-space: pre-line; }
-.gift-sender { margin-top: 6pt; font-family: var(--print-slip-serif); font-size: 10pt; }
+/* The message runs almost the panel's full width, so a short one stays on one line as on Etsy's; the sender sits under it. */
+.gift-message { margin: 6pt 12pt 0; font-family: var(--print-slip-serif); font-style: italic; font-size: 11.5pt; line-height: 14pt; white-space: pre-line; }
+.gift-sender { margin-top: 4pt; font-family: var(--print-slip-serif); font-size: 10.5pt; line-height: 13pt; }
 .gift-qr { position: absolute; left: 12pt; right: 12pt; bottom: 26pt; }
 .gift-qr-code { margin: 10pt auto 0; width: 36pt; height: 36pt; }
 .gift-qr-code svg { display: block; width: 100%; height: 100%; }

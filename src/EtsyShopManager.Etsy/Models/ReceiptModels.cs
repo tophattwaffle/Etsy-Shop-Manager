@@ -16,6 +16,7 @@ public sealed class EtsyReceipt
     [JsonPropertyName("updated_timestamp")] public long? UpdatedTimestamp { get; set; }
     [JsonPropertyName("is_gift")] public bool IsGift { get; set; }
     [JsonPropertyName("gift_message")] public string? GiftMessage { get; set; }
+    [JsonPropertyName("gift_sender")] public string? GiftSender { get; set; }
     [JsonPropertyName("grandtotal")] public EtsyMoney? Grandtotal { get; set; }
     [JsonPropertyName("subtotal")] public EtsyMoney? Subtotal { get; set; }
     [JsonPropertyName("total_shipping_cost")] public EtsyMoney? TotalShippingCost { get; set; }

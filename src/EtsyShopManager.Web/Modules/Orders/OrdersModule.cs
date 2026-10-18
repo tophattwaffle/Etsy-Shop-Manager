@@ -28,6 +28,8 @@ public sealed class OrdersModule : IModule
 
         services.AddJobHandler<PollShopOrdersJob>();
         services.AddJobHandler<PollAllOrdersJob>();
+        services.AddJobHandler<GiftSenderBackfillJob>();
+        services.AddHostedService<GiftSenderBackfillStartup>();
         services.AddScoped<IDomainEventHandler<ShopConnected>, PollOrdersOnShopConnected>();
 
         services.AddRecurringJob(new RecurringJobDefinition("Poll orders (all shops)", PollAllOrdersJob.Type, DefaultPollInterval)
@@ -163,4 +165,60 @@ public sealed class PollAllOrdersJob(IDbContextFactory<AppDbContext> dbFactory, 
 public sealed class PollOrdersOnShopConnected(OrderPollQueue queue) : IDomainEventHandler<ShopConnected>
 {
     public Task HandleAsync(ShopConnected e, CancellationToken ct) => queue.PollShopAsync(e.ShopId, "shop-connected", ct: ct);
+}
+
+/// <summary>
+/// One-time fix: gift orders stored before the gift sender was read get their receipt read again from Etsy (GET only),
+/// so their gift slips print "- Name" like Etsy's. Queued once by <see cref="GiftSenderBackfillStartup"/>; marked done
+/// in <see cref="DoneKey"/> when every connected shop has been gone through.
+/// </summary>
+public sealed class GiftSenderBackfillJob(IDbContextFactory<AppDbContext> dbFactory, OrderPoller poller,
+    EtsyShopManager.Core.Services.ISettingsStore settings) : IJobHandler
+{
+    public const string Type = "etsy.orders.gift-sender-backfill";
+    public const string DoneKey = "Orders.GiftSenderBackfillDone";
+    public string JobType => Type;
+    public string DisplayName => "Read gift senders for older gift orders";
+
+    public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
+    {
+        List<int> shopIds;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            shopIds = await db.Shops.Where(s => s.IsActive && s.Token != null && !s.Token.NeedsReauth).Select(s => s.Id).ToListAsync(ct);
+
+        int read = 0, withSender = 0;
+        foreach (var shopId in shopIds)
+        {
+            var (r, w) = await poller.BackfillGiftSendersAsync(shopId, ct);
+            read += r;
+            withSender += w;
+        }
+        await settings.SetAsync(DoneKey, "1", updatedBy: "system", ct: ct);
+        context.Result = read == 0 ? "no gift orders without a sender" : $"{read} gift order(s) read again, {withSender} with a sender";
+    }
+}
+
+/// <summary>Queues <see cref="GiftSenderBackfillJob"/> at startup until it has run once.</summary>
+public sealed class GiftSenderBackfillStartup(IJobQueue queue, EtsyShopManager.Core.Services.ISettingsStore settings,
+    ILogger<GiftSenderBackfillStartup> logger) : IHostedService
+{
+    public async Task StartAsync(CancellationToken ct)
+    {
+        try
+        {
+            if (await settings.HasValueAsync(GiftSenderBackfillJob.DoneKey, ct)) return;
+            await queue.EnqueueAsync(new JobRequest
+            {
+                JobType = GiftSenderBackfillJob.Type,
+                DedupeKey = GiftSenderBackfillJob.Type,
+                CreatedBy = "system",
+            }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Could not queue the gift sender backfill; it is tried again at the next start");
+        }
+    }
+
+    public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
 }

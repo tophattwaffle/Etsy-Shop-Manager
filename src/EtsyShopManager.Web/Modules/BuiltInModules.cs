@@ -23,6 +23,7 @@ public sealed class ShopsModule : IModule
         services.AddJobHandler<TokenKeepAliveJob>();
         services.AddJobHandler<ShopRefreshJob>();
         services.AddJobHandler<RefreshAllShopsJob>();
+        services.AddHostedService<ShopDetailsStartup>();
         services.AddScoped<IDomainEventHandler<ShopNeedsReauth>, AuditShopNeedsReauth>();
 
         services.AddRecurringJob(new RecurringJobDefinition("Etsy token keep-alive", TokenKeepAliveJob.Type, TimeSpan.FromHours(12)));
