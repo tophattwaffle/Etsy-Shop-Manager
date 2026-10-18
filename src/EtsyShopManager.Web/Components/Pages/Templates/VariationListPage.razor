@@ -1,0 +1,378 @@
+@page "/variation-lists/new"
+@page "/variation-lists/{Id:int}"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using EtsyShopManager.Web.Modules.Templates
+@inject VariationListService Lists
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>@(_saved?.Name ?? "New variation list") · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="variation-lists" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> All variation lists
+</MudLink>
+
+@if (Id is not null && _saved is null)
+{
+    <PageHeader Title="Variation list" />
+    @if (_loaded) { <MudAlert Severity="Severity.Warning">This variation list no longer exists.</MudAlert> }
+    else { <MudProgressLinear Indeterminate="true" /> }
+}
+else
+{
+    <PageHeader Title="@(_saved?.Name ?? "New variation list")">
+        <Summary>
+            @if (_saved is null)
+            {
+                <span>Name the list and add its options. After saving, the app lists the listings whose variations already use them.</span>
+            }
+            else
+            {
+                <span>Used by @_uses.Count listing@(_uses.Count == 1 ? "" : "s"). Saving the list changes no listing until you apply it.</span>
+            }
+        </Summary>
+        <Actions>
+            @if (_saved is not null)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete list</MudButton>
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty)" OnClick="SaveAsync">Save list</MudButton>
+        </Actions>
+    </PageHeader>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">List</MudText>
+        <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
+                      Counter="VariationListService.MaxNameLength" MaxLength="VariationListService.MaxNameLength" />
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Switch an option off to retire it: linked listings keep the value but buyers can't pick it. Renaming an option renames
+            it on the listings too. New options are added at the end of each listing's choices.
+        </MudText>
+        <MudSimpleTable Dense="true">
+            @* An editing grid: rows keep their order while names are typed (not sortable). *@
+            <thead class="esm-fixed-order"><tr><th>Option</th><th>On</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var (o, i) in _options.Select((o, i) => (o, i)))
+                {
+                    var index = i;
+                    <tr>
+                        <td><MudTextField T="string" Value="o.Name" ValueChanged="@(v => _options[index] = o with { Name = v ?? "" })" Variant="Variant.Outlined"
+                                          Margin="Margin.Dense" Immediate="true" aria-label="Option name" /></td>
+                        <td><MudSwitch T="bool" Value="o.Enabled" ValueChanged="@(v => _options[index] = o with { Enabled = v })" Color="Color.Primary"
+                                       aria-label="@($"{o.Name} on")" /></td>
+                        <td class="text-right">
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Disabled="@(i == 0)" aria-label="@($"Move {o.Name} up")" OnClick="@(() => Move(index, -1))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Disabled="@(i == _options.Count - 1)" aria-label="@($"Move {o.Name} down")" OnClick="@(() => Move(index, 1))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="@($"Remove {o.Name}")" OnClick="@(() => _options.RemoveAt(index))" />
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-3">
+            <MudTextField T="string" @bind-Value="_add" Label="Add options, separated by commas" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+            <MudButton Variant="Variant.Outlined" Disabled="@string.IsNullOrWhiteSpace(_add)" OnClick="AddOptions">Add</MudButton>
+        </MudStack>
+        @if (_saved is not null && _saved.Options.Any(o => _options.All(x => x.Id != o.Id)))
+        {
+            <MudText Typo="Typo.body2" Class="muted mt-2">Removing an option from the list leaves the listings that have it alone; switch it off to retire it.</MudText>
+        }
+    </MudPaper>
+
+    @if (_saved is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+                <MudText Typo="Typo.h6">Listings using this list</MudText>
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Outlined" Disabled="@(WithChanges == 0 || Dirty)" OnClick="ApplyAsync">
+                        Apply to @WithChanges listing@(WithChanges == 1 ? "" : "s")
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Pending == 0)" OnClick="ReviewAsync">
+                        Review and push @Pending listing@(Pending == 1 ? "" : "s")
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+            <MudText Typo="Typo.body2" Class="muted mb-2">
+                Applying changes each listing's variations as unpushed edits; nothing is sent to Etsy until you review and push.
+                New combinations start with the listing's current stock and follow its prices. Values a listing has of its own
+                are left alone.
+            </MudText>
+            @if (_uses.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted">No listings yet. Link the ones below.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_useSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_useSort" Column="variation" Changed="StateHasChanged">Variation</SortHeader>
+                            <SortHeader Sort="_useSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in _useSort.Apply(_uses))
+                        {
+                            <tr>
+                                <td><a href="@($"listings/{u.ListingId}/edit")">@u.Title</a> <span class="muted small">· @u.ShopName</span></td>
+                                <td>@u.VariationName</td>
+                                <td>
+                                    <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
+                                    @foreach (var c in u.Changes.Skip(1)) { <div class="small">@c</div> }
+                                    @foreach (var n in u.Notes) { <div class="small muted">@n</div> }
+                                </td>
+                                <td class="text-right"><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkAsync(u))">Unlink</MudButton></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudPaper>
+
+        @if (_review is not null)
+        {
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+                    <MudText Typo="Typo.h6">Review the push</MudText>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _review = null)">Close</MudButton>
+                </MudStack>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Each listing is pushed on its own, with all of its unpushed edits (not only this list), exactly as from its
+                    editor. Listings with a problem are skipped; fix them in their editor.
+                </MudText>
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_reviewSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_reviewSort" Column="changes" Changed="StateHasChanged">Changes</SortHeader>
+                            <SortHeader Sort="_reviewSort" Column="ready" Changed="StateHasChanged">Ready</SortHeader>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _reviewSort.Apply(_review))
+                        {
+                            <tr>
+                                <td><a href="@($"listings/{item.ListingId}/edit")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
+                                <td>@string.Join(", ", item.Preview.Changes.Select(c => c.Label))</td>
+                                <td>
+                                    @if (item.Preview.CanPush)
+                                    {
+                                        <span><span class="esm-status-dot esm-dot-success"></span> Ready</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var b in item.Preview.Blockers) { <div class="small error-text">@b</div> }
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _pushing)" OnClick="PushAsync">
+                    Push @Ready listing@(Ready == 1 ? "" : "s") to Etsy
+                </MudButton>
+            </MudPaper>
+        }
+
+        @if (_candidates.Count > 0)
+        {
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Listings with matching variations</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Variations whose values are mostly in this list. Linking changes nothing yet: the next apply adds the list's
+                    missing options to them and switches retired ones off.
+                </MudText>
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <th class="esm-col-icon"><MudCheckBox T="bool" Value="@(_picked.Count == _candidates.Count)" ValueChanged="PickAll" aria-label="Select all" Dense="true" /></th>
+                            <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_candidateSort" Column="variation" Changed="StateHasChanged">Variation</SortHeader>
+                            <SortHeader Sort="_candidateSort" Column="match" Changed="StateHasChanged">In the list</SortHeader>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in _candidateSort.Apply(_candidates))
+                        {
+                            var key = (c.ListingId, c.PropertyId);
+                            <tr>
+                                <td><MudCheckBox T="bool" Value="@_picked.Contains(key)" ValueChanged="@(on => Pick(key, on))" aria-label="@($"Link {c.Title}")" Dense="true" /></td>
+                                <td><a href="@($"listings/{c.ListingId}")">@c.Title</a> <span class="muted small">· @c.ShopName</span></td>
+                                <td>@c.VariationName</td>
+                                <td>@c.InList of @c.Values values</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
+                    Link @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
+                </MudButton>
+            </MudPaper>
+        }
+    }
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private VariationList? _saved;
+    private bool _loaded, _pushing;
+    private string _name = "";
+    private string? _add;
+    private List<VariationListOption> _options = [];
+    private IReadOnlyList<VariationListUse> _uses = [];
+    private IReadOnlyList<VariationListCandidate> _candidates = [];
+    private IReadOnlyList<TemplatePushItem>? _review;
+    private readonly HashSet<(int, long)> _picked = [];
+
+    private bool Dirty => _saved is null
+        ? _name.Trim().Length > 0 || _options.Count > 0
+        : _name.Trim() != _saved.Name || !_options.SequenceEqual(_saved.Options);
+    private int WithChanges => _uses.Count(u => u.Status == VariationListUseStatus.HasChanges);
+    private int Pending => _uses.Where(u => u.InventoryPending).Select(u => u.ListingId).Distinct().Count();
+    private int Ready => _review?.Count(r => r.Preview.CanPush) ?? 0;
+
+    private readonly TableSort<VariationListUse> _useSort = new()
+    {
+        ["listing"] = u => u.Title,
+        ["variation"] = u => u.VariationName,
+        ["status"] = u => StatusText(u),
+    };
+    private readonly TableSort<VariationListCandidate> _candidateSort = new()
+    {
+        ["listing"] = c => c.Title,
+        ["variation"] = c => c.VariationName,
+        ["match"] = c => (double)c.InList / c.Values,
+    };
+    private readonly TableSort<TemplatePushItem> _reviewSort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["changes"] = r => string.Join(", ", r.Preview.Changes.Select(c => c.Label)),
+        ["ready"] = r => r.Preview.CanPush,
+    };
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (Id is { } id && (_saved = await Lists.GetAsync(id)) is not null)
+        {
+            (_name, _options) = (_saved.Name, [.. _saved.Options]);
+            _uses = await Lists.UsesAsync(id);
+            _candidates = await Lists.CandidatesAsync(id);
+            _picked.Clear();
+            _picked.UnionWith(_candidates.Where(c => c.InList == c.Values).Select(c => (c.ListingId, c.PropertyId)));
+        }
+        _loaded = true;
+    }
+
+    private async Task<string?> User() => (await AuthState).User.Identity?.Name;
+
+    private static string StatusText(VariationListUse u) => u.Status switch
+    {
+        VariationListUseStatus.UpToDate => u.InventoryPending ? "Up to date, not pushed yet" : "Up to date",
+        VariationListUseStatus.HasChanges => "Will change",
+        VariationListUseStatus.VariationMissing => "The linked variation is gone",
+        _ => "Variations changed on Etsy: resolve it in the listing's editor first",
+    };
+
+    private static string StatusClass(VariationListUseStatus s) => s switch
+    {
+        VariationListUseStatus.UpToDate => "esm-dot-success",
+        VariationListUseStatus.HasChanges => "esm-dot-info",
+        _ => "esm-dot-warning",
+    };
+
+    private void Move(int index, int by) => (_options[index], _options[index + by]) = (_options[index + by], _options[index]);
+
+    private void AddOptions()
+    {
+        foreach (var name in (_add ?? "").Split(',').Select(n => n.Trim()).Where(n => n.Length > 0))
+            if (_options.All(o => !string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase)))
+                _options.Add(new VariationListOption(0, name, true));
+        _add = null;
+    }
+
+    private void Pick((int, long) key, bool on)
+    {
+        if (on) _picked.Add(key); else _picked.Remove(key);
+    }
+
+    private void PickAll(bool on)
+    {
+        _picked.Clear();
+        if (on) _picked.UnionWith(_candidates.Select(c => (c.ListingId, c.PropertyId)));
+    }
+
+    private async Task SaveAsync()
+    {
+        var (id, error) = await Lists.SaveAsync(_saved?.Id, _name, _options, await User());
+        if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
+        if (_saved is null) { Nav.NavigateTo($"variation-lists/{id}"); return; }
+        await LoadAsync();
+        Snackbar.Add(WithChanges > 0
+            ? $"List saved. {WithChanges} listing{(WithChanges == 1 ? "" : "s")} would change; apply it when you're ready."
+            : "List saved.", Severity.Success);
+    }
+
+    private async Task DeleteAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Delete variation list",
+            $"Delete \"{_saved!.Name}\"? Listings keep their variations as they are; they're only no longer linked.",
+            yesText: "Delete list", cancelText: "Cancel");
+        if (ok != true) return;
+        await Lists.DeleteAsync(_saved.Id, await User());
+        Nav.NavigateTo("variation-lists");
+    }
+
+    private async Task ApplyAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Apply the list",
+            $"Change the variations of {WithChanges} listing{(WithChanges == 1 ? "" : "s")} to match the list? They become unpushed edits; " +
+            "nothing is sent to Etsy until you review and push.", yesText: "Apply", cancelText: "Cancel");
+        if (ok != true) return;
+        var count = await Lists.ApplyAsync(_saved!.Id, await User());
+        await LoadAsync();
+        _review = null;
+        Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} updated as unpushed edits.", Severity.Success);
+    }
+
+    private async Task ReviewAsync() => _review = await Lists.ReviewAsync(_saved!.Id);
+
+    private async Task PushAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Push to Etsy",
+            $"Push {Ready} listing{(Ready == 1 ? "" : "s")} to Etsy? Each one is a normal push with a snapshot you can restore.",
+            yesText: "Push to Etsy", cancelText: "Cancel");
+        if (ok != true) return;
+        _pushing = true;
+        try
+        {
+            var results = await Lists.PushAsync(_saved!.Id, await User());
+            var queued = results.Count(r => r.PushId is not null);
+            Snackbar.Add($"{queued} push{(queued == 1 ? "" : "es")} queued; results appear on each listing and on the Jobs page.", Severity.Info);
+            foreach (var s in results.Where(r => r.PushId is null)) Snackbar.Add($"{s.Title}: {string.Join(" ", s.Blockers)}", Severity.Warning);
+            _review = null;
+            await LoadAsync();
+        }
+        finally { _pushing = false; }
+    }
+
+    private async Task LinkAsync()
+    {
+        var count = await Lists.LinkAsync(_saved!.Id, _picked.Select(k => (k.Item1, k.Item2)), await User());
+        await LoadAsync();
+        Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} linked.", Severity.Success);
+    }
+
+    private async Task UnlinkAsync(VariationListUse u)
+    {
+        await Lists.UnlinkAsync(_saved!.Id, u.ListingId, await User());
+        await LoadAsync();
+    }
+}

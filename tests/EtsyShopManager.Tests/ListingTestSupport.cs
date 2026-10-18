@@ -127,6 +127,7 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddSingleton<ListingImporter>();
         services.AddSingleton<ListingImportQueue>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Templates.TextBlockService>();
+        services.AddSingleton<EtsyShopManager.Web.Modules.Templates.VariationListService>();
         services.AddSingleton<TaxonomyImporter>();
         services.AddSingleton<ImageDownloader>();
         services.AddSingleton<ListingQueries>();

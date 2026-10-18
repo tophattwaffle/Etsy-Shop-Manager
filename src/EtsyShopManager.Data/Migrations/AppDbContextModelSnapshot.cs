@@ -748,6 +748,38 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ListingTextBlocks");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingVariationList", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AppliedOptions")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LinkedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("PropertyId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("VariationListId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VariationListId");
+
+                    b.HasIndex("ListingId", "PropertyId")
+                        .IsUnique();
+
+                    b.ToTable("ListingVariationLists");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
                 {
                     b.Property<int>("Id")
@@ -1400,6 +1432,41 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("TextBlocks");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.VariationList", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<int>("NextOptionId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Options")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("VariationLists");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Jobs.Job", b =>
                 {
                     b.Property<long>("Id")
@@ -1822,6 +1889,25 @@ namespace EtsyShopManager.Data.Migrations
                     b.Navigation("TextBlock");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingVariationList", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithMany()
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EtsyShopManager.Core.Domain.VariationList", "VariationList")
+                        .WithMany("Listings")
+                        .HasForeignKey("VariationListId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+
+                    b.Navigation("VariationList");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
                 {
                     b.HasOne("EtsyShopManager.Core.Domain.Shop", "Shop")
@@ -2009,6 +2095,11 @@ namespace EtsyShopManager.Data.Migrations
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.TextBlock", b =>
+                {
+                    b.Navigation("Listings");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.VariationList", b =>
                 {
                     b.Navigation("Listings");
                 });

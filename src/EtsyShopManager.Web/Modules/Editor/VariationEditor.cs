@@ -219,6 +219,19 @@ public static class VariationEditor
         return Canonical(inv);
     }
 
+    /// <summary>Makes every combination with this value available to buyers or not (e.g. a filament color retired).</summary>
+    public static JsonObject SetValueAvailable(JsonNode inventory, long propertyId, string value, bool available)
+    {
+        var inv = Clone(inventory);
+        foreach (var product in Products(inv).Where(p => ValueOf(p, propertyId) == value))
+            foreach (var offering in Offerings(product)) offering["is_enabled"] = available;
+        return inv;
+    }
+
+    /// <summary>Whether any combination with this value is available to buyers.</summary>
+    public static bool IsValueAvailable(JsonNode inventory, long propertyId, string value) =>
+        Products(inventory).Any(p => ValueOf(p, propertyId) == value && Available(p));
+
     /// <summary>What changed between two inventories' structure, in words, for the push preview.</summary>
     public static IReadOnlyList<string> Describe(JsonNode before, JsonNode after)
     {

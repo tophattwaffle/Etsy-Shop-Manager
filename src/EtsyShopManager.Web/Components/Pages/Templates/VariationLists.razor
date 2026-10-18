@@ -1,0 +1,72 @@
+@page "/variation-lists"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Templates
+@inject VariationListService Lists
+
+<PageTitle>Variation lists · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Variation lists">
+    <Summary>Shared option lists, such as filament colors. Add or retire an option once and update every listing that uses the list.</Summary>
+    <Actions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="variation-lists/new">New variation list</MudButton>
+    </Actions>
+</PageHeader>
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    @if (_lists is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_lists.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">
+            No variation lists yet. Create one with your colors (or any options several listings share); the app finds the
+            listings whose variations already use them.
+        </MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <SortHeader Sort="_sort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                    <SortHeader Sort="_sort" Column="options" Changed="StateHasChanged">Options</SortHeader>
+                    <SortHeader Sort="_sort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                    <SortHeader Sort="_sort" Column="changes" Changed="StateHasChanged">Waiting for changes</SortHeader>
+                    <SortHeader Sort="_sort" Column="attention" Changed="StateHasChanged">Need a look</SortHeader>
+                    <SortHeader Sort="_sort" Column="updated" Changed="StateHasChanged">Changed</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var l in _sort.Apply(_lists))
+                {
+                    <tr>
+                        <td><a href="@($"variation-lists/{l.Id}")">@l.Name</a></td>
+                        <td>@l.Enabled on@(l.Options > l.Enabled ? $", {l.Options - l.Enabled} off" : "")</td>
+                        <td>@l.Listings</td>
+                        <td>@(l.WithChanges == 0 ? "—" : l.WithChanges.ToString())</td>
+                        <td>@(l.NeedAttention == 0 ? "—" : l.NeedAttention.ToString())</td>
+                        <td>@ListingFormat.Local(l.UpdatedAtUtc)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    private IReadOnlyList<VariationListSummary>? _lists;
+
+    private readonly TableSort<VariationListSummary> _sort = new()
+    {
+        ["name"] = l => l.Name,
+        ["options"] = l => l.Options,
+        ["listings"] = l => l.Listings,
+        ["changes"] = l => l.WithChanges,
+        ["attention"] = l => l.NeedAttention,
+        ["updated"] = l => l.UpdatedAtUtc,
+    };
+
+    protected override async Task OnInitializedAsync() => _lists = await Lists.ListAsync();
+}
