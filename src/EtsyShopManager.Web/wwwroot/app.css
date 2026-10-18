@@ -80,8 +80,15 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .mud-button-root.mud-button.mud-button-size-small { padding-left: 12px; padding-right: 12px; }
 .mud-button-outlined { border-width: 2px; }
 .mud-button-outlined:hover { border-width: 2px; }
-.mud-tabs.mud-tabs-rounded, .mud-tabs .mud-tabs-tabbar { border-radius: var(--esm-radius); }
+/* Tabs: the bar is its own rounded, outlined box and clips the selected tab to its corners. The selected tab is a light
+   wash of the accent with the accent along its bottom: the shop's (--shop) on a page about one shop, otherwise ink. */
+.mud-tabs.mud-tabs-rounded { border-radius: var(--esm-radius); }
+.mud-tabs .mud-tabs-tabbar { border-radius: var(--esm-radius); overflow: hidden; }
 .mud-tab { text-transform: none; font-weight: 600; letter-spacing: normal; }
+.mud-tabs .mud-tab.mud-tab-active { color: var(--esm-ink); background-color: color-mix(in srgb, var(--shop, var(--esm-ink)) 8%, transparent); }
+.mud-tabs .mud-tab.mud-tab-active:hover { background-color: color-mix(in srgb, var(--shop, var(--esm-ink)) 12%, transparent); }
+.mud-tabs .mud-tab-slider { background: var(--shop, var(--esm-ink)); }
+.mud-tabs .mud-tab-slider.mud-tab-slider-horizontal { height: 3px; }
 .mud-table-head .mud-table-cell, .mud-simple-table thead th { font-weight: 600; color: var(--esm-muted); }
 .mud-alert { border-radius: var(--esm-radius); }
 .mud-chip { font-weight: 600; }
