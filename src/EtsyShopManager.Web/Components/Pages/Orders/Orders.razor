@@ -195,10 +195,24 @@
                           Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true" Class="esm-w-lg"
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
             <MudCheckBox T="bool" Value="_historyGifts" ValueChanged="OnHistoryGiftsChanged" Label="Gift orders" Dense="true" />
+            <MudSpacer />
+            @if (_historyPicked.Count > 0)
+            {
+                <span class="muted small">@_historyPicked.Count selected</span>
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _historyPicked.Clear()">Clear</MudButton>
+            }
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
+                       Disabled="@(_historyPicked.Count == 0)" Href="@HistoryPrintLink("pick")" Target="_blank">Print pick list</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
+                       Disabled="@(_historyPicked.Count == 0)" Href="@HistoryPrintLink("slips")" Target="_blank">Print packing slips</MudButton>
         </MudStack>
         <MudTable @ref="_history" T="Order" ServerData="LoadHistoryAsync" Dense="true" Hover="true" RowsPerPage="50">
             <HeaderContent>
-                @* Sorted by the server, so the order covers every page. *@
+                @* Sorted by the server, so the order covers every page. The first column picks orders to print (any status). *@
+                <MudTh>
+                    <MudCheckBox T="bool" Value="@AllHistoryRowsPicked" ValueChanged="PickHistoryPage" Dense="true" Size="Size.Small"
+                                 Disabled="@(_historyRows.Count == 0)" aria-label="Select every order on this page to print" />
+                </MudTh>
                 <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Date" InitialDirection="SortDirection.Descending">Date</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Receipt">Receipt</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Buyer">Buyer</MudTableSortLabel></MudTh>
@@ -208,6 +222,10 @@
                 <MudTh><MudTableSortLabel T="Order" SortLabel="@OrderQueries.HistorySort.Shop">Shop</MudTableSortLabel></MudTh>
             </HeaderContent>
             <RowTemplate>
+                <MudTd>
+                    <MudCheckBox T="bool" Value="@_historyPicked.Contains(context.Id)" ValueChanged="@(on => PickHistory(context.Id, on))"
+                                 Dense="true" Size="Size.Small" aria-label="@($"Select order {context.EtsyReceiptId} to print")" />
+                </MudTd>
                 <MudTd>@ListingFormat.Local(context.EtsyCreatedAtUtc, "yyyy-MM-dd")</MudTd>
                 <MudTd><a href="@OrderUrl(context.ShopId, context.EtsyReceiptId)" target="@OrderTarget(context.ShopId, context.EtsyReceiptId)">#@context.EtsyReceiptId</a></MudTd>
                 <MudTd>
@@ -338,6 +356,7 @@
         var sortBy = state.SortDirection == SortDirection.None ? null : state.SortLabel;
         var (orders, total) = await Queries.GetHistoryAsync(_shopId, _historyText, state.Page * state.PageSize, state.PageSize, ct,
             sortBy, descending: state.SortDirection != SortDirection.Ascending, giftsOnly: _historyGifts);
+        _historyRows = orders;
         return new TableData<Order> { Items = orders, TotalItems = total };
     }
 
@@ -374,6 +393,25 @@
     private void SelectAllOpen() => _picked.UnionWith(_open.Select(o => o.Id));
 
     private string PrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", Picked)}";
+
+    // History orders picked for printing, of any status (reprints, and gift slips for orders already sent). Kept across
+    // pages, searches and the gift filter, so orders can be gathered from several pages.
+    private readonly HashSet<int> _historyPicked = [];
+    private IReadOnlyList<Order> _historyRows = [];
+
+    private bool AllHistoryRowsPicked => _historyRows.Count > 0 && _historyRows.All(o => _historyPicked.Contains(o.Id));
+
+    private void PickHistory(int id, bool on)
+    {
+        if (on) _historyPicked.Add(id); else _historyPicked.Remove(id);
+    }
+
+    private void PickHistoryPage(bool on)
+    {
+        foreach (var o in _historyRows) PickHistory(o.Id, on);
+    }
+
+    private string HistoryPrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", _historyPicked.Order())}";
 
     private static (List<OrderVariation> Variations, string? Personalization) Split(OrderItem i)
     {
