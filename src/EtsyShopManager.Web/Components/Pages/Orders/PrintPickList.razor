@@ -16,13 +16,20 @@
 else
 {
     <div class="print-sheet">
-        <h1>Pick list</h1>
-        <div class="print-muted print-small">
-            @_orders.Count order@(_orders.Count == 1 ? "" : "s") · @_lines.Sum(l => l.Quantity) item@(_lines.Sum(l => l.Quantity) == 1 ? "" : "s")
-            · printed @Time.GetLocalNow().ToString("yyyy-MM-dd HH:mm")
-        </div>
+        @* On paper the page has no margin (so the browser adds no headers or footers); the spacer rows repeat on every
+           page as its top and bottom margin, and the title repeats with the column headers. *@
         <table class="pick-table">
             <thead>
+                <tr class="pick-spacer"><td colspan="5"></td></tr>
+                <tr>
+                    <td colspan="5" class="pick-title">
+                        <h1>Pick list</h1>
+                        <div class="print-muted print-small">
+                            @_orders.Count order@(_orders.Count == 1 ? "" : "s") · @_lines.Sum(l => l.Quantity) item@(_lines.Sum(l => l.Quantity) == 1 ? "" : "s")
+                            · printed @Time.GetLocalNow().ToString("yyyy-MM-dd HH:mm")
+                        </div>
+                    </td>
+                </tr>
                 <tr>
                     <th aria-label="Picked"><span class="pick-box"></span></th>
                     <th><a class="@SortedClass("qty")" href="@SortLink("qty")">Qty</a></th>
@@ -31,6 +38,9 @@ else
                     <th><a class="@SortedClass("orders")" href="@SortLink("orders")">Orders</a></th>
                 </tr>
             </thead>
+            <tfoot>
+                <tr class="pick-spacer"><td colspan="5"></td></tr>
+            </tfoot>
             <tbody>
                 @foreach (var line in Sorted())
                 {

@@ -148,6 +148,7 @@ public sealed class ShopService(
         shop.Url = info.Url;
         shop.CurrencyCode = info.CurrencyCode;
         shop.IconUrl = info.IconUrl;
+        shop.TransactionSoldCount = info.TransactionSoldCount;
         shop.LastSyncedAtUtc = now;
     }
 }

@@ -17,6 +17,9 @@ public class Shop
     public string? CurrencyCode { get; set; }
     public string? IconUrl { get; set; }
 
+    /// <summary>Etsy's count of the shop's sales (getShop transaction_sold_count), shown on gift slips as Etsy's do.</summary>
+    public int? TransactionSoldCount { get; set; }
+
     /// <summary>False after the shop is disconnected. Local data is kept.</summary>
     public bool IsActive { get; set; } = true;
 

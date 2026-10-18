@@ -1,0 +1,82 @@
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Orders
+
+@* The packing slip for a gift order, laid out like Etsy's gift slip (letter page, sizes in points from Etsy's PDF): the
+   top half is left blank for a shipping label, then a cut line; below it, the order on the left (no prices) and, past a
+   fold line, the gift side: the shop's name with sparkles, the item photo, the gift message and who it's from, and a QR
+   code to the shop's Etsy page. Etsy's own logo and slogan aren't used. *@
+<section class="gift-slip" style="@AccentStyle">
+    <div class="gift-cut" aria-hidden="true"></div>
+    <div class="gift-fold" aria-hidden="true"></div>
+
+    <div class="gift-left">
+        <div class="gift-shop">
+            @if (Order.Shop.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(Order.ShopId)" alt="" /> }
+            <div>
+                <div class="gift-shop-name">@Order.Shop.Name</div>
+                @if (Order.Shop.Title is { Length: > 0 } title) { <div>@title</div> }
+                @if (Order.Shop.TransactionSoldCount is > 0 and var sales) { <div>@sales Sales</div> }
+            </div>
+        </div>
+        <div class="gift-order">
+            <div class="gift-strong">Order #@Order.EtsyReceiptId</div>
+            @if (_address.Name is not null) { <div>Shipped to: @_address.Name</div> }
+        </div>
+        @foreach (var item in Order.Items.OrderBy(i => i.EtsyTransactionId))
+        {
+            var (variations, personalization) = OrderPrintService.Split(item);
+            <div class="gift-item">
+                <div class="gift-strong gift-item-title">@item.Title</div>
+                @foreach (var v in variations) { <div>@v</div> }
+                @if (personalization is not null) { <div>Personalization: @personalization</div> }
+                <div class="gift-qty">Quantity: @Math.Max(1, item.Quantity)</div>
+            </div>
+        }
+    </div>
+
+    <div class="gift-right">
+        <div class="gift-head">
+            <svg class="gift-sparkle gift-sparkle-1" viewBox="0 0 24 24" aria-hidden="true"><path d="@Sparkle" /></svg>
+            <svg class="gift-sparkle gift-sparkle-2" viewBox="0 0 24 24" aria-hidden="true"><path d="@Sparkle" /></svg>
+            <svg class="gift-sparkle gift-sparkle-3" viewBox="0 0 24 24" aria-hidden="true"><path d="@Sparkle" /></svg>
+            <svg class="gift-sparkle gift-sparkle-4" viewBox="0 0 24 24" aria-hidden="true"><path d="@Sparkle" /></svg>
+            <div class="gift-head-name">@Order.Shop.Name</div>
+            <div>A gift for you</div>
+        </div>
+        @if (Order.Items.OrderBy(i => i.EtsyTransactionId).Select(i => i.ImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)) is { } photo)
+        {
+            <img class="gift-photo" src="@photo" alt="" />
+        }
+        else
+        {
+            <div class="gift-photo"></div>
+        }
+        @if (Order.GiftMessage is { Length: > 0 } message) { <div class="gift-message">@message</div> }
+        @if (_sender is not null) { <div class="gift-sender">- @_sender</div> }
+        <div class="gift-qr">
+            <div>Scan to see more from @Order.Shop.Name.</div>
+            <div class="gift-qr-code">@((MarkupString)OrderPrintService.ShopQrSvg(Order.Shop))</div>
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public EtsyShopManager.Core.Domain.Order Order { get; set; } = default!;
+
+    /// <summary>The shop's colour, for the sparkles (Etsy's yellow when it has none).</summary>
+    [Parameter] public string? Accent { get; set; }
+
+    // A four-pointed sparkle, like the stars around the heading on Etsy's gift slip.
+    private const string Sparkle = "M12 0 C13 8 16 11 24 12 C16 13 13 16 12 24 C11 16 8 13 0 12 C8 11 11 8 12 0 Z";
+
+    private ShippingAddress _address = new(null, []);
+    private string? _sender;
+
+    private string? AccentStyle => Accent is null ? null : $"--shop: {Accent}";
+
+    protected override void OnParametersSet()
+    {
+        _address = OrderPrintService.Address(Order);
+        _sender = OrderPrintService.GiftSender(Order);
+    }
+}

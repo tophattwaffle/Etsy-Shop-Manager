@@ -5,11 +5,13 @@
 @inject OrderPrintService Print
 @inject ISnackbar Snackbar
 
-@* The thank-you line printed at the bottom of each shop's packing slips (Orders → Print packing slips). *@
+@* The note printed on each shop's packing slips as "A note from the shop" (Orders → Print packing slips), like the packing
+   slip note set on Etsy, which Etsy's API doesn't share. *@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Packing slips</MudText>
     <MudText Typo="Typo.body2" Class="muted mb-3">
-        A thank-you line printed at the bottom of each shop's packing slips. Leave it empty for none.
+        Printed on each shop's packing slips as "A note from the shop", like the note you can set on Etsy (Etsy doesn't share
+        that note with apps, so set it here). Leave it empty for none.
     </MudText>
 
     @if (_shops is null)
@@ -29,9 +31,9 @@
                     @if (s.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(s.Id)" alt="" /> }
                     else { @s.Name[..1].ToUpperInvariant() }
                 </span>
-                <MudTextField T="string" @bind-Value="_text[s.Id]" Label="@($"{s.Name} thank-you line")" Variant="Variant.Outlined"
-                              Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxThanksLength" Class="esm-grow"
-                              ReadOnly="@(!_canEdit)" Placeholder="Thank you for your order!" />
+                <MudTextField T="string" @bind-Value="_text[s.Id]" Label="@($"{s.Name} packing slip note")" Lines="2" Sizing="InputSizing.Auto" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxNoteLength" Class="esm-grow"
+                              ReadOnly="@(!_canEdit)" Placeholder="Thanks for your order! If you have any issues, please send me a message on Etsy!" />
                 @if (_canEdit)
                 {
                     <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveAsync(s)">Save</MudButton>
@@ -53,13 +55,13 @@
         var user = (await AuthState).User;
         _canEdit = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
         _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
-        var saved = await Print.GetThanksAsync(_shops.Select(s => s.Id));
+        var saved = await Print.GetNotesAsync(_shops.Select(s => s.Id));
         foreach (var s in _shops) _text[s.Id] = saved.GetValueOrDefault(s.Id);
     }
 
     private async Task SaveAsync(ShopSummary shop)
     {
-        var error = await Print.SetThanksAsync(shop.Id, _text[shop.Id], (await AuthState).User.Identity?.Name);
-        Snackbar.Add(error ?? $"Saved the packing slip line for {shop.Name}", error is null ? Severity.Success : Severity.Warning);
+        var error = await Print.SetNoteAsync(shop.Id, _text[shop.Id], (await AuthState).User.Identity?.Name);
+        Snackbar.Add(error ?? $"Saved the packing slip note for {shop.Name}", error is null ? Severity.Success : Severity.Warning);
     }
 }

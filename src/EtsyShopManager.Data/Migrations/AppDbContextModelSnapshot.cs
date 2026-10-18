@@ -1265,6 +1265,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<string>("Title")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("TransactionSoldCount")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Url")
                         .HasColumnType("TEXT");
 
