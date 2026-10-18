@@ -251,6 +251,15 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .order-item .noimg { background: var(--esm-sunk); }
 .order-item-body { min-width: 0; }
 .order-message { margin-top: 8px; font-size: 0.9rem; white-space: pre-wrap; }
+/* Made marker (MadeToggle) on each order item and To make row; a made item fades and its title is struck through, but
+   the marker itself stays clear so it can be unmarked. */
+.esm-made { display: inline-flex; flex-direction: column; align-items: flex-start; flex: none; }
+.order-item .esm-made { margin-left: auto; align-items: flex-end; }
+.esm-made-count { display: inline-flex; align-items: center; white-space: nowrap; }
+td > .esm-made { flex-direction: row; align-items: center; }
+.order-item.is-made > img, .order-item.is-made > .noimg, .order-item.is-made > .order-item-body,
+tr.is-made > td:not(:first-child) { opacity: 0.55; }
+.order-item.is-made .order-item-body > div:first-child, tr.is-made .esm-made-text { text-decoration: line-through; }
 
 /* Variation pills (.var) and personalization notes (.note), filled in by esm.colorOrders with the HA card's coloring
    engine; its .colored/.random/.metal rules arrive as EtsyOrderColors.CSS. The card's theme variables map to tokens. */

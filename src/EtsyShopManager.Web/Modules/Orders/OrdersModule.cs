@@ -27,6 +27,7 @@ public sealed class OrdersModule : IModule
         services.AddSingleton<OrderPrintService>();
         services.AddSingleton<OrderOverrideService>();
         services.AddSingleton<SlipLayoutService>();
+        services.AddSingleton<OrderMadeService>();
 
         services.AddJobHandler<PollShopOrdersJob>();
         services.AddJobHandler<PollAllOrdersJob>();

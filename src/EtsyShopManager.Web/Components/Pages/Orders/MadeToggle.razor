@@ -1,0 +1,43 @@
+@* Marks an order item, or a To make row, as made: a checkbox that marks every unit made (or none), and for more than
+   one unit the count with − and + to mark them one at a time. Some made shows the checkbox half-filled. *@
+
+<span class="esm-made @(Made >= Quantity ? "is-made" : "")">
+    <MudCheckBox T="bool?" Value="@Checked" ValueChanged="@(_ => Set(Made >= Quantity ? 0 : Quantity))" TriState="true"
+                 Dense="true" Size="Size.Small" Color="Color.Success" UncheckedColor="Color.Default" Disabled="@ReadOnly"
+                 Label="@(Quantity > 1 || !Labelled ? null : "Made")"
+                 aria-label="@($"{What}: {(Made >= Quantity ? "made, click to unmark" : "mark made")}")" />
+    @if (Quantity > 1)
+    {
+        <span class="esm-made-count">
+            <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small" Disabled="@(ReadOnly || Made == 0)"
+                           OnClick="() => Set(Made - 1)" aria-label="@($"{What}: one fewer made")" />
+            <span class="small">@Made of @Quantity made</span>
+            <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" Disabled="@(ReadOnly || Made >= Quantity)"
+                           OnClick="() => Set(Made + 1)" aria-label="@($"{What}: one more made")" />
+        </span>
+    }
+</span>
+
+@code {
+    /// <summary>Units marked made.</summary>
+    [Parameter] public int Made { get; set; }
+
+    /// <summary>Units to make.</summary>
+    [Parameter] public int Quantity { get; set; } = 1;
+
+    /// <summary>Called with the new number of units made.</summary>
+    [Parameter] public EventCallback<int> MadeChanged { get; set; }
+
+    /// <summary>For people who can only look (Viewer): shown, not changeable.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Shows "Made" beside a single unit's checkbox (off where a column heading already says it).</summary>
+    [Parameter] public bool Labelled { get; set; } = true;
+
+    /// <summary>What is being marked, for screen readers ("Galaxy vase").</summary>
+    [Parameter] public string What { get; set; } = "Item";
+
+    private bool? Checked => Made <= 0 ? false : Made >= Quantity ? true : null;
+
+    private Task Set(int made) => MadeChanged.InvokeAsync(Math.Clamp(made, 0, Quantity));
+}

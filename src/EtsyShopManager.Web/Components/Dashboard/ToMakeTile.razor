@@ -7,10 +7,11 @@
 @inject OrderQueries Queries
 @inject OrderColorService Colors
 @inject IJobEvents JobEvents
+@inject OrderMadeService MadeItems
 @inject IJSRuntime Js
 
-@* What has to be made for the open orders: identical items (same listing, variations and personalization) added up,
-   soonest ship-by first. The same list as Orders → To make and the Home Assistant card's "To make" line. *@
+@* What is still to be made for the open orders: identical items (same listing, variations and personalization) added up,
+   less what is marked made, soonest ship-by first. The same list as Orders → To make (where items are marked made). *@
 @if (_rows is null)
 {
     <MudProgressLinear Indeterminate="true" />
@@ -22,11 +23,12 @@ else if (_rows.Count == 0)
 else
 {
     <div class="esm-orders esm-dash-list">
-        <div class="small muted">@_total item@(_total == 1 ? "" : "s") for the open orders</div>
-        @foreach (var row in _rows)
+        <div class="small muted">@_total item@(_total == 1 ? "" : "s") left to make for the open orders</div>
+        @foreach (var make in _rows)
         {
+            var row = make.Row;
             <div class="esm-dash-make">
-                <span class="esm-dash-qty">×@((int)row["quantity"]!)</span>
+                <span class="esm-dash-qty">×@make.Left</span>
                 <div class="esm-grow">
                     <div>@OrderDue.ShortTitle((string?)row["title"])</div>
                     <div class="order-vars">
@@ -53,7 +55,7 @@ else
 }
 
 @code {
-    private List<JsonObject>? _rows;
+    private List<ToMakeRow>? _rows;
     private int _total;
     private JsonObject? _colorConfig;
     private IDisposable? _live;
@@ -64,17 +66,23 @@ else
         await LoadAsync();
         _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,
             _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        MadeItems.Changed += OnMade;
     }
 
     private async Task LoadAsync()
     {
-        var payload = HaPayloadBuilder.OpenOrders(await Queries.GetOpenOrdersAsync(null), TimeZoneInfo.Local);
-        _rows = payload["items_needed"]!.AsArray().Select(n => n!.AsObject())
-            .OrderBy(r => (long?)r["ship_by_ts"] ?? long.MaxValue).ToList();
-        _total = (int)payload["total_items_needed"]!;
+        var rows = ToMakeList.Build(await Queries.GetOpenOrdersAsync(null), TimeZoneInfo.Local);
+        _rows = rows.Where(r => !r.IsMade).OrderBy(r => (long?)r.Row["ship_by_ts"] ?? long.MaxValue).ToList();
+        _total = _rows.Sum(r => r.Left);
     }
+
+    private void OnMade(object? _) => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
 
     protected override async Task OnAfterRenderAsync(bool firstRender) => await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
 
-    public void Dispose() => _live?.Dispose();
+    public void Dispose()
+    {
+        MadeItems.Changed -= OnMade;
+        _live?.Dispose();
+    }
 }

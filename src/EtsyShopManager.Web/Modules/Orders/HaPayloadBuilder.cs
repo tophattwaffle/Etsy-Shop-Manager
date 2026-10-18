@@ -135,7 +135,7 @@ public static class HaPayloadBuilder
             var variations = item["variations"]!.AsArray();
             var personalization = (string?)item["personalization"];
             var shipTs = (long?)item["expected_ship_ts"];
-            var key = $"{(string?)item["listing_id"]}\u001f{variations.ToJsonString()}\u001f{personalization}";
+            var key = ItemKey(item);
             var quantity = (int?)item["quantity"] is int q && q > 0 ? q : 1;
 
             if (rows.TryGetValue(key, out var row))
@@ -164,6 +164,10 @@ public static class HaPayloadBuilder
             .ThenBy(r => (string?)r["title"] ?? "", StringComparer.Ordinal)
             .ToList();
     }
+
+    /// <summary>What makes two items the same thing to make: same listing, variations and personalization.</summary>
+    public static string ItemKey(JsonObject transactionDetail) =>
+        $"{(string?)transactionDetail["listing_id"]}\u001f{transactionDetail["variations"]!.ToJsonString()}\u001f{(string?)transactionDetail["personalization"]}";
 
     private static double Amount(long amount, int divisor) =>
         Math.Round((double)amount / (divisor > 0 ? divisor : 100), 2);
