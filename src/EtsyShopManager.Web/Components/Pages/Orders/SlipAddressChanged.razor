@@ -1,0 +1,32 @@
+@using EtsyShopManager.Web.Modules.Orders
+
+@* On a printed slip, the ship-to address of an order whose buyer asked for another address after checkout: boxed under a
+   black "Address changed" bar, with the address Etsy still has (and so its shipping label) struck through below it. *@
+<div class="slip-changed @Class">
+    <div class="slip-changed-flag">&#9888; Address changed</div>
+    <div class="slip-changed-body">
+        <div class="slip-label">Ship to</div>
+        @if (_address.Name is not null) { <div>@_address.Name</div> }
+        @foreach (var line in _address.Lines) { <div>@line</div> }
+        <div class="slip-changed-hint">Change the shipping label. Etsy has:</div>
+        <div class="slip-changed-was">
+            @if (_etsy.Name is not null) { <div>@_etsy.Name</div> }
+            @foreach (var line in _etsy.Lines) { <div>@line</div> }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EtsyShopManager.Core.Domain.Order Order { get; set; } = default!;
+
+    [Parameter] public string? Class { get; set; }
+
+    private ShippingAddress _address = new(null, []);
+    private ShippingAddress _etsy = new(null, []);
+
+    protected override void OnParametersSet()
+    {
+        _address = OrderPrintService.Address(Order);
+        _etsy = OrderPrintService.EtsyAddress(Order);
+    }
+}

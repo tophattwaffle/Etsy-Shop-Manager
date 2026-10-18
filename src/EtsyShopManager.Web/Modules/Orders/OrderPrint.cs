@@ -169,8 +169,11 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     /// <summary>The shop's Etsy address as Etsy prints it on slips ("name.etsy.com").</summary>
     public static string ShopAddress(Shop shop) => $"{shop.Name.ToLowerInvariant()}.etsy.com";
 
+    /// <summary>Where the order ships: the address entered here when the buyer asked for a change, otherwise Etsy's.</summary>
+    public static ShippingAddress Address(Order order) => OrderOverrides.Address(order) ?? EtsyAddress(order);
+
     /// <summary>The shipping address from the receipt Etsy returned (its formatted address when there is one).</summary>
-    public static ShippingAddress Address(Order order)
+    public static ShippingAddress EtsyAddress(Order order)
     {
         var receipt = Receipt(order);
         string? S(string key) => Text(receipt?[key]);
@@ -199,12 +202,13 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     public static string LinePrice(OrderItem item) =>
         $"{Math.Max(1, item.Quantity)} x {Listings.ListingFormat.PriceWithSymbol(item.PriceAmount, item.PriceDivisor, item.CurrencyCode)}";
 
-    /// <summary>An item's variations (as "Name: Value") and its personalization, split apart.</summary>
+    /// <summary>An item's variations (as "Name: Value") and its personalization, split apart (with the seller's changes).</summary>
     public static (List<string> Variations, string? Personalization) Split(OrderItem item)
     {
-        var personalization = item.Variations.Where(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0)
+        var all = OrderOverrides.Variations(item);
+        var personalization = all.Where(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0)
             .Select(v => v.Value).ToList();
-        return ([.. item.Variations.Where(v => v.PropertyId != HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0)
+        return ([.. all.Where(v => v.PropertyId != HaPayloadBuilder.PersonalizationPropertyId && v.Value.Length > 0)
                 .Select(v => v.Name.Length > 0 ? $"{v.Name}: {v.Value}" : v.Value)],
             personalization.Count == 0 ? null : string.Join(" | ", personalization));
     }

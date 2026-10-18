@@ -79,6 +79,18 @@ body { font-family: var(--esm-font, system-ui, sans-serif); font-size: 11pt; lin
 .slip-totals { display: grid; grid-template-columns: 1fr 138pt; row-gap: 4.2pt; margin-top: 14pt; text-align: right; }
 .slip-total { font-weight: 700; }
 .slip-note { margin-top: 18pt; }
+/* An address the buyer asked to change after checkout (SlipAddressChanged): boxed under a black bar so it cant be missed
+   when the shipping label is printed, with the address Etsy still has struck through. Black and white, for any printer. */
+.slip-changed { border: 2pt solid var(--print-ink); }
+.slip-changed-flag {
+    background: var(--print-ink); color: var(--print-paper); font-weight: 700; padding: 3pt 6pt;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.slip-changed-body { padding: 5pt 6pt 6pt; }
+.slip-changed-hint { margin-top: 6pt; font-weight: 600; }
+.slip-changed-was { color: var(--print-muted); text-decoration: line-through; }
+/* On a gift slip it sits in the label half, which is cut away, so the recipient never sees it. */
+.gift-changed { position: absolute; left: 36pt; top: 36pt; width: 200pt; font-size: 9.5pt; line-height: 12.2pt; }
 
 /* Gift slips: laid out like Etsy's gift slip (points measured from Etsy's PDF). The top half stays blank for a shipping
    label; the order is on the left (no prices), the gift side past the fold on the right. */

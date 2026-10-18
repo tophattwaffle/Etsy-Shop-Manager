@@ -9,6 +9,11 @@
 <section class="gift-slip">
     <div class="gift-cut" aria-hidden="true"></div>
     <div class="gift-fold" aria-hidden="true"></div>
+    @if (Order.AddressOverride is not null)
+    {
+        @* In the label half, which is cut away, so the gift's recipient never sees it. *@
+        <SlipAddressChanged Order="Order" Class="gift-changed" />
+    }
 
     <div class="gift-left">
         <div class="gift-shop">

@@ -42,11 +42,19 @@ else
 
                 <div class="slip-body">
                     <aside class="slip-side">
-                        <div class="slip-field">
-                            <div class="slip-label">Ship to</div>
-                            @if (address.Name is not null) { <div>@address.Name</div> }
-                            @foreach (var line in address.Lines) { <div>@line</div> }
-                        </div>
+                        @if (o.AddressOverride is not null)
+                        {
+                            @* The buyer asked for another address after checkout: Etsy (and so its shipping label) still has the old one. *@
+                            <SlipAddressChanged Order="o" Class="slip-field" />
+                        }
+                        else
+                        {
+                            <div class="slip-field">
+                                <div class="slip-label">Ship to</div>
+                                @if (address.Name is not null) { <div>@address.Name</div> }
+                                @foreach (var line in address.Lines) { <div>@line</div> }
+                            </div>
+                        }
                         @if (o.ShipByUtc is not null)
                         {
                             <div class="slip-field">

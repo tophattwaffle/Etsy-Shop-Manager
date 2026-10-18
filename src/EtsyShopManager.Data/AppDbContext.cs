@@ -302,6 +302,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.HasIndex(x => new { x.OrderId, x.EtsyTransactionId }).IsUnique();
             e.HasIndex(x => x.EtsyListingId);
             e.Property(x => x.Variations).HasJsonConversion();
+            e.Property(x => x.VariationOverrides).HasJsonConversion();
         });
 
         b.Entity<ShopOrderSyncState>(e =>
