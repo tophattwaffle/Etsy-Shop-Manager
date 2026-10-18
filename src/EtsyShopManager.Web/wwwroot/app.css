@@ -34,6 +34,7 @@ body { font-family: var(--esm-font); }
 .small { font-size: 0.8rem; }
 .text-right { text-align: right; white-space: nowrap; }
 .error-text { color: var(--esm-error); }
+.warning-text { color: var(--esm-warning); }
 .cursor-pointer { cursor: pointer; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(--esm-sunk); }

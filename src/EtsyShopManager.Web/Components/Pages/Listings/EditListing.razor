@@ -193,6 +193,62 @@ else
                 @if (_form![ListingFields.Inventory] is { } inventoryNode)
                 {
                     <VariationsEditor Inventory="inventoryNode" Order="VariationEditor.EtsyOrder(l)" InventoryChanged="@(i => Set(ListingFields.Inventory, i))" />
+                    @if (_variationLists.Count > 0)
+                    {
+                        @foreach (var v in VariationEditor.Variations(inventoryNode, VariationEditor.EtsyOrder(l)))
+                        {
+                            var link = _links.FirstOrDefault(k => k.PropertyId == v.PropertyId);
+                            var propertyId = v.PropertyId;
+                            <div class="esm-variation">
+                                <div class="esm-variation-name">@v.Name: variation list</div>
+                                @if (link is not null)
+                                {
+                                    <div class="esm-variation-add">
+                                        <span>Follows <a href="@($"variation-lists/{link.ListId}")">@link.ListName</a>.</span>
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyLinkedAsync(link))">Apply list now</MudButton>
+                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkListAsync(link))">Unlink</MudButton>
+                                    </div>
+                                    <div class="small muted">
+                                        Apply list now brings this listing in line with the list as unpushed edits. Unlink keeps the values as they are.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="esm-variation-add">
+                                        <MudSelect T="int?" Value="@_linkPick.GetValueOrDefault(propertyId)" ValueChanged="@(id => PickLinkAsync(propertyId, id))"
+                                                   Label="Link to variation list" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                                            @foreach (var (listId, listName) in _variationLists)
+                                            {
+                                                <MudSelectItem T="int?" Value="@listId">@listName</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                                   Disabled="@(_linkPreview.GetValueOrDefault(propertyId).Preview is null)"
+                                                   OnClick="@(() => LinkListAsync(propertyId))">Link</MudButton>
+                                    </div>
+                                    @if (_linkPreview.TryGetValue(propertyId, out var lp))
+                                    {
+                                        @if (lp.Error is not null)
+                                        {
+                                            <MudText Typo="Typo.body2" Class="error-text">@lp.Error</MudText>
+                                        }
+                                        else if (lp.Preview is { } p)
+                                        {
+                                            <div class="small">
+                                                @p.InList of @p.Values value@(p.Values == 1 ? " is" : "s are") in the list.
+                                                @(p.Changes.Count == 0 ? "Applying it changes nothing now." : $"Applying it then: {string.Join(", ", p.Changes.Skip(1))}.")
+                                                Linking only records the link.
+                                            </div>
+                                            @if (p.Warning is not null)
+                                            {
+                                                <MudText Typo="Typo.body2" Class="warning-text">@p.Warning</MudText>
+                                            }
+                                        }
+                                    }
+                                }
+                            </div>
+                        }
+                    }
                     @if (_variationLists.Count > 0 && VariationEditor.Variations(inventoryNode).Count < VariationEditor.MaxVariations)
                     {
                         <div class="esm-variation">
@@ -436,6 +492,9 @@ else
     private IReadOnlyList<(int Id, string Name)> _variationLists = [];
     private int? _fromList;
     private string? _fromListName;
+    private IReadOnlyList<EtsyShopManager.Web.Modules.Templates.VariationListLink> _links = [];
+    private readonly Dictionary<long, int?> _linkPick = [];
+    private readonly Dictionary<long, (EtsyShopManager.Web.Modules.Templates.VariationListLinkPreview? Preview, string? Error)> _linkPreview = [];
     private IDisposable? _live;
 
     private TableSort<FieldChange> _changeSort = new();
@@ -476,6 +535,7 @@ else
         _listingBlocks = await TextBlocks.ForListingAsync(Id);
         _variationLists = [.. (await db.VariationLists.AsNoTracking().OrderBy(v => v.Name).Select(v => new { v.Id, v.Name }).ToListAsync())
             .Select(v => (v.Id, v.Name))];
+        _links = await VariationLists.ListingLinksAsync(Id);
         if (keepForm && _form is not null) return;
         _form = model.LocalState();
         _description = _savedDescription = await TextBlocks.SourceAsync(Id);
@@ -646,6 +706,43 @@ else
         (_fromList, _fromListName, _preview) = (null, null, null);
         await LoadAsync();
         Snackbar.Add($"{plan!.VariationName} added with {plan.Values.Count} options ({plan.Combinations} combinations) as an unpushed edit.", Severity.Success);
+    }
+
+    private async Task PickLinkAsync(long propertyId, int? listId)
+    {
+        _linkPick[propertyId] = listId;
+        if (listId is null) { _linkPreview.Remove(propertyId); return; }
+        var result = await VariationLists.PreviewLinkAsync(listId.Value, Id, propertyId);
+        // The link is checked against the saved draft; a variation added on this page isn't there until it's saved.
+        _linkPreview[propertyId] = result.Error is not null && _unsaved ? (null, "Save the draft first, then link this variation.") : result;
+    }
+
+    private async Task LinkListAsync(long propertyId)
+    {
+        var error = await VariationLists.LinkVariationAsync(_linkPick[propertyId]!.Value, Id, propertyId, await User());
+        if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
+        var changes = _linkPreview[propertyId].Preview!.Changes.Count;
+        _linkPick.Remove(propertyId);
+        _linkPreview.Remove(propertyId);
+        _links = await VariationLists.ListingLinksAsync(Id);
+        Snackbar.Add(changes > 0 ? "Linked. Use Apply list now (or Apply on the list's page) to bring it in line with the list." : "Linked.", Severity.Success);
+    }
+
+    private async Task ApplyLinkedAsync(EtsyShopManager.Web.Modules.Templates.VariationListLink link)
+    {
+        if (_unsaved) await SaveAsync();
+        var changed = await VariationLists.ApplyAsync(link.ListId, await User(), listingId: Id);
+        _preview = null;
+        await LoadAsync();
+        Snackbar.Add(changed > 0 ? $"{link.ListName} applied as unpushed edits; review and push when you're ready." : $"Already in line with {link.ListName}.",
+            Severity.Success);
+    }
+
+    private async Task UnlinkListAsync(EtsyShopManager.Web.Modules.Templates.VariationListLink link)
+    {
+        await VariationLists.UnlinkAsync(link.ListId, Id, await User());
+        _links = await VariationLists.ListingLinksAsync(Id);
+        Snackbar.Add($"Unlinked from {link.ListName}; the values stay as they are.", Severity.Success);
     }
 
     private async Task ReviewAsync()
