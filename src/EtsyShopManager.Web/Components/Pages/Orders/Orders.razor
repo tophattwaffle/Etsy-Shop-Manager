@@ -60,17 +60,37 @@
         {
             <MudText Class="muted">No open orders. 🎉</MudText>
         }
+        else
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap" Class="mb-3">
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen">Select all unshipped</MudButton>
+                @if (Picked.Count > 0)
+                {
+                    <span class="muted small">@Picked.Count selected</span>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _picked.Clear()">Clear</MudButton>
+                }
+                <MudSpacer />
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
+                           Disabled="@(Picked.Count == 0)" Href="@PrintLink("pick")" Target="_blank">Print pick list</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
+                           Disabled="@(Picked.Count == 0)" Href="@PrintLink("slips")" Target="_blank">Print packing slips</MudButton>
+            </MudStack>
+        }
         <div class="order-grid">
             @foreach (var o in _open)
             {
                 var due = OrderDue.For(o.ShipByUtc, Time.GetUtcNow().UtcDateTime);
                 <div class="order-card @(due.Urgent ? "urgent" : "")" style="@ShopStyle(o.ShopId)">
                     <div class="order-head">
-                        <div>
-                            <div class="order-buyer">@(o.BuyerName ?? $"#{o.EtsyReceiptId}")</div>
-                            <div class="muted small">
-                                <a href="@OrderUrl(o.ShopId, o.EtsyReceiptId)" target="@OrderTarget(o.ShopId, o.EtsyReceiptId)">#@o.EtsyReceiptId</a>
-                                · @o.Shop.Name · @ListingFormat.Local(o.EtsyCreatedAtUtc)
+                        <div class="order-pick">
+                            <MudCheckBox T="bool" Value="@_picked.Contains(o.Id)" ValueChanged="@(on => Pick(o.Id, on))" Dense="true"
+                                         Size="Size.Small" aria-label="@($"Select order {o.EtsyReceiptId} to print")" />
+                            <div>
+                                <div class="order-buyer">@(o.BuyerName ?? $"#{o.EtsyReceiptId}")</div>
+                                <div class="muted small">
+                                    <a href="@OrderUrl(o.ShopId, o.EtsyReceiptId)" target="@OrderTarget(o.ShopId, o.EtsyReceiptId)">#@o.EtsyReceiptId</a>
+                                    · @o.Shop.Name · @ListingFormat.Local(o.EtsyCreatedAtUtc)
+                                </div>
                             </div>
                         </div>
                         <div class="text-right">
@@ -325,6 +345,19 @@
             if (await PollQueue.PollShopAsync(s.ShopId, user) is not null) queued++;
         Snackbar.Add(queued == 0 ? "A check is already queued" : "Checking Etsy for orders…", Severity.Info);
     }
+
+    // Orders picked for printing (open orders only; one that ships or closes drops out on the next refresh).
+    private readonly HashSet<int> _picked = [];
+    private List<int> Picked => [.. _open.Where(o => _picked.Contains(o.Id)).Select(o => o.Id)];
+
+    private void Pick(int id, bool on)
+    {
+        if (on) _picked.Add(id); else _picked.Remove(id);
+    }
+
+    private void SelectAllOpen() => _picked.UnionWith(_open.Select(o => o.Id));
+
+    private string PrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", Picked)}";
 
     private static (List<OrderVariation> Variations, string? Personalization) Split(OrderItem i)
     {

@@ -125,7 +125,7 @@ The existing card keeps its styling and logic. Only its data source changes. **H
 - Full local backup of listings and images, plus a one-click export (zip).
 - Bulk edit: percentage price changes, tags, materials, shipping profile across selected listings.
 - Audit log of who changed what (now that there are user accounts).
-- Pick list / packing slip printing from the order dashboard.
+- Pick list / packing slip printing from the order dashboard. **Done (2026-10-18):** open orders get checkboxes and "Select all unshipped"; "Print pick list" and "Print packing slips" open static, print-friendly pages (`OrderPrintService`, `PrintLayout`, `wwwroot/print.css`; US letter, one slip per page). The pick list groups items by listing and variations with each personalization and its order under the line. A slip has the shop's name, logo and colour, order number and dates, the address from the stored receipt, items, buyer note, gift message and the shop's thank-you line (Shops page, `Shops.SlipThanks.{id}`). Read-only: nothing is written to Etsy or marked shipped.
 
 ## Phases
 

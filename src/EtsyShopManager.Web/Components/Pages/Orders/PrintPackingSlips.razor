@@ -1,0 +1,90 @@
+@page "/orders/print/slips"
+@attribute [Authorize]
+@attribute [ExcludeFromInteractiveRouting]
+@layout EtsyShopManager.Web.Components.Layout.PrintLayout
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Orders
+@inject OrderPrintService Print
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
+
+@* Static SSR printout: one packing slip per selected order, each on its own page. Read-only: nothing is marked shipped. *@
+<PageTitle>Packing slips · Etsy Shop Manager</PageTitle>
+
+@if (_orders.Count == 0)
+{
+    <p class="print-empty">No orders selected. Choose orders on the Orders page, then print packing slips.</p>
+}
+else
+{
+    <div class="print-sheet">
+        @foreach (var o in _orders)
+        {
+            var address = OrderPrintService.Address(o);
+            <section class="slip" style="@ShopStyle(o.ShopId)">
+                <div class="slip-head">
+                    <div class="slip-shop">
+                        @if (o.Shop.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(o.ShopId)" alt="" /> }
+                        <div>
+                            <div class="slip-shop-name">@o.Shop.Name</div>
+                            @if (o.Shop.Url is { Length: > 0 }) { <div class="print-muted print-small">@o.Shop.Url</div> }
+                        </div>
+                    </div>
+                    <div class="slip-meta">
+                        <div><b>Order #@o.EtsyReceiptId</b></div>
+                        <div class="print-small">Ordered @ListingFormat.Local(o.EtsyCreatedAtUtc, "MMM d, yyyy")</div>
+                        @if (o.ShipByUtc is not null) { <div class="print-small">Ship by @ListingFormat.Local(o.ShipByUtc, "MMM d, yyyy")</div> }
+                    </div>
+                </div>
+
+                <div class="slip-address">
+                    <div class="print-muted print-small">Ship to</div>
+                    @if (address.Name is not null) { <div class="slip-address-name">@address.Name</div> }
+                    @foreach (var line in address.Lines) { <div>@line</div> }
+                </div>
+
+                <table class="slip-items">
+                    <thead class="esm-fixed-order">
+                        <tr><th>Qty</th><th>Item</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in o.Items.OrderBy(i => i.EtsyTransactionId))
+                        {
+                            var (variations, personalization) = OrderPrintService.Split(item);
+                            <tr>
+                                <td class="slip-qty"><b>×@Math.Max(1, item.Quantity)</b></td>
+                                <td>
+                                    <div>@OrderPrintService.ShortTitle(item.Title)</div>
+                                    @if (variations.Count > 0) { <div class="print-small">@string.Join(" · ", variations)</div> }
+                                    @if (personalization is not null) { <div class="print-small">Personalization: @personalization</div> }
+                                    @if (item.Sku is not null) { <div class="print-muted print-small">SKU @item.Sku</div> }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                @if (o.MessageFromBuyer is { Length: > 0 }) { <div class="slip-note"><b>Note from buyer:</b> @o.MessageFromBuyer</div> }
+                @if (o.IsGift) { <div class="slip-note"><b>Gift</b>@(o.GiftMessage is { Length: > 0 } g ? $": {g}" : "")</div> }
+                @if (_thanks.TryGetValue(o.ShopId, out var thanks)) { <div class="slip-thanks">@thanks</div> }
+            </section>
+        }
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery] private string? Ids { get; set; }
+
+    private List<EtsyShopManager.Core.Domain.Order> _orders = [];
+    private Dictionary<int, string> _thanks = [];
+    private Dictionary<int, string> _accents = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _orders = await Print.GetOrdersAsync(OrderPrintService.ParseIds(Ids));
+        var shopIds = _orders.Select(o => o.ShopId).Distinct().ToList();
+        _thanks = await Print.GetThanksAsync(shopIds);
+        _accents = await ShopAccents.GetEffectiveAsync(shopIds);
+    }
+
+    private string? ShopStyle(int shopId) => _accents.TryGetValue(shopId, out var color) ? $"--shop: {color}" : null;
+}

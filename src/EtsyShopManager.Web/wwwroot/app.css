@@ -214,6 +214,8 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
     box-shadow: inset 4px 0 0 var(--shop, var(--esm-error));
 }
 .order-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+/* Print selection: the checkbox beside the buyer (printouts themselves are styled in print.css). */
+.order-pick { display: flex; align-items: flex-start; gap: 2px; }
 /* Ship-by pill, as on the Home Assistant card: a see-through fill and an outline running from green (--due: 100%, set
    by OrderDue) through yellow to red (0%), mixed from the success and error tokens. Grey without a ship-by date. */
 .esm-due {
