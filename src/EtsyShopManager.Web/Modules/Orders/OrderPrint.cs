@@ -9,6 +9,10 @@ namespace EtsyShopManager.Web.Modules.Orders;
 /// <summary>A buyer's shipping address as lines to print, from the stored receipt.</summary>
 public sealed record ShippingAddress(string? Name, IReadOnlyList<string> Lines);
 
+/// <summary>Payment, shipping method and totals for a packing slip (see <see cref="OrderPrintService.Details"/>).</summary>
+public sealed record SlipDetails(string? PaymentMethod, string? ShippingMethod, IReadOnlyList<(string Label, string Amount)> Totals,
+    string OrderTotal);
+
 /// <summary>One line of a pick list: an item and its variations across the selected orders.</summary>
 /// <param name="Personalizations">Each personalization with its order and quantity, printed under the line.</param>
 public sealed record PickListLine(string Title, IReadOnlyList<string> Variations, string? Sku, string? ImageUrl, int Quantity,
@@ -56,13 +60,56 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         return null;
     }
 
+    private static JsonObject? Receipt(Order order)
+    {
+        try { return JsonNode.Parse(order.RawJson) as JsonObject; }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    private static string? Text(JsonNode? node) =>
+        node is JsonValue v && v.TryGetValue<string>(out var s) && s.Trim().Length > 0 ? s.Trim() : null;
+
+    /// <summary>
+    /// What Etsy's own packing slip shows besides the address and items, from the stored receipt (Etsy's ShopReceipt):
+    /// payment method, the shipping method chosen at checkout (a transaction's shipping upgrade or method; null when Etsy
+    /// sent neither) and the totals. The buyer's Etsy username isn't in a receipt, so it isn't shown.
+    /// </summary>
+    public static SlipDetails Details(Order order)
+    {
+        var receipt = Receipt(order);
+        var payment = Text(receipt?["payment_method"]) switch
+        {
+            null => null,
+            "paypal" => "Paid via PayPal",
+            "check" => "Paid by check",
+            "mo" => "Paid by money order",
+            "other" => "Paid another way",
+            _ => "Paid via Etsy Payments", // cards, Apple/Google Pay, Klarna, iDEAL, Sofort, bank transfer
+        };
+        var transactions = receipt?["transactions"] as JsonArray ?? [];
+        var shipping = transactions.Select(t => Text(t?["shipping_upgrade"]) ?? Text(t?["shipping_method"])).FirstOrDefault(s => s is not null);
+
+        string? Money(string key, bool negative = false) => receipt?[key] is JsonObject m && (long?)m["amount"] is long amount and > 0
+            ? (negative ? "-" : "") + Listings.ListingFormat.PriceWithSymbol(amount, (int?)m["divisor"] ?? order.Divisor, (string?)m["currency_code"] ?? order.CurrencyCode)
+            : null;
+        var itemTotal = Money("total_price")
+            ?? Listings.ListingFormat.PriceWithSymbol(order.Items.Sum(i => i.PriceAmount * Math.Max(1, i.Quantity)), order.Items.FirstOrDefault()?.PriceDivisor ?? order.Divisor, order.CurrencyCode);
+        var totals = new List<(string Label, string Amount)> { ("Item total", itemTotal) };
+        foreach (var (key, label, negative) in new[] { ("discount_amt", "Discount", true), ("gift_wrap_price", "Gift wrap", false),
+                     ("total_tax_cost", "Tax", false), ("total_vat_cost", "VAT", false), ("total_shipping_cost", "Shipping total", false) })
+            if (Money(key, negative) is { } amount) totals.Add((label, amount));
+        var grand = Money("grandtotal") ?? (order.Grandtotal is { } g ? Listings.ListingFormat.PriceWithSymbol(g, order.Divisor, order.CurrencyCode) : itemTotal);
+        return new SlipDetails(payment, shipping, totals, grand);
+    }
+
+    /// <summary>The shop's Etsy address as Etsy prints it on slips ("name.etsy.com").</summary>
+    public static string ShopAddress(Shop shop) => $"{shop.Name.ToLowerInvariant()}.etsy.com";
+
     /// <summary>The shipping address from the receipt Etsy returned (its formatted address when there is one).</summary>
     public static ShippingAddress Address(Order order)
     {
-        JsonObject? receipt;
-        try { receipt = JsonNode.Parse(order.RawJson) as JsonObject; }
-        catch (System.Text.Json.JsonException) { receipt = null; }
-        string? S(string key) => receipt?[key] is JsonValue v && v.TryGetValue<string>(out var s) && s.Trim().Length > 0 ? s.Trim() : null;
+        var receipt = Receipt(order);
+        string? S(string key) => Text(receipt?[key]);
         var name = S("name") ?? order.BuyerName;
         if (S("formatted_address") is { } formatted)
         {
@@ -72,9 +119,21 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         }
         var cityLine = string.Join(" ", new[] { string.Join(", ", new[] { S("city"), S("state") }.Where(x => x is not null)), S("zip") }
             .Where(x => !string.IsNullOrEmpty(x)));
-        return new ShippingAddress(name, [.. new[] { S("first_line"), S("second_line"), cityLine, S("country_iso") }
+        return new ShippingAddress(name, [.. new[] { S("first_line"), S("second_line"), cityLine, CountryName(S("country_iso")) }
             .Where(x => !string.IsNullOrEmpty(x)).Select(x => x!)]);
     }
+
+    /// <summary>"US" → "United States" (as Etsy prints it); unknown codes as they are.</summary>
+    private static string? CountryName(string? iso)
+    {
+        if (iso is null) return null;
+        try { return new System.Globalization.RegionInfo(iso).EnglishName; }
+        catch (ArgumentException) { return iso; }
+    }
+
+    /// <summary>The price of one item line as Etsy's slip shows it ("2 x $15.99").</summary>
+    public static string LinePrice(OrderItem item) =>
+        $"{Math.Max(1, item.Quantity)} x {Listings.ListingFormat.PriceWithSymbol(item.PriceAmount, item.PriceDivisor, item.CurrencyCode)}";
 
     /// <summary>An item's variations (as "Name: Value") and its personalization, split apart.</summary>
     public static (List<string> Variations, string? Personalization) Split(OrderItem item)

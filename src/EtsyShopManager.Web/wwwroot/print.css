@@ -6,7 +6,6 @@
     --print-muted: #666666;
     --print-line: #d9d9d9;
     --print-sunk: #f4f4f4;
-    --print-accent: #f1641e; /* Etsy orange, where a shop has no colour */
 }
 
 @page { size: letter; margin: 0.5in; }
@@ -14,7 +13,7 @@
 html, body { background: var(--print-paper); color: var(--print-ink); }
 body { font-family: var(--esm-font, system-ui, sans-serif); font-size: 11pt; line-height: 1.35; margin: 0; }
 /* Narrow columns (checkbox, quantity, photo) take only what they need; the item gets the rest. */
-.slip-items th:first-child, .pick-table th:nth-child(-n+3) { width: 1%; white-space: nowrap; }
+.pick-table th:nth-child(-n+3) { width: 1%; white-space: nowrap; }
 
 .print-toolbar {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -42,26 +41,33 @@ body { font-family: var(--esm-font, system-ui, sans-serif); font-size: 11pt; lin
 .pick-box { display: inline-block; width: 14px; height: 14px; border: 1.5px solid var(--print-ink); border-radius: 2px; }
 .pick-personal { margin: 4px 0 0; padding-left: 18px; }
 
-/* Packing slips */
-.slip { border-top: 6px solid var(--shop, var(--print-accent)); padding-top: 12px; }
-.slip + .slip { margin-top: 32px; }
-.slip-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.slip-shop { display: flex; align-items: center; gap: 10px; }
-.slip-shop img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
-.slip-shop-name { font-size: 15pt; font-weight: 700; }
-.slip-meta { text-align: right; }
-.slip-address { margin: 16px 0; }
-.slip-address-name { font-weight: 700; }
-.slip-items { width: 100%; border-collapse: collapse; margin: 8px 0; }
-.slip-items th, .slip-items td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--print-line); }
-.slip-items td.slip-qty { white-space: nowrap; }
-.slip-items img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; }
-.slip-note { margin: 10px 0; padding: 8px 10px; background: var(--print-sunk); border-radius: 4px; }
-.slip-thanks { margin-top: 18px; font-style: italic; }
+/* Packing slips: laid out like Etsy's own slip (plain black on white, thin rules, no colour). One letter page each;
+   the footer sits at the bottom of the page. */
+.slip { display: flex; flex-direction: column; min-height: 10in; }
+.slip + .slip { margin-top: 32px; padding-top: 32px; border-top: 1px dashed var(--print-line); }
+.slip-shop { display: flex; align-items: center; gap: 22px; margin-bottom: 48px; }
+.slip-shop img { width: 68px; height: 68px; object-fit: cover; }
+.slip-shop-name { font-family: Georgia, "Times New Roman", serif; font-size: 20pt; font-weight: 700; line-height: 1.2; }
+.slip-shop-url { margin-top: 4px; }
+.slip-body { display: grid; grid-template-columns: 2.3in 1fr; gap: 0.2in; }
+.slip-label { font-weight: 600; }
+.slip-field { margin-bottom: 16px; }
+.slip-rule-short { border: 0; border-top: 1px solid var(--print-ink); margin: 0 0 24px; }
+.slip-count { font-weight: 600; padding-bottom: 12px; border-bottom: 1px solid var(--print-ink); }
+.slip-items { border-bottom: 1px solid var(--print-ink); padding: 8px 0 16px; }
+.slip-item { display: grid; grid-template-columns: 0.75in 1fr auto; gap: 0.2in; padding-top: 12px; break-inside: avoid; }
+.slip-item img, .slip-noimg { width: 0.75in; height: 0.75in; object-fit: cover; background: var(--print-sunk); display: block; }
+.slip-item-text > div + div { margin-top: 8px; }
+.slip-item-title { font-weight: 600; }
+.slip-item-price { white-space: nowrap; text-align: right; }
+.slip-totals { display: grid; grid-template-columns: 1fr 1.6in; gap: 6px 0; margin-top: 20px; text-align: right; }
+.slip-total { font-weight: 700; }
+.slip-note { margin-top: 24px; }
+.slip-footer { margin-top: auto; padding-top: 18px; border-top: 1px solid var(--print-ink); }
 
 @media print {
     .print-toolbar { display: none; }
     .print-sheet { max-width: none; margin: 0; padding: 0; }
-    .slip + .slip { margin-top: 0; break-before: page; }
+    .slip + .slip { margin-top: 0; padding-top: 0; border-top: 0; break-before: page; }
     a { color: inherit; text-decoration: none; }
 }

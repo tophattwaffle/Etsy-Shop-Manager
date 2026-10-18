@@ -18,7 +18,7 @@ public class OrderPrintTests
     {
         var item = new OrderItem
         {
-            EtsyTransactionId = tx, EtsyListingId = listingId, Title = title, Quantity = qty, PriceAmount = 1299,
+            EtsyTransactionId = tx, EtsyListingId = listingId, Title = title, Quantity = qty, PriceAmount = 1299, CurrencyCode = "USD",
             ImageUrl = $"https://i.etsystatic.com/sample/{listingId}.jpg",
         };
         if (color is not null) item.Variations.Add(new OrderVariation { PropertyId = 200, Name = "Color", Value = color });
@@ -34,12 +34,23 @@ public class OrderPrintTests
             Id = 1, ShopId = 1, EtsyReceiptId = 1001, BuyerName = "Sample Buyer", IsPaid = true, Status = "paid",
             EtsyCreatedAtUtc = new DateTime(2026, 10, 15, 12, 0, 0, DateTimeKind.Utc), ShipByUtc = new DateTime(2026, 10, 20, 0, 0, 0, DateTimeKind.Utc),
             MessageFromBuyer = "Please hurry", IsGift = true, GiftMessage = "Happy birthday!",
-            RawJson = """{"name":"Sample Buyer","formatted_address":"Sample Buyer\n1 Example Street\nApt 2\nSpringfield, IL 62701\nUnited States"}""",
+            CurrencyCode = "USD",
+            RawJson = """
+                {"name":"Sample Buyer","formatted_address":"Sample Buyer\n1 Example Street\nApt 2\nSpringfield, IL 62701\nUnited States",
+                 "payment_method":"cc",
+                 "total_price":{"amount":3897,"divisor":100,"currency_code":"USD"},
+                 "discount_amt":{"amount":500,"divisor":100,"currency_code":"USD"},
+                 "total_tax_cost":{"amount":140,"divisor":100,"currency_code":"USD"},
+                 "total_vat_cost":{"amount":0,"divisor":100,"currency_code":"USD"},
+                 "total_shipping_cost":{"amount":582,"divisor":100,"currency_code":"USD"},
+                 "grandtotal":{"amount":4119,"divisor":100,"currency_code":"USD"},
+                 "transactions":[{"shipping_method":null,"shipping_upgrade":null},{"shipping_method":"USPS First-Class Mail","shipping_upgrade":null}]}
+                """,
             Items = [Item(1, 10, "Mini Caution Sign | desk decor | gift", 2, "Yellow", "Bob"), Item(2, 11, "Desk Cone", 1, null)],
         },
         new()
         {
-            Id = 2, ShopId = 1, EtsyReceiptId = 1002, BuyerName = "Other Sample", IsPaid = true, Status = "paid",
+            Id = 2, ShopId = 1, EtsyReceiptId = 1002, BuyerName = "Other Sample", IsPaid = true, Status = "paid", CurrencyCode = "USD",
             EtsyCreatedAtUtc = new DateTime(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc), ShipByUtc = new DateTime(2026, 10, 19, 0, 0, 0, DateTimeKind.Utc),
             RawJson = """{"name":"Other Sample","first_line":"9 Test Road","city":"Testville","state":"CA","zip":"90001","country_iso":"US"}""",
             Items = [Item(3, 10, "Mini Caution Sign | desk decor", 3, "Yellow", "Alice"), Item(4, 10, "Mini Caution Sign", 1, "Blue")],
@@ -70,11 +81,29 @@ public class OrderPrintTests
         Assert.Equal(["1 Example Street", "Apt 2", "Springfield, IL 62701", "United States"], formatted.Lines);
 
         var parts = OrderPrintService.Address(orders[1]);
-        Assert.Equal(["9 Test Road", "Testville, CA 90001", "US"], parts.Lines);
+        Assert.Equal(["9 Test Road", "Testville, CA 90001", "United States"], parts.Lines);
 
         var broken = OrderPrintService.Address(new Order { BuyerName = "Fallback", RawJson = "not json" });
         Assert.Equal(("Fallback", 0), (broken.Name, broken.Lines.Count));
         Assert.Equal([3, 1], OrderPrintService.ParseIds("3, x,1,3,-2"));
+    }
+
+    [Fact]
+    public void Slip_details_follow_Etsys_slip_and_leave_out_what_the_receipt_lacks()
+    {
+        var orders = SampleOrders();
+        var full = OrderPrintService.Details(orders[0]);
+        Assert.Equal(("Paid via Etsy Payments", "USPS First-Class Mail"), (full.PaymentMethod, full.ShippingMethod));
+        Assert.Equal([("Item total", "$38.97"), ("Discount", "-$5.00"), ("Tax", "$1.40"), ("Shipping total", "$5.82")], full.Totals);
+        Assert.Equal("$41.19", full.OrderTotal);
+
+        var bare = OrderPrintService.Details(orders[1]); // no payment, shipping method or totals in this receipt
+        Assert.Equal((null, null), (bare.PaymentMethod, bare.ShippingMethod));
+        Assert.Equal([("Item total", "$51.96")], bare.Totals); // from the items: 3 × 12.99 + 1 × 12.99
+        Assert.Equal("$51.96", bare.OrderTotal);
+
+        Assert.Equal("2 x $12.99", OrderPrintService.LinePrice(orders[0].Items[0]));
+        Assert.Equal("sampleshop.etsy.com", OrderPrintService.ShopAddress(new Shop { Name = "SampleShop" }));
     }
 
     [Fact]
@@ -104,9 +133,10 @@ public class OrderPrintTests
 
         var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=2,1");
         Assert.Equal(2, CountOf(slips, "<section class=\"slip\""));
-        Assert.True(slips.IndexOf("Order #1002", StringComparison.Ordinal) < slips.IndexOf("Order #1001", StringComparison.Ordinal)); // ship-by first
+        Assert.True(slips.IndexOf("#1002", StringComparison.Ordinal) < slips.IndexOf("#1001", StringComparison.Ordinal)); // ship-by first
         foreach (var text in new[] { "1 Example Street", "Testville, CA 90001", "Personalization: Bob", "Color: Yellow", "Please hurry",
-                     "Happy birthday!", "Thanks for shopping small!", "SampleShop" })
+                     "Happy birthday!", "Thanks for shopping small!", "SampleShop", "sampleshop.etsy.com", "Paid via Etsy Payments",
+                     "USPS First-Class Mail", "Order total", "$41.19", "2 x $12.99", "3 items", "4 items", "Scheduled to ship by" })
             Assert.Contains(text, slips);
 
         var pick = await RenderAsync<PrintPickList>(db, settings, "orders/print/pick?ids=1");
