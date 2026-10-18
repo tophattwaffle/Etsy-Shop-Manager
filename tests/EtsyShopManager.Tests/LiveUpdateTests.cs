@@ -141,6 +141,59 @@ public class JobProcessorEventTests
         await using var ctx = db.CreateDbContext();
         Assert.Equal("3 things done", (await ctx.Jobs.SingleAsync()).Result);
     }
+
+    /// <summary>TestDb, except that the next <see cref="Failures"/> contexts can't be opened (the database is busy).</summary>
+    private sealed class BusyDb(TestDb db) : IDbContextFactory<AppDbContext>
+    {
+        public int Failures;
+
+        public AppDbContext CreateDbContext() =>
+            Interlocked.Decrement(ref Failures) >= 0 ? throw new InvalidOperationException("database is locked") : db.CreateDbContext();
+    }
+
+    [Fact]
+    public async Task A_database_error_at_start_up_delays_the_processor_instead_of_stopping_it()
+    {
+        using var db = new TestDb();
+        var busy = new BusyDb(db);
+        var time = new ImmediateTimeProvider();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<TimeProvider>(time);
+        services.AddSingleton<IDbContextFactory<AppDbContext>>(busy);
+        services.AddSingleton<IJobSignal, JobSignal>();
+        services.AddSingleton<IJobEvents, JobEvents>();
+        services.AddSingleton<JobCatalog>();
+        services.AddSingleton<IJobQueue, EfJobQueue>();
+        services.AddScoped<IJobHandler, SampleJob>();
+        services.AddSingleton(Options.Create(new JobOptions { PollInterval = TimeSpan.FromMilliseconds(50) }));
+        services.AddSingleton<JobProcessor>();
+        await using var provider = services.BuildServiceProvider();
+
+        var finished = new TaskCompletionSource<JobChanged>();
+        using var sub = provider.GetRequiredService<IJobEvents>().Subscribe(c => c.IsFinal, batch =>
+        {
+            finished.TrySetResult(batch[0]);
+            return Task.CompletedTask;
+        });
+        await provider.GetRequiredService<IJobQueue>().EnqueueAsync(new JobRequest { JobType = "sample" });
+        busy.Failures = 2; // the start-up recovery fails twice
+
+        var processor = provider.GetRequiredService<JobProcessor>();
+        await processor.StartAsync(CancellationToken.None);
+        JobChanged done;
+        try
+        {
+            done = await finished.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            await processor.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(JobStatus.Succeeded, done.Status);
+        lock (time.Delays) Assert.Equal(2, time.Delays.Count(d => d == TimeSpan.FromSeconds(5)));
+    }
 }
 
 public class OrderPollSummaryTests

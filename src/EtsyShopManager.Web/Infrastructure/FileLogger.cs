@@ -45,17 +45,29 @@ public sealed class FileLoggerProvider : ILoggerProvider
         {
             await foreach (var line in _channel.Reader.ReadAllAsync())
             {
-                var day = DateTime.Now.ToString("yyyyMMdd");
-                if (day != currentDay)
+                try
                 {
-                    if (writer is not null) await writer.DisposeAsync();
-                    currentDay = day;
-                    var stream = new FileStream(Path.Combine(_directory, $"esm-{day}.log"), FileMode.Append,
-                        FileAccess.Write, FileShare.ReadWrite);
-                    writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
-                    PruneOldFiles();
+                    var day = DateTime.Now.ToString("yyyyMMdd");
+                    if (day != currentDay)
+                    {
+                        if (writer is not null) await writer.DisposeAsync();
+                        writer = null;
+                        var stream = new FileStream(Path.Combine(_directory, $"esm-{day}.log"), FileMode.Append,
+                            FileAccess.Write, FileShare.ReadWrite);
+                        writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+                        currentDay = day;
+                        PruneOldFiles();
+                    }
+                    await writer!.WriteLineAsync(line);
                 }
-                await writer!.WriteLineAsync(line);
+                catch
+                {
+                    // A failed write (the file locked by another program, a full disk) loses this line only: the file is
+                    // opened again for the next one, instead of file logging stopping until a restart.
+                    try { if (writer is not null) await writer.DisposeAsync(); } catch { }
+                    writer = null;
+                    currentDay = null;
+                }
             }
         }
         catch
