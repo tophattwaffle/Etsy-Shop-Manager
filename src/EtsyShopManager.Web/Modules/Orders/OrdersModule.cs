@@ -24,6 +24,7 @@ public sealed class OrdersModule : IModule
         services.AddSingleton<ApiKeyService>();
         services.AddSingleton<OrderPollQueue>();
         services.AddSingleton<OrderColorService>();
+        services.AddSingleton<OrderPrintService>();
 
         services.AddJobHandler<PollShopOrdersJob>();
         services.AddJobHandler<PollAllOrdersJob>();

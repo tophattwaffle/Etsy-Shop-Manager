@@ -1,0 +1,11 @@
+@inherits LayoutComponentBase
+
+@* Static SSR layout for printouts (pick lists, packing slips): no sidebar or app bar, light colours, styles in print.css. *@
+<HeadContent>
+    <link rel="stylesheet" href="print.css" />
+</HeadContent>
+<div class="print-toolbar">
+    <a href="orders">Back to orders</a>
+    <button type="button" class="print-button" onclick="window.print()">Print</button>
+</div>
+@Body

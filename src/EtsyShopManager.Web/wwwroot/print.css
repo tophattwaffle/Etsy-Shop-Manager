@@ -1,0 +1,67 @@
+/* Printouts from the Orders page (pick lists and packing slips): Components/Layout/PrintLayout.razor.
+   Loaded only by those pages. Light on screen and on paper, US letter, one packing slip per page. */
+:root {
+    --print-paper: #ffffff;
+    --print-ink: #222222;
+    --print-muted: #666666;
+    --print-line: #d9d9d9;
+    --print-sunk: #f4f4f4;
+    --print-accent: #f1641e; /* Etsy orange, where a shop has no colour */
+}
+
+@page { size: letter; margin: 0.5in; }
+
+html, body { background: var(--print-paper); color: var(--print-ink); }
+body { font-family: var(--esm-font, system-ui, sans-serif); font-size: 11pt; line-height: 1.35; margin: 0; }
+/* Narrow columns (checkbox, quantity, photo) take only what they need; the item gets the rest. */
+.slip-items th:first-child, .pick-table th:nth-child(-n+3) { width: 1%; white-space: nowrap; }
+
+.print-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    max-width: 7.5in; margin: 16px auto; padding: 0 16px;
+}
+.print-toolbar a { color: var(--print-ink); }
+.print-button {
+    font: inherit; padding: 6px 18px; border-radius: 18px; cursor: pointer;
+    border: 1px solid var(--print-ink); background: var(--print-ink); color: var(--print-paper);
+}
+.print-sheet { max-width: 7.5in; margin: 0 auto 24px; padding: 0 16px; }
+.print-sheet h1 { font-size: 16pt; margin: 0 0 4px; }
+.print-muted { color: var(--print-muted); }
+.print-small { font-size: 9pt; }
+.print-empty { max-width: 7.5in; margin: 24px auto; padding: 0 16px; }
+
+/* Pick list */
+.pick-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.pick-table th, .pick-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--print-line); }
+.pick-table th a { color: var(--print-ink); text-decoration: none; }
+.pick-table th a.is-sorted { text-decoration: underline; }
+.pick-table td.pick-qty { font-size: 14pt; font-weight: 700; white-space: nowrap; }
+.pick-table img, .pick-noimg { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; background: var(--print-sunk); display: block; }
+.pick-table tr { break-inside: avoid; }
+.pick-box { display: inline-block; width: 14px; height: 14px; border: 1.5px solid var(--print-ink); border-radius: 2px; }
+.pick-personal { margin: 4px 0 0; padding-left: 18px; }
+
+/* Packing slips */
+.slip { border-top: 6px solid var(--shop, var(--print-accent)); padding-top: 12px; }
+.slip + .slip { margin-top: 32px; }
+.slip-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.slip-shop { display: flex; align-items: center; gap: 10px; }
+.slip-shop img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
+.slip-shop-name { font-size: 15pt; font-weight: 700; }
+.slip-meta { text-align: right; }
+.slip-address { margin: 16px 0; }
+.slip-address-name { font-weight: 700; }
+.slip-items { width: 100%; border-collapse: collapse; margin: 8px 0; }
+.slip-items th, .slip-items td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--print-line); }
+.slip-items td.slip-qty { white-space: nowrap; }
+.slip-items img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; }
+.slip-note { margin: 10px 0; padding: 8px 10px; background: var(--print-sunk); border-radius: 4px; }
+.slip-thanks { margin-top: 18px; font-style: italic; }
+
+@media print {
+    .print-toolbar { display: none; }
+    .print-sheet { max-width: none; margin: 0; padding: 0; }
+    .slip + .slip { margin-top: 0; break-before: page; }
+    a { color: inherit; text-decoration: none; }
+}

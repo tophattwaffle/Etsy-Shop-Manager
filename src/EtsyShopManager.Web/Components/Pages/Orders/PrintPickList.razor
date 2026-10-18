@@ -1,0 +1,89 @@
+@page "/orders/print/pick"
+@attribute [Authorize]
+@attribute [ExcludeFromInteractiveRouting]
+@layout EtsyShopManager.Web.Components.Layout.PrintLayout
+@using EtsyShopManager.Web.Modules.Orders
+@inject OrderPrintService Print
+@inject TimeProvider Time
+
+@* Static SSR printout: every item across the selected orders, grouped by listing and variations. Read-only. *@
+<PageTitle>Pick list · Etsy Shop Manager</PageTitle>
+
+@if (_lines.Count == 0)
+{
+    <p class="print-empty">No orders selected. Choose orders on the Orders page, then print the pick list.</p>
+}
+else
+{
+    <div class="print-sheet">
+        <h1>Pick list</h1>
+        <div class="print-muted print-small">
+            @_orders.Count order@(_orders.Count == 1 ? "" : "s") · @_lines.Sum(l => l.Quantity) item@(_lines.Sum(l => l.Quantity) == 1 ? "" : "s")
+            · printed @Time.GetLocalNow().ToString("yyyy-MM-dd HH:mm")
+        </div>
+        <table class="pick-table">
+            <thead>
+                <tr>
+                    <th aria-label="Picked"><span class="pick-box"></span></th>
+                    <th><a class="@SortedClass("qty")" href="@SortLink("qty")">Qty</a></th>
+                    <th aria-label="Photo"></th>
+                    <th><a class="@SortedClass("item")" href="@SortLink("item")">Item</a></th>
+                    <th><a class="@SortedClass("orders")" href="@SortLink("orders")">Orders</a></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var line in Sorted())
+                {
+                    <tr>
+                        <td><span class="pick-box"></span></td>
+                        <td class="pick-qty">×@line.Quantity</td>
+                        <td>
+                            @if (line.ImageUrl is { Length: > 0 }) { <img src="@line.ImageUrl" alt="" /> }
+                            else { <span class="pick-noimg"></span> }
+                        </td>
+                        <td>
+                            <div><b>@line.Title</b></div>
+                            @if (line.Variations.Count > 0) { <div>@string.Join(" · ", line.Variations)</div> }
+                            @if (line.Sku is not null) { <div class="print-muted print-small">SKU @line.Sku</div> }
+                            @if (line.Personalizations.Count > 0)
+                            {
+                                <ul class="pick-personal">
+                                    @foreach (var (receipt, qty, text) in line.Personalizations)
+                                    {
+                                        <li>@(qty > 1 ? $"×{qty} " : "")@text <span class="print-muted print-small">(#@receipt)</span></li>
+                                    }
+                                </ul>
+                            }
+                        </td>
+                        <td class="print-small">@string.Join(", ", line.Receipts.Select(r => $"#{r}"))</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery] private string? Ids { get; set; }
+    [SupplyParameterFromQuery] private string? Sort { get; set; }
+
+    private List<EtsyShopManager.Core.Domain.Order> _orders = [];
+    private IReadOnlyList<PickListLine> _lines = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _orders = await Print.GetOrdersAsync(OrderPrintService.ParseIds(Ids));
+        _lines = OrderPrintService.PickList(_orders);
+    }
+
+    private IEnumerable<PickListLine> Sorted() => Sort switch
+    {
+        "item" => _lines.OrderBy(l => l.Title, StringComparer.OrdinalIgnoreCase).ThenBy(l => string.Join(" ", l.Variations)),
+        "orders" => _lines.OrderBy(l => l.Receipts[0]),
+        _ => _lines, // most needed first
+    };
+
+    private string SortLink(string sort) => $"orders/print/pick?ids={Uri.EscapeDataString(Ids ?? "")}&sort={sort}";
+
+    private string? SortedClass(string sort) => (Sort ?? "qty") == sort ? "is-sorted" : null;
+}

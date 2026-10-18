@@ -1,0 +1,65 @@
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Orders
+@using EtsyShopManager.Web.Modules.Shops
+@inject ShopService Shops
+@inject OrderPrintService Print
+@inject ISnackbar Snackbar
+
+@* The thank-you line printed at the bottom of each shop's packing slips (Orders → Print packing slips). *@
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Packing slips</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        A thank-you line printed at the bottom of each shop's packing slips. Leave it empty for none.
+    </MudText>
+
+    @if (_shops is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_shops.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">Connect a shop to set its packing slip.</MudText>
+    }
+    else
+    {
+        @foreach (var s in _shops)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2" Wrap="Wrap.Wrap">
+                <span class="lp-shopmark">
+                    @if (s.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(s.Id)" alt="" /> }
+                    else { @s.Name[..1].ToUpperInvariant() }
+                </span>
+                <MudTextField T="string" @bind-Value="_text[s.Id]" Label="@($"{s.Name} thank-you line")" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxThanksLength" Class="esm-grow"
+                              ReadOnly="@(!_canEdit)" Placeholder="Thank you for your order!" />
+                @if (_canEdit)
+                {
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveAsync(s)">Save</MudButton>
+                }
+            </MudStack>
+        }
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<ShopSummary>? _shops;
+    private readonly Dictionary<int, string?> _text = [];
+    private bool _canEdit;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState).User;
+        _canEdit = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
+        _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
+        var saved = await Print.GetThanksAsync(_shops.Select(s => s.Id));
+        foreach (var s in _shops) _text[s.Id] = saved.GetValueOrDefault(s.Id);
+    }
+
+    private async Task SaveAsync(ShopSummary shop)
+    {
+        var error = await Print.SetThanksAsync(shop.Id, _text[shop.Id], (await AuthState).User.Identity?.Name);
+        Snackbar.Add(error ?? $"Saved the packing slip line for {shop.Name}", error is null ? Severity.Success : Severity.Warning);
+    }
+}
