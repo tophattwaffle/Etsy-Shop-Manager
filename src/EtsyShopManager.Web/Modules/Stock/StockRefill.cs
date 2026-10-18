@@ -369,6 +369,7 @@ public sealed class EditorModule : IModule
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<ListingEditor>();
+        services.AddSingleton<BulkListingEditor>();
         services.AddSingleton<StockRefiller>();
         services.AddSingleton<RefillQueue>();
         services.AddJobHandler<PushListingJob>();

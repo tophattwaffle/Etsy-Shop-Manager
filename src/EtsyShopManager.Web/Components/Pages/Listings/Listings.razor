@@ -3,6 +3,7 @@
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Core.Jobs
 @using EtsyShopManager.Web.Modules.Stock
+@using EtsyShopManager.Web.Modules.Editor
 @implements IDisposable
 @inject ListingQueries Queries
 @inject ListingImportQueue ImportQueue
@@ -53,7 +54,7 @@
                 <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")" Context="auth">
                     <MudButton Variant="@(_selecting ? Variant.Filled : Variant.Outlined)" Color="@(_selecting ? Color.Primary : Color.Default)"
                                Size="Size.Small" OnClick="ToggleSelecting" aria-pressed="@(_selecting ? "true" : "false")">
-                        @(_selecting ? "Done" : "Bulk edit auto-refill")
+                        @(_selecting ? "Done" : "Bulk edit")
                     </MudButton>
                 </AuthorizeView>
             </div>
@@ -62,7 +63,7 @@
             {
                 <MudPaper Class="lp-bulk pa-4 mb-4" Elevation="0" Outlined="true">
                     <div class="lp-bulk-head">
-                        <MudText Typo="Typo.h6">Auto-refill for selected listings</MudText>
+                        <MudText Typo="Typo.h6">Bulk edit selected listings</MudText>
                         <span class="lp-muted">
                             @_selected.Count.ToString("N0") selected
                             @if (_total > 0 && _selected.Count < _total)
@@ -75,28 +76,44 @@
                             }
                         </span>
                     </div>
-                    <MudText Typo="Typo.body2" Class="muted mb-3">
-                        Leave a setting on "No change" or empty to keep each listing's own value. Only the settings are saved;
-                        refills happen at the next stock check (after an order, or within the hour).
-                    </MudText>
-                    <div class="lp-bulk-fields">
-                        <MudSelect T="bool?" @bind-Value="_bulkEnabled" Label="Auto-refill" Variant="Variant.Outlined" Margin="Margin.Dense">
-                            <MudSelectItem T="bool?" Value="@((bool?)null)">No change</MudSelectItem>
-                            <MudSelectItem T="bool?" Value="@((bool?)true)">On</MudSelectItem>
-                            <MudSelectItem T="bool?" Value="@((bool?)false)">Off</MudSelectItem>
+                    <div class="lp-bulk-fields mb-3">
+                        <MudSelect T="BulkEditKind?" @bind-Value="_bulkKind" Label="What to change" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   ToStringFunc="@(k => BulkKindLabel(k))" Class="lp-bulk-kind">
+                            @foreach (var kind in BulkKinds)
+                            {
+                                <MudSelectItem T="BulkEditKind?" Value="kind">@BulkKindLabel(kind)</MudSelectItem>
+                            }
                         </MudSelect>
-                        <MudNumericField T="int?" @bind-Value="_bulkThreshold" Label="Refill when below" Placeholder="No change"
-                                         Min="1" Max="998" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                        <MudNumericField T="int?" @bind-Value="_bulkRefillTo" Label="Refill to" Placeholder="No change"
-                                         Min="2" Max="@StockRefiller.MaxQuantity" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_selected.Count == 0 || _applying)"
-                                   OnClick="ApplyBulkAsync">
-                            Apply to @_selected.Count.ToString("N0") listing@(_selected.Count == 1 ? "" : "s")
-                        </MudButton>
                     </div>
-                    @if (_bulkError is not null)
+                    @if (_bulkKind is { } bulkKind)
                     {
-                        <MudText Typo="Typo.body2" Class="error-text mt-2">@_bulkError</MudText>
+                        <BulkEditPanel Kind="bulkKind" ListingIds="_selected" Saved="LoadAsync" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Class="muted mb-3">
+                            Leave a setting on "No change" or empty to keep each listing's own value. Only the settings are saved;
+                            refills happen at the next stock check (after an order, or within the hour).
+                        </MudText>
+                        <div class="lp-bulk-fields">
+                            <MudSelect T="bool?" @bind-Value="_bulkEnabled" Label="Auto-refill" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                <MudSelectItem T="bool?" Value="@((bool?)null)">No change</MudSelectItem>
+                                <MudSelectItem T="bool?" Value="@((bool?)true)">On</MudSelectItem>
+                                <MudSelectItem T="bool?" Value="@((bool?)false)">Off</MudSelectItem>
+                            </MudSelect>
+                            <MudNumericField T="int?" @bind-Value="_bulkThreshold" Label="Refill when below" Placeholder="No change"
+                                             Min="1" Max="998" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudNumericField T="int?" @bind-Value="_bulkRefillTo" Label="Refill to" Placeholder="No change"
+                                             Min="2" Max="@StockRefiller.MaxQuantity" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_selected.Count == 0 || _applying)"
+                                       OnClick="ApplyBulkAsync">
+                                Apply to @_selected.Count.ToString("N0") listing@(_selected.Count == 1 ? "" : "s")
+                            </MudButton>
+                        </div>
+                        @if (_bulkError is not null)
+                        {
+                            <MudText Typo="Typo.body2" Class="error-text mt-2">@_bulkError</MudText>
+                        }
                     }
                 </MudPaper>
             }
@@ -332,9 +349,15 @@
     private IDisposable? _live;
     private CancellationTokenSource? _loadCts;
 
-    // Bulk auto-refill: selection survives paging and filter changes, so listings can be picked across pages.
+    // Bulk edit: selection survives paging and filter changes, so listings can be picked across pages.
     private bool _selecting;
     private readonly HashSet<int> _selected = [];
+    private BulkEditKind? _bulkKind; // null: auto-refill
+    private static readonly BulkEditKind?[] BulkKinds =
+    [
+        null, BulkEditKind.Price, BulkEditKind.AddTags, BulkEditKind.RemoveTags, BulkEditKind.AddMaterials, BulkEditKind.RemoveMaterials,
+        BulkEditKind.ShippingProfile, BulkEditKind.Section,
+    ];
     private bool? _bulkEnabled;
     private int? _bulkThreshold;
     private int? _bulkRefillTo;
@@ -560,6 +583,18 @@
 
     private async Task SelectAllMatchingAsync() =>
         _selected.UnionWith(await Queries.SearchIdsAsync(CurrentFilter()));
+
+    private static string BulkKindLabel(BulkEditKind? kind) => kind switch
+    {
+        null => "Auto-refill",
+        BulkEditKind.Price => "Price",
+        BulkEditKind.AddTags => "Add tags",
+        BulkEditKind.RemoveTags => "Remove tags",
+        BulkEditKind.AddMaterials => "Add materials",
+        BulkEditKind.RemoveMaterials => "Remove materials",
+        BulkEditKind.ShippingProfile => "Shipping profile",
+        _ => "Shop section",
+    };
 
     private static string RefillLabel(RefillSetting? r) =>
         r is { Enabled: true } ? $"Below {r.Threshold} → {r.RefillTo}" : "Off";

@@ -1,0 +1,353 @@
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Templates
+@inject BulkListingEditor Bulk
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+@* Bulk edits on the listings page: the change, a preview of each listing's before and after, saving them as unpushed
+   edits, then the same review and push as the templates. *@
+<MudText Typo="Typo.body2" Class="muted mb-3">
+    @Help Saving makes unpushed edits, starting from the app's version of each listing (edits not pushed yet included);
+    nothing is sent to Etsy until you review and push.
+</MudText>
+
+<div class="lp-bulk-fields">
+    @switch (Kind)
+    {
+        case BulkEditKind.Price:
+            <MudSelect T="bool" Value="_byPercent" ValueChanged="@(v => Changed(() => _byPercent = v))" Label="Change by"
+                       Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem T="bool" Value="true">Percent</MudSelectItem>
+                <MudSelectItem T="bool" Value="false">Amount</MudSelectItem>
+            </MudSelect>
+            <MudNumericField T="decimal?" Value="_number" ValueChanged="@(v => Changed(() => _number = v))"
+                             Label="@(_byPercent ? "Percent (-10 for 10% less)" : "Amount (-1.50 for 1.50 less)")"
+                             Clearable="true" HideSpinButtons="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudSelect T="PriceRounding" Value="_rounding" ValueChanged="@(v => Changed(() => _rounding = v))" Label="Rounding"
+                       Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem T="PriceRounding" Value="PriceRounding.None">Keep the cents</MudSelectItem>
+                <MudSelectItem T="PriceRounding" Value="PriceRounding.To99">Round to .99</MudSelectItem>
+                <MudSelectItem T="PriceRounding" Value="PriceRounding.Whole">Round to whole amounts</MudSelectItem>
+            </MudSelect>
+            break;
+        case BulkEditKind.AddTags or BulkEditKind.RemoveTags or BulkEditKind.AddMaterials or BulkEditKind.RemoveMaterials:
+            <MudTextField T="string" Value="_words" ValueChanged="@(v => Changed(() => _words = v))" Label="@WordsLabel"
+                          Placeholder="Separate them with commas" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            break;
+        default:
+            @foreach (var shop in _shops)
+            {
+                var choices = Kind == BulkEditKind.ShippingProfile ? shop.ShippingProfiles : shop.Sections;
+                <MudSelect T="string" Value="@_perShop.GetValueOrDefault(shop.ShopId, "")" ValueChanged="@(v => Changed(() => _perShop[shop.ShopId] = v))"
+                           Label="@($"{shop.ShopName} ({shop.Listings:N0} selected)")" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="string" Value="@("")">No change</MudSelectItem>
+                    @if (Kind == BulkEditKind.Section)
+                    {
+                        <MudSelectItem T="string" Value="@NoSection">No section</MudSelectItem>
+                    }
+                    @foreach (var (id, name) in choices)
+                    {
+                        <MudSelectItem T="string" Value="@id.ToString(System.Globalization.CultureInfo.InvariantCulture)">@name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            break;
+    }
+    <MudButton Variant="Variant.Outlined" Disabled="@(ListingIds.Count == 0 || _busy)" OnClick="PreviewAsync">
+        Preview @ListingIds.Count.ToString("N0") listing@(ListingIds.Count == 1 ? "" : "s")
+    </MudButton>
+</div>
+
+@if (_error is not null)
+{
+    <MudText Typo="Typo.body2" Class="error-text mt-2">@_error</MudText>
+}
+
+@if (_rows is not null)
+{
+    <div class="lp-bulk-result">
+        <MudText Typo="Typo.body2">
+            @Count(Changing, "will change", "will change")@(Skipped > 0 ? $", {Skipped:N0} skipped" : "")@(Same > 0 ? $", {Same:N0} already like this" : "").
+        </MudText>
+        @if (Stale)
+        {
+            <MudText Typo="Typo.body2" Class="error-text">The selection changed since this preview; preview again before saving.</MudText>
+        }
+        <div class="lp-bulk-preview">
+            <MudSimpleTable Dense="true">
+                <thead>
+                    <tr>
+                        <SortHeader Sort="_rowSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                        <SortHeader Sort="_rowSort" Column="before" Changed="StateHasChanged">Now</SortHeader>
+                        <SortHeader Sort="_rowSort" Column="after" Changed="StateHasChanged">After</SortHeader>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _rowSort.Apply(_rows))
+                    {
+                        <tr>
+                            <td><a href="@($"listings/{row.ListingId}/edit")">@row.Title</a> <span class="muted small">· @row.ShopName</span></td>
+                            <td>@row.Before</td>
+                            <td>
+                                @if (row.Skipped is not null)
+                                {
+                                    <span><span class="esm-status-dot esm-dot-warning"></span> Skipped: @row.Skipped</span>
+                                }
+                                else if (!row.Changes)
+                                {
+                                    <span class="muted">No change</span>
+                                }
+                                else
+                                {
+                                    @row.After
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Changing == 0 || Stale || _busy)" OnClick="SaveAsync">
+            Save as edits to @Count(Changing, "listing", "listings")
+        </MudButton>
+    </div>
+}
+
+@if (_saved is { Count: > 0 })
+{
+    <div class="lp-bulk-result">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.body2">Saved as unpushed edits on @Count(_saved.Count, "listing", "listings").</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ReviewAsync">
+                Review and push @Count(_saved.Count, "listing", "listings")
+            </MudButton>
+        </MudStack>
+    </div>
+}
+
+@if (_review is not null)
+{
+    <div class="lp-bulk-result">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+            <MudText Typo="Typo.h6">Review the push</MudText>
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _review = null)">Close</MudButton>
+        </MudStack>
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Each listing is pushed on its own, with all of its unpushed edits (not only this bulk edit), exactly as from its
+            editor. Listings with a problem are skipped; fix them in their editor.
+        </MudText>
+        @if (_review.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">None of these listings has edits to push any more.</MudText>
+        }
+        else
+        {
+            <div class="lp-bulk-preview">
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_reviewSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_reviewSort" Column="changes" Changed="StateHasChanged">Changes</SortHeader>
+                            <SortHeader Sort="_reviewSort" Column="ready" Changed="StateHasChanged">Ready</SortHeader>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _reviewSort.Apply(_review))
+                        {
+                            <tr>
+                                <td><a href="@($"listings/{item.ListingId}/edit")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
+                                <td>@string.Join(", ", item.Preview.Changes.Select(c => c.Label))</td>
+                                <td>
+                                    @if (item.Preview.CanPush)
+                                    {
+                                        <span><span class="esm-status-dot esm-dot-success"></span> Ready</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var b in item.Preview.Blockers) { <div class="small error-text">@b</div> }
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _busy)" OnClick="PushAsync">
+            Push @Count(Ready, "listing", "listings") to Etsy
+        </MudButton>
+    </div>
+}
+
+@code {
+    private const string NoSection = "none";
+
+    [Parameter, EditorRequired] public BulkEditKind Kind { get; set; }
+
+    /// <summary>The selected listings (the page's own set: it changes as listings are picked).</summary>
+    [Parameter, EditorRequired] public IReadOnlyCollection<int> ListingIds { get; set; } = [];
+
+    /// <summary>Edits were saved or pushes queued, so the list may show something new.</summary>
+    [Parameter] public EventCallback Saved { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private BulkEditKind? _kind;
+    private bool _byPercent = true;
+    private decimal? _number;
+    private PriceRounding _rounding;
+    private string? _words;
+    private readonly Dictionary<int, string> _perShop = [];
+    private IReadOnlyList<BulkEditShop> _shops = [];
+    private HashSet<int>? _shopsFor;
+
+    private IReadOnlyList<BulkEditRow>? _rows;
+    private HashSet<int>? _previewIds;
+    private IReadOnlyList<int>? _saved;
+    private IReadOnlyList<TemplatePushItem>? _review;
+    private string? _error;
+    private bool _busy;
+
+    private int Changing => _rows?.Count(r => r.Changes) ?? 0;
+    private int Skipped => _rows?.Count(r => r.Skipped is not null) ?? 0;
+    private int Same => _rows?.Count(r => r.Skipped is null && !r.Changes) ?? 0;
+    private int Ready => _review?.Count(r => r.Preview.CanPush) ?? 0;
+    private bool Stale => _previewIds is not null && !_previewIds.SetEquals(ListingIds);
+
+    private readonly TableSort<BulkEditRow> _rowSort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["before"] = r => r.Before,
+        ["after"] = r => r.Skipped ?? r.After,
+    };
+    private readonly TableSort<TemplatePushItem> _reviewSort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["changes"] = r => string.Join(", ", r.Preview.Changes.Select(c => c.Label)),
+        ["ready"] = r => r.Preview.CanPush,
+    };
+
+    private string Help => Kind switch
+    {
+        BulkEditKind.Price => "Changes the price of every variation of the selected listings.",
+        BulkEditKind.AddTags => $"Adds the tags to each listing that doesn't have them yet (Etsy allows {ListingEditor.MaxTags}, of up to {ListingEditor.MaxTagLength} characters).",
+        BulkEditKind.RemoveTags => "Removes the tags from each listing that has them.",
+        BulkEditKind.AddMaterials => $"Adds the materials to each listing that doesn't have them yet (Etsy allows {ListingEditor.MaxMaterials}).",
+        BulkEditKind.RemoveMaterials => "Removes the materials from each listing that has them.",
+        BulkEditKind.ShippingProfile => "Shipping profiles belong to a shop, so choose one for each shop; shops left on \"No change\" are skipped.",
+        _ => "Sections belong to a shop, so choose one for each shop; shops left on \"No change\" are skipped.",
+    };
+
+    private string WordsLabel => Kind switch
+    {
+        BulkEditKind.AddTags => "Tags to add",
+        BulkEditKind.RemoveTags => "Tags to remove",
+        BulkEditKind.AddMaterials => "Materials to add",
+        _ => "Materials to remove",
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_kind != Kind)
+        {
+            _kind = Kind;
+            (_number, _rounding, _byPercent, _words) = (null, PriceRounding.None, true, null);
+            _perShop.Clear();
+            ClearResults();
+        }
+        // Shipping profiles and sections are per shop: list the shops of the listings selected now.
+        if (Kind is BulkEditKind.ShippingProfile or BulkEditKind.Section && (_shopsFor is null || !_shopsFor.SetEquals(ListingIds)))
+        {
+            _shopsFor = [.. ListingIds];
+            _shops = await Bulk.ShopsAsync(_shopsFor);
+        }
+    }
+
+    private void ClearResults() => (_rows, _previewIds, _saved, _review, _error) = (null, null, null, null, null);
+
+    private void Changed(Action set)
+    {
+        set();
+        (_rows, _previewIds, _error) = (null, null, null);
+    }
+
+    private decimal? Number => _number ?? (_rounding == PriceRounding.None ? (decimal?)null : 0m);
+
+    private static string Count(int n, string one, string many) => $"{n:N0} {(n == 1 ? one : many)}";
+
+    private BulkEdit Edit() => Kind switch
+    {
+        // Rounding alone (no number) rounds the prices as they are.
+        BulkEditKind.Price => new BulkEdit(Kind, Percent: _byPercent ? Number : null, Amount: _byPercent ? null : Number, Rounding: _rounding),
+        BulkEditKind.ShippingProfile or BulkEditKind.Section => new BulkEdit(Kind, PerShop: _perShop
+            .Where(p => p.Value.Length > 0 && _shops.Any(s => s.ShopId == p.Key))
+            .ToDictionary(p => p.Key, p => p.Value == NoSection ? null : (long?)long.Parse(p.Value, System.Globalization.CultureInfo.InvariantCulture))),
+        _ => new BulkEdit(Kind, Words: [.. (_words ?? "").Split(',').Select(w => w.Trim()).Where(w => w.Length > 0)]),
+    };
+
+    private async Task PreviewAsync()
+    {
+        ClearResults();
+        var edit = Edit();
+        if (edit.Problem is { } problem)
+        {
+            _error = problem;
+            return;
+        }
+        _busy = true;
+        try
+        {
+            _previewIds = [.. ListingIds];
+            _rows = await Bulk.PreviewAsync(_previewIds, edit);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_previewIds is null) return;
+        _busy = true;
+        try
+        {
+            _saved = await Bulk.ApplyAsync(_previewIds, Edit(), (await AuthState).User);
+            (_rows, _previewIds) = (null, null);
+            Snackbar.Add($"Saved as unpushed edits on {Count(_saved.Count, "listing", "listings")}.", Severity.Success);
+            await Saved.InvokeAsync();
+        }
+        catch (Exception ex) when (ex is ArgumentException or UnauthorizedAccessException)
+        {
+            _error = ex.Message;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ReviewAsync()
+    {
+        _busy = true;
+        try { _review = await Bulk.ReviewAsync(_saved ?? []); }
+        finally { _busy = false; }
+    }
+
+    private async Task PushAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Push to Etsy",
+            $"Push {Count(Ready, "listing", "listings")} to Etsy? Each one is a normal push with a snapshot you can restore.",
+            yesText: "Push to Etsy", cancelText: "Cancel");
+        if (ok != true) return;
+        _busy = true;
+        try
+        {
+            var results = await Bulk.PushAsync(_saved ?? [], (await AuthState).User);
+            var queued = results.Count(r => r.PushId is not null);
+            Snackbar.Add($"{queued} push{(queued == 1 ? "" : "es")} queued; results appear on each listing and on the Jobs page.", Severity.Info);
+            foreach (var s in results.Where(r => r.PushId is null)) Snackbar.Add($"{s.Title}: {string.Join(" ", s.Blockers)}", Severity.Warning);
+            (_review, _saved) = (null, null);
+            await Saved.InvokeAsync();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _error = ex.Message;
+        }
+        finally { _busy = false; }
+    }
+}

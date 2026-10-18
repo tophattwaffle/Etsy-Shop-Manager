@@ -103,7 +103,7 @@ A guided form that enforces Etsy's required fields before allowing a push. Creat
 - Turned on per listing, with a threshold and a refill-to value (e.g. below 5, refill to 999).
 - Evaluated per offering (each variation combination), after every order poll.
 - Refills happen while stock is still above 0, so a listing never sells out (selling out deactivates it and reactivating costs a renewal fee).
-- Bulk edit from the listings page (Admin/Editor): "Bulk edit auto-refill" switches to the list with checkboxes (select a page, or all listings matching the filters) and sets on/off, threshold and refill-to; a blank field keeps each listing's own value. It only saves settings (after a confirmation that counts what the next check will refill); refills happen at the next check.
+- Bulk edit from the listings page (Admin/Editor): "Bulk edit" (with "Auto-refill" chosen) switches to the list with checkboxes (select a page, or all listings matching the filters) and sets on/off, threshold and refill-to; a blank field keeps each listing's own value. It only saves settings (after a confirmation that counts what the next check will refill); refills happen at the next check.
 
 ### 9. Home Assistant integration
 The existing card keeps its styling and logic. Only its data source changes. **Home Assistant talks only to this service, never to Etsy.**
@@ -123,7 +123,13 @@ The existing card keeps its styling and logic. Only its data source changes. **H
 ## Additions to build in early
 - Push history with rollback (from the per-push snapshots).
 - Full local backup of listings and images, plus a one-click export (zip).
-- Bulk edit: percentage price changes, tags, materials, shipping profile across selected listings.
+- Bulk edit: percentage price changes, tags, materials, shipping profile across selected listings. **Done (2026-10-18):**
+  the listings page's "Bulk edit" (Admin/Editor) selects listings as for auto-refill and changes one thing at a time:
+  auto-refill, price (percent or amount on every variation, optionally rounded to .99 or whole amounts; never below
+  Etsy's 0.20), tags or materials added or removed (case-insensitive, within Etsy's 13 and its text rules), or shipping
+  profile or section chosen per shop (`BulkListingEditor`). A preview lists each listing's now and after, or why it's
+  skipped (that field changed on Etsy, over a limit, nothing chosen for its shop); saving makes unpushed edits from the
+  app's version of each listing, and "Review and push" runs each listing's normal push, as the templates do.
 - Audit log of who changed what (now that there are user accounts).
 - Pick list / packing slip printing from the order dashboard. **Done (2026-10-18):** open orders get checkboxes and "Select all unshipped"; "Print pick list" and "Print packing slips" open static, print-friendly pages (`OrderPrintService`, `PrintLayout`, `wwwroot/print.css`; US letter, one slip per page). The pick list groups items by listing and variations with each personalization and its order under the line. A slip follows Etsy's own packing slip (2026-10-18): shop logo, name and name.etsy.com; ship-to, ship-by, order, order date, buyer, payment method and shipping method on the left; items (qty x price, variations, personalization) and totals (item total, discount, tax, shipping, order total) on the right, all from the stored receipt; buyer note and gift message under the items; the shop's packing slip note as "A note from the shop" above the items (Shops page, kept under `Shops.SlipThanks.{id}`; Etsy's API doesn't share the note set on Etsy). Etsy's logo and blurbs aren't copied. The buyer's Etsy username isn't in a receipt, so it's left out. Sizes are Etsy's, measured from its PDF (9.5pt text, 36pt margins). The print pages set `@page { margin: 0 }` so Chrome has no margin to print its date, title, URL and page number in; the margin is padding inside each page (the pick list repeats spacer rows in its header and footer). **Gift orders** (Etsy's `is_gift`, `gift_message`, `gift_sender`) print a gift slip like Etsy's instead: top half blank for the shipping label, a cut line, the order on the left without prices (shop icon, name, tagline and Etsy's sales count from getShop `transaction_sold_count`; Etsy's API has no shop city or Star Seller flag), and past the fold the shop name with sparkles in its colour, the first item's photo, the gift message, who it's from, and a QR code to the shop's Etsy page (QRCoder, drawn on the server). Orders and History show a Gift badge; History filters to gift orders. Read-only: nothing is written to Etsy or marked shipped.
 
