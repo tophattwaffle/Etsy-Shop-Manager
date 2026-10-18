@@ -23,12 +23,16 @@
             <MudNumericField T="decimal?" Value="_number" ValueChanged="@(v => Changed(() => _number = v))"
                              Label="@(_byPercent ? "Percent (-10 for 10% less)" : "Amount (-1.50 for 1.50 less)")"
                              Clearable="true" HideSpinButtons="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
-            <MudSelect T="PriceRounding" Value="_rounding" ValueChanged="@(v => Changed(() => _rounding = v))" Label="Rounding"
-                       Variant="Variant.Outlined" Margin="Margin.Dense">
-                <MudSelectItem T="PriceRounding" Value="PriceRounding.None">Keep the cents</MudSelectItem>
-                <MudSelectItem T="PriceRounding" Value="PriceRounding.To99">Round to .99</MudSelectItem>
-                <MudSelectItem T="PriceRounding" Value="PriceRounding.Whole">Round to whole amounts</MudSelectItem>
-            </MudSelect>
+            @* An amount is exact, so only a percent change offers rounding. *@
+            @if (_byPercent)
+            {
+                <MudSelect T="PriceRounding" Value="_rounding" ValueChanged="@(v => Changed(() => _rounding = v))" Label="Rounding"
+                           Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="PriceRounding" Value="PriceRounding.None">Keep the cents</MudSelectItem>
+                    <MudSelectItem T="PriceRounding" Value="PriceRounding.To99">Round to .99</MudSelectItem>
+                    <MudSelectItem T="PriceRounding" Value="PriceRounding.Whole">Round to whole amounts</MudSelectItem>
+                </MudSelect>
+            }
             break;
         case BulkEditKind.AddTags or BulkEditKind.RemoveTags or BulkEditKind.AddMaterials or BulkEditKind.RemoveMaterials:
             <MudTextField T="string" Value="_words" ValueChanged="@(v => Changed(() => _words = v))" Label="@WordsLabel"
@@ -278,7 +282,9 @@
     private BulkEdit Edit() => Kind switch
     {
         // Rounding alone (no number) rounds the prices as they are.
-        BulkEditKind.Price => new BulkEdit(Kind, Percent: _byPercent ? Number : null, Amount: _byPercent ? null : Number, Rounding: _rounding),
+        BulkEditKind.Price => _byPercent
+            ? new BulkEdit(Kind, Percent: Number, Rounding: _rounding)
+            : new BulkEdit(Kind, Amount: _number),
         BulkEditKind.ShippingProfile or BulkEditKind.Section => new BulkEdit(Kind, PerShop: _perShop
             .Where(p => p.Value.Length > 0 && _shops.Any(s => s.ShopId == p.Key))
             .ToDictionary(p => p.Key, p => p.Value == NoSection ? null : (long?)long.Parse(p.Value, System.Globalization.CultureInfo.InvariantCulture))),

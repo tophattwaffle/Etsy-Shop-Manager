@@ -202,10 +202,12 @@
                         <tbody>
                             @foreach (var row in _rows)
                             {
-                                <tr style="@ShopStyle(row.ShopId)" class="@(_selected.Contains(row.Id) ? "is-selected" : "")">
+                                @* While selecting, a click anywhere on the row (title included) ticks it instead of opening the listing. *@
+                                <tr style="@ShopStyle(row.ShopId)" class="@RowClass(row.Id)"
+                                    @onclick="@(() => { if (_selecting) Select(row.Id, !_selected.Contains(row.Id)); })">
                                     @if (_selecting)
                                     {
-                                        <td class="lp-list-check">
+                                        <td class="lp-list-check" @onclick:stopPropagation="true">
                                             <MudCheckBox T="bool" Value="@_selected.Contains(row.Id)" ValueChanged="@(v => Select(row.Id, v))"
                                                          Size="Size.Small" Dense="true" aria-label="@($"Select {row.Title}")" />
                                         </td>
@@ -217,7 +219,14 @@
                                         }
                                     </td>
                                     <td>
-                                        <a class="lp-list-title" href="@($"listings/{row.Id}")">@row.Title</a>
+                                        @if (_selecting)
+                                        {
+                                            <span class="lp-list-title">@row.Title</span>
+                                        }
+                                        else
+                                        {
+                                            <a class="lp-list-title" href="@($"listings/{row.Id}")">@row.Title</a>
+                                        }
                                         <span class="lp-list-sub">
                                             <ShopMark Shop="ShopFor(row.ShopId)" Name="@row.ShopName" Small="true" Decorative="true" />
                                             @row.ShopName, #@row.EtsyListingId@(row.VariationCount > 1 ? $", {row.VariationCount} variations" : "")
@@ -573,6 +582,9 @@
         if (selected) _selected.Add(id);
         else _selected.Remove(id);
     }
+
+    private string RowClass(int id) =>
+        (_selecting ? "is-selectable " : "") + (_selected.Contains(id) ? "is-selected" : "");
 
     private bool PageSelected => _rows is { Count: > 0 } && _rows.All(r => _selected.Contains(r.Id));
 

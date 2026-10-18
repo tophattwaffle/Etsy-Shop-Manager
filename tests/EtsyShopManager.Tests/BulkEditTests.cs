@@ -47,7 +47,8 @@ public class BulkEditTests
     [InlineData("21.37", "0", null, PriceRounding.To99, "20.99")] // nearest .99, down as well as up
     [InlineData("29.99", "-10", null, PriceRounding.Whole, "27")] // 26.991
     [InlineData("19.99", null, "1.5", PriceRounding.None, "21.49")]
-    [InlineData("0.40", null, "-0.30", PriceRounding.To99, "0.99")] // .99 rounding never goes below 0.99
+    [InlineData("0.40", "-75", null, PriceRounding.To99, "0.99")] // .99 rounding never goes below 0.99
+    [InlineData("19.99", null, "1.37", PriceRounding.To99, "21.36")] // an amount is exact: rounding only follows a percent
     public void New_price_applies_the_change_then_the_rounding(string price, string? percent, string? amount, PriceRounding rounding, string expected)
     {
         static decimal? D(string? s) => s is null ? null : decimal.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
@@ -62,6 +63,7 @@ public class BulkEditTests
         Assert.NotNull(new BulkEdit(BulkEditKind.Price, Percent: -100).Problem);
         Assert.NotNull(new BulkEdit(BulkEditKind.Price, Percent: 0).Problem);
         Assert.Null(new BulkEdit(BulkEditKind.Price, Percent: 0, Rounding: PriceRounding.To99).Problem); // rounding alone is a change
+        Assert.NotNull(new BulkEdit(BulkEditKind.Price, Amount: 0, Rounding: PriceRounding.To99).Problem); // but not after an amount
         Assert.NotNull(new BulkEdit(BulkEditKind.AddTags, Words: [" ", ""]).Problem);
         Assert.NotNull(new BulkEdit(BulkEditKind.Section, PerShop: new Dictionary<int, long?>()).Problem);
         Assert.Null(new BulkEdit(BulkEditKind.Section, PerShop: new Dictionary<int, long?> { [1] = null }).Problem);
