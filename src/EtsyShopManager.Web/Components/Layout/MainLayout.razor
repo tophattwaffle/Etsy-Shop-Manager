@@ -7,7 +7,7 @@
 <MudSnackbarProvider />
 <AuthorizeView><Authorized><JobNotifier /></Authorized></AuthorizeView>
 
-<MudLayout>
+<MudLayout Class="@(_dark ? null : "esm-light")">
     <MudAppBar Elevation="0" Dense="true" Class="esm-appbar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" aria-label="Toggle navigation"
                        OnClick="() => _drawerOpen = !_drawerOpen" />
