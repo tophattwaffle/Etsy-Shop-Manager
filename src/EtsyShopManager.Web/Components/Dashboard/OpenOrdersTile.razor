@@ -36,7 +36,7 @@ else
                         <span class="esm-dash-buyer">@(o.BuyerName ?? $"#{o.EtsyReceiptId}")</span>
                         <span class="small muted">@o.Shop.Name</span>
                     </span>
-                    <MudChip T="string" Size="Size.Small" Color="@due.Color">@due.Text</MudChip>
+                    <span class="esm-due" style="@due.Style">@due.Text</span>
                 </span>
                 @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
                 {

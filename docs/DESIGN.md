@@ -51,6 +51,8 @@ dark mode. Secondary actions are `Variant.Outlined` (2px border) or `Variant.Tex
 
 **Status.** Prefer a small dot in the status colour next to plain text, or the `lp-badge` pill used on the listing cards.
 MudChips with `Color.Success`/`Error` are acceptable in tables. Never put status in colour alone: the text says it too.
+Ship-by times use the `esm-due` pill (`OrderDue.For` sets its colour), which matches the Home Assistant card: a
+see-through fill and outline blending from green at 72 h through yellow to red at 12 h.
 
 **Shops.** Each shop has an accent colour read from its profile image (`esm.dominantColor` in `app.js`, via the
 same-origin `/media/shop-icons/{id}`), with `--esm-shop-fallback-0..3` as fallbacks. Show it as `--shop` on whatever

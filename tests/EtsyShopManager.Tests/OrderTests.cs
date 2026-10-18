@@ -406,3 +406,26 @@ public class JobCleanupTests
         Assert.DoesNotContain(await check.Jobs.ToListAsync(), j => j.Status == JobStatus.Succeeded && j.CreatedBy == "scheduler" && j.CompletedAtUtc < now.AddHours(-24));
     }
 }
+
+public class OrderDueTests
+{
+    private static readonly DateTime Now = new(2026, 10, 18, 12, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData(96, "ship in 4d", false, "--due: 100%")]  // at or past green_hours: fully green
+    [InlineData(72, "ship in 3d", false, "--due: 100%")]
+    [InlineData(42, "ship in 42h", false, "--due: 50%")]  // halfway between 12 h and 72 h: yellow
+    [InlineData(12, "ship in 12h", true, "--due: 0%")]    // red_hours or less: red and urgent
+    [InlineData(-5, "overdue 5h", true, "--due: 0%")]
+    public void Ship_by_pill_blends_from_green_to_red_like_the_HA_card(double hours, string text, bool urgent, string style)
+    {
+        var due = OrderDue.For(Now.AddHours(hours), Now);
+        Assert.Equal((text, urgent, style), due);
+    }
+
+    [Fact]
+    public void Ship_by_pill_without_a_date_is_grey()
+    {
+        Assert.Equal(("no ship-by", false, (string?)null), OrderDue.For(null, Now));
+    }
+}
