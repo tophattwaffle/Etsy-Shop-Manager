@@ -256,6 +256,20 @@ internal sealed class FakeEtsyShop : IDisposable
         }),
     };
 
+    /// <summary>
+    /// Etsy's documented inventory limits (developers.etsy.com, listing inventory tutorial): at most 70 products with one
+    /// variation, custom variations only in slots 513, 514 and 516, and at most 3 variations.
+    /// </summary>
+    private static string? InventoryRejection(JsonObject update)
+    {
+        var properties = update["products"]!.AsArray()
+            .SelectMany(p => p!["property_values"]!.AsArray().Select(v => (long)v!["property_id"]!)).Distinct().ToList();
+        if (properties.Count > 3) return "A listing can have at most 3 variations.";
+        if (properties.Any(id => id is > 500 and < 600 && id is not (513 or 514 or 516))) return "Invalid custom property_id.";
+        if (properties.Count == 1 && update["products"]!.AsArray().Count > 70) return "A listing with one variation can have at most 70 products.";
+        return null;
+    }
+
     private HttpResponseMessage RespondApi(HttpRequestMessage req)
     {
         var path = req.RequestUri!.AbsolutePath;
@@ -593,6 +607,8 @@ internal sealed class FakeEtsyShop : IDisposable
                 Writes.Add(("PUT", path, body));
                 if ((FailWritesWith ?? FailInventoryWritesWith) is { } status) return new HttpResponseMessage(status);
                 var update = JsonNode.Parse(body)!.AsObject();
+                if (InventoryRejection(update) is { } reason)
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent(new JsonObject { ["error"] = reason }.ToJsonString()) };
                 // Etsy stores the new table and issues new product/offering ids.
                 var products = new JsonArray(update["products"]!.AsArray().Select(p => (JsonNode)new JsonObject
                 {
