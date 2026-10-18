@@ -1,3 +1,6 @@
+@page "/templates/variations/new"
+@page "/templates/variations/{Id:int}"
+@* The old addresses, from before the Templates page. *@
 @page "/variation-lists/new"
 @page "/variation-lists/{Id:int}"
 @attribute [Authorize(Roles = "Admin,Editor")]
@@ -7,42 +10,42 @@
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 
-<PageTitle>@(_saved?.Name ?? "New variation list") · Etsy Shop Manager</PageTitle>
+<PageTitle>@(_saved?.Name ?? "New variation template") · Etsy Shop Manager</PageTitle>
 
-<MudLink Href="variation-lists" Class="d-inline-flex align-center mb-2">
-    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> All variation lists
+<MudLink Href="templates/variations" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> All variation templates
 </MudLink>
 
 @if (Id is not null && _saved is null)
 {
-    <PageHeader Title="Variation list" />
-    @if (_loaded) { <MudAlert Severity="Severity.Warning">This variation list no longer exists.</MudAlert> }
+    <PageHeader Title="Variation template" />
+    @if (_loaded) { <MudAlert Severity="Severity.Warning">This variation template no longer exists.</MudAlert> }
     else { <MudProgressLinear Indeterminate="true" /> }
 }
 else
 {
-    <PageHeader Title="@(_saved?.Name ?? "New variation list")">
+    <PageHeader Title="@(_saved?.Name ?? "New variation template")">
         <Summary>
             @if (_saved is null)
             {
-                <span>Name the list and add its options. After saving, the app lists the listings whose variations already use them.</span>
+                <span>Name the template and add its options. After saving, the app lists the listings whose variations already use them.</span>
             }
             else
             {
-                <span>Used by @_uses.Count listing@(_uses.Count == 1 ? "" : "s"). Saving the list changes no listing until you apply it.</span>
+                <span>Used by @_uses.Count listing@(_uses.Count == 1 ? "" : "s"). Saving the template changes no listing until you apply it.</span>
             }
         </Summary>
         <Actions>
             @if (_saved is not null)
             {
-                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete list</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
             }
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty)" OnClick="SaveAsync">Save list</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty)" OnClick="SaveAsync">Save template</MudButton>
         </Actions>
     </PageHeader>
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-        <MudText Typo="Typo.h6" Class="mb-2">List</MudText>
+        <MudText Typo="Typo.h6" Class="mb-2">Template</MudText>
         <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
                       Counter="VariationListService.MaxNameLength" MaxLength="VariationListService.MaxNameLength" />
         <MudText Typo="Typo.body2" Class="muted mb-2">
@@ -76,7 +79,7 @@ else
         </MudStack>
         @if (_saved is not null && _saved.Options.Any(o => _options.All(x => x.Id != o.Id)))
         {
-            <MudText Typo="Typo.body2" Class="muted mt-2">Removing an option from the list leaves the listings that have it alone; switch it off to retire it.</MudText>
+            <MudText Typo="Typo.body2" Class="muted mt-2">Removing an option from the template leaves the listings that have it alone; switch it off to retire it.</MudText>
         }
     </MudPaper>
 
@@ -84,7 +87,7 @@ else
     {
         <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
-                <MudText Typo="Typo.h6">Listings using this list</MudText>
+                <MudText Typo="Typo.h6">Listings using this template</MudText>
                 <MudStack Row="true" Spacing="2">
                     <MudButton Variant="Variant.Outlined" Disabled="@(WithChanges == 0 || Dirty)" OnClick="ApplyAsync">
                         Apply to @WithChanges listing@(WithChanges == 1 ? "" : "s")
@@ -141,7 +144,7 @@ else
                     <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _review = null)">Close</MudButton>
                 </MudStack>
                 <MudText Typo="Typo.body2" Class="muted mb-2">
-                    Each listing is pushed on its own, with all of its unpushed edits (not only this list), exactly as from its
+                    Each listing is pushed on its own, with all of its unpushed edits (not only this template), exactly as from its
                     editor. Listings with a problem are skipped; fix them in their editor.
                 </MudText>
                 <MudSimpleTable Dense="true">
@@ -192,7 +195,7 @@ else
                             <th class="esm-col-icon"><MudCheckBox T="bool" Value="@(_picked.Count == _candidates.Count)" ValueChanged="PickAll" aria-label="Select all" Dense="true" /></th>
                             <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
                             <SortHeader Sort="_candidateSort" Column="variation" Changed="StateHasChanged">Variation</SortHeader>
-                            <SortHeader Sort="_candidateSort" Column="match" Changed="StateHasChanged">In the list</SortHeader>
+                            <SortHeader Sort="_candidateSort" Column="match" Changed="StateHasChanged">In the template</SortHeader>
                         </tr>
                     </thead>
                     <tbody>
@@ -217,7 +220,7 @@ else
         <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
             <MudText Typo="Typo.h6" Class="mb-2">Add listings</MudText>
             <MudText Typo="Typo.body2" Class="muted mb-2">
-                Adds the list's switched-on options to any listing as a new variation, and links it. Every combination the
+                Adds the template's switched-on options to any listing as a new variation, and links it. Every combination the
                 listing has takes each option; the price stays as it is (it doesn't vary by the new variation) and the listing's
                 stock is shared. It's an unpushed edit until you review and push.
             </MudText>
@@ -349,27 +352,27 @@ else
     {
         var (id, error) = await Lists.SaveAsync(_saved?.Id, _name, _options, await User());
         if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
-        if (_saved is null) { Nav.NavigateTo($"variation-lists/{id}"); return; }
+        if (_saved is null) { Nav.NavigateTo($"templates/variations/{id}"); return; }
         await LoadAsync();
         Snackbar.Add(WithChanges > 0
-            ? $"List saved. {WithChanges} listing{(WithChanges == 1 ? "" : "s")} would change; apply it when you're ready."
-            : "List saved.", Severity.Success);
+            ? $"Template saved. {WithChanges} listing{(WithChanges == 1 ? "" : "s")} would change; apply it when you're ready."
+            : "Template saved.", Severity.Success);
     }
 
     private async Task DeleteAsync()
     {
-        var ok = await Dialogs.ShowMessageBoxAsync("Delete variation list",
+        var ok = await Dialogs.ShowMessageBoxAsync("Delete variation template",
             $"Delete \"{_saved!.Name}\"? Listings keep their variations as they are; they're only no longer linked.",
-            yesText: "Delete list", cancelText: "Cancel");
+            yesText: "Delete template", cancelText: "Cancel");
         if (ok != true) return;
         await Lists.DeleteAsync(_saved.Id, await User());
-        Nav.NavigateTo("variation-lists");
+        Nav.NavigateTo("templates/variations");
     }
 
     private async Task ApplyAsync()
     {
-        var ok = await Dialogs.ShowMessageBoxAsync("Apply the list",
-            $"Change the variations of {WithChanges} listing{(WithChanges == 1 ? "" : "s")} to match the list? They become unpushed edits; " +
+        var ok = await Dialogs.ShowMessageBoxAsync("Apply the template",
+            $"Change the variations of {WithChanges} listing{(WithChanges == 1 ? "" : "s")} to match the template? They become unpushed edits; " +
             "nothing is sent to Etsy until you review and push.", yesText: "Apply", cancelText: "Cancel");
         if (ok != true) return;
         var count = await Lists.ApplyAsync(_saved!.Id, await User());
@@ -433,7 +436,7 @@ else
 
     private async Task AddToListingAsync()
     {
-        if (Dirty) { Snackbar.Add("Save the list first.", Severity.Warning); return; }
+        if (Dirty) { Snackbar.Add("Save the template first.", Severity.Warning); return; }
         var (plan, error) = await Lists.AddToListingAsync(_saved!.Id, _addTo!.ListingId, _addName ?? "", await User());
         if (error is not null) { _addError = error; return; }
         Snackbar.Add($"{plan!.VariationName} added to {_addTo.Title} as an unpushed edit; review and push it when you're ready.", Severity.Success);

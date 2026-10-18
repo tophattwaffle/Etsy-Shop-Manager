@@ -1,3 +1,6 @@
+@page "/templates/text/new"
+@page "/templates/text/{Id:int}"
+@* The old addresses, from before the Templates page. *@
 @page "/text-blocks/new"
 @page "/text-blocks/{Id:int}"
 @attribute [Authorize(Roles = "Admin,Editor")]
@@ -9,63 +12,63 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime Js
 
-<PageTitle>@(_saved?.Name ?? "New text block") · Etsy Shop Manager</PageTitle>
+<PageTitle>@(_saved?.Name ?? "New text template") · Etsy Shop Manager</PageTitle>
 
-<MudLink Href="text-blocks" Class="d-inline-flex align-center mb-2">
-    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> All text blocks
+<MudLink Href="templates/text" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> All text templates
 </MudLink>
 
 @if (Id is not null && _saved is null && !_loaded)
 {
-    <PageHeader Title="Text block" />
+    <PageHeader Title="Text template" />
     <MudProgressLinear Indeterminate="true" />
 }
 else if (Id is not null && _saved is null)
 {
-    <PageHeader Title="Text block" />
-    <MudAlert Severity="Severity.Warning">This text block no longer exists.</MudAlert>
+    <PageHeader Title="Text template" />
+    <MudAlert Severity="Severity.Warning">This text template no longer exists.</MudAlert>
 }
 else
 {
-    <PageHeader Title="@(_saved?.Name ?? "New text block")">
+    <PageHeader Title="@(_saved?.Name ?? "New text template")">
         <Summary>
             @if (_saved is null)
             {
-                <span>Name the block and paste its text. After saving, the app lists the listings whose description already contains it.</span>
+                <span>Name the template and paste its text. After saving, the app lists the listings whose description already contains it.</span>
             }
             else
             {
-                <span>Used by @_uses.Count listing@(_uses.Count == 1 ? "" : "s"). Saving the block changes no listing until you apply it.</span>
+                <span>Used by @_uses.Count listing@(_uses.Count == 1 ? "" : "s"). Saving the template changes no listing until you apply it.</span>
             }
         </Summary>
         <Actions>
             @if (_saved is not null)
             {
-                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete block</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
             }
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty)" OnClick="SaveAsync">Save block</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty)" OnClick="SaveAsync">Save template</MudButton>
         </Actions>
     </PageHeader>
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-        <MudText Typo="Typo.h6" Class="mb-2">Block</MudText>
+        <MudText Typo="Typo.h6" Class="mb-2">Template</MudText>
         <MudTextField T="string" Value="_name" ValueChanged="NameChanged" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
                       Counter="TextBlockService.MaxNameLength" MaxLength="TextBlockService.MaxNameLength" />
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3" Wrap="Wrap.Wrap">
             <MudTextField T="string" @bind-Value="_slug" Label="Placeholder name" Variant="Variant.Outlined" Immediate="true" Class="esm-w-lg"
                           Counter="TextBlockService.MaxSlugLength" MaxLength="TextBlockService.MaxSlugLength"
-                          HelperText="@($"Put {TextBlockMarkup.Token(SlugOrDefault)} in a description to show this block there. Lowercase letters, numbers and hyphens.")" />
+                          HelperText="@($"Put {TextBlockMarkup.Token(SlugOrDefault)} in a description to show this template there. Lowercase letters, numbers and hyphens.")" />
             <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopyTokenAsync">Copy placeholder</MudButton>
         </MudStack>
         <MudTextField T="string" @bind-Value="_text" Label="Text" Lines="8" Variant="Variant.Outlined" Immediate="true"
-                      HelperText="Exactly as it appears in every description that uses the block; it can only be changed here. Trailing spaces and blank lines around it are dropped." />
+                      HelperText="Exactly as it appears in every description that uses the template; it can only be changed here. Trailing spaces and blank lines around it are dropped." />
     </MudPaper>
 
     @if (_saved is not null)
     {
         <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
-                <MudText Typo="Typo.h6">Listings using this block</MudText>
+                <MudText Typo="Typo.h6">Listings using this template</MudText>
                 <MudStack Row="true" Spacing="2">
                     <MudButton Variant="Variant.Outlined" Disabled="@(WillChange == 0 || Dirty)" OnClick="ApplyAsync">
                         Apply to @WillChange listing@(WillChange == 1 ? "" : "s")
@@ -76,7 +79,7 @@ else
                 </MudStack>
             </MudStack>
             <MudText Typo="Typo.body2" Class="muted mb-2">
-                Applying puts the block's new text into each listing's description as an unpushed edit; nothing is sent to Etsy
+                Applying puts the template's new text into each listing's description as an unpushed edit; nothing is sent to Etsy
                 until you review and push. Listings whose description changed on Etsy are left alone until that's resolved.
             </MudText>
             @if (_uses.Count == 0)
@@ -131,7 +134,7 @@ else
                     <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _review = null)">Close</MudButton>
                 </MudStack>
                 <MudText Typo="Typo.body2" Class="muted mb-2">
-                    Each listing is pushed on its own, with all of its unpushed edits (not only this block), exactly as from its
+                    Each listing is pushed on its own, with all of its unpushed edits (not only this template), exactly as from its
                     editor. Listings with a problem are skipped; fix them in their editor.
                 </MudText>
                 <MudSimpleTable Dense="true">
@@ -173,8 +176,8 @@ else
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
                 <MudText Typo="Typo.h6" Class="mb-2">Listings that already contain this text</MudText>
                 <MudText Typo="Typo.body2" Class="muted mb-2">
-                    Their description has the block's text word for word. Using the block there puts its placeholder in place of the
-                    text (nothing changes on Etsy); from then on they follow the block.
+                    Their description has the template's text word for word. Using the template there puts its placeholder in place of the
+                    text (nothing changes on Etsy); from then on they follow the template.
                 </MudText>
                 <MudSimpleTable Dense="true">
                     <thead>
@@ -198,7 +201,7 @@ else
                     </tbody>
                 </MudSimpleTable>
                 <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
-                    Use the block in @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
+                    Use the template in @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
                 </MudButton>
             </MudPaper>
         }
@@ -299,26 +302,26 @@ else
     {
         var (id, error) = await Blocks.SaveAsync(_saved?.Id, _name, SlugOrDefault, _text, await User());
         if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
-        if (_saved is null) { Nav.NavigateTo($"text-blocks/{id}"); return; }
+        if (_saved is null) { Nav.NavigateTo($"templates/text/{id}"); return; }
         await LoadAsync();
         Snackbar.Add(WillChange > 0
-            ? $"Block saved. {WillChange} listing{(WillChange == 1 ? " has" : "s have")} the old text; apply it when you're ready."
-            : "Block saved.", Severity.Success);
+            ? $"Template saved. {WillChange} listing{(WillChange == 1 ? " has" : "s have")} the old text; apply it when you're ready."
+            : "Template saved.", Severity.Success);
     }
 
     private async Task DeleteAsync()
     {
-        var ok = await Dialogs.ShowMessageBoxAsync("Delete text block",
-            $"Delete \"{_saved!.Name}\"? Listings keep their text; they're only no longer linked to the block.",
-            yesText: "Delete block", cancelText: "Cancel");
+        var ok = await Dialogs.ShowMessageBoxAsync("Delete text template",
+            $"Delete \"{_saved!.Name}\"? Listings keep their text; they're only no longer linked to the template.",
+            yesText: "Delete template", cancelText: "Cancel");
         if (ok != true) return;
         await Blocks.DeleteAsync(_saved.Id, await User());
-        Nav.NavigateTo("text-blocks");
+        Nav.NavigateTo("templates/text");
     }
 
     private async Task ApplyAsync()
     {
-        var ok = await Dialogs.ShowMessageBoxAsync("Apply the block",
+        var ok = await Dialogs.ShowMessageBoxAsync("Apply the template",
             $"Put the new text into {WillChange} listing description{(WillChange == 1 ? "" : "s")}? They become unpushed edits; " +
             "nothing is sent to Etsy until you review and push.", yesText: "Apply", cancelText: "Cancel");
         if (ok != true) return;
@@ -372,8 +375,8 @@ else
 
     private async Task DetachAsync(TextBlockUse u)
     {
-        var ok = await Dialogs.ShowMessageBoxAsync("Stop using the block",
-            $"Replace the placeholder in \"{u.Title}\" with the block's text? The listing keeps the text and can edit it, but no longer follows the block.",
+        var ok = await Dialogs.ShowMessageBoxAsync("Stop using the template",
+            $"Replace the placeholder in \"{u.Title}\" with the template's text? The listing keeps the text and can edit it, but no longer follows the template.",
             yesText: "Stop using", cancelText: "Cancel");
         if (ok != true) return;
         await Blocks.DetachAsync(_saved!.Id, u.ListingId, await User());

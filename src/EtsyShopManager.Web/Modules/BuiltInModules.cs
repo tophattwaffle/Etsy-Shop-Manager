@@ -57,7 +57,7 @@ public sealed class JobsModule : IModule
 
     public IEnumerable<NavItem> NavItems =>
     [
-        new("Jobs", "jobs", Icons.Material.Filled.Queue, Order: 900, Roles: Roles.Admin),
+        new("Jobs", "jobs", Icons.Material.Filled.Queue, Order: 900, Roles: Roles.Admin, Group: NavGroups.Settings),
     ];
 }
 
@@ -70,11 +70,11 @@ public sealed class AdminModule : IModule
 
     public IEnumerable<NavItem> NavItems =>
     [
-        new("Users", "admin/users", Icons.Material.Filled.People, Order: 910, Roles: Roles.Admin),
-        new("Audit log", "admin/audit", Icons.Material.Filled.History, Order: 920, Roles: Roles.Admin),
-        new("Etsy writes", "admin/etsy-writes", Icons.Material.Filled.CloudUpload, Order: 925, Roles: Roles.Admin),
-        new("Photo order test", "admin/photo-order-test", Icons.Material.Filled.PhotoLibrary, Order: 926, Roles: Roles.Admin),
-        new("Settings", "admin/settings", Icons.Material.Filled.Settings, Order: 930, Roles: Roles.Admin),
+        new("Users", "admin/users", Icons.Material.Filled.People, Order: 910, Roles: Roles.Admin, Group: NavGroups.Settings),
+        new("Audit log", "admin/audit", Icons.Material.Filled.History, Order: 920, Roles: Roles.Admin, Group: NavGroups.Settings),
+        new("Etsy writes", "admin/etsy-writes", Icons.Material.Filled.CloudUpload, Order: 925, Roles: Roles.Admin, Group: NavGroups.Settings),
+        new("Photo order test", "admin/photo-order-test", Icons.Material.Filled.PhotoLibrary, Order: 926, Roles: Roles.Admin, Group: NavGroups.Settings),
+        new("General", "admin/settings", Icons.Material.Filled.Tune, Order: 899, Roles: Roles.Admin, Group: NavGroups.Settings),
     ];
 }
 

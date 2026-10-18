@@ -1,17 +1,55 @@
 @inject ModuleRegistry Modules
+@inject NavigationManager Nav
 
 <AuthorizeView>
     <Authorized>
         <MudNavMenu Class="esm-nav">
             <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
-            @foreach (var item in Modules.NavItems)
+            @{ var visible = Modules.NavItems.Where(i => CanSee(i, context.User)).ToList(); var shownGroups = new HashSet<string>(); }
+            @foreach (var item in visible)
             {
-                if (item.Roles is null || item.Roles.Split(',').Any(r => context.User.IsInRole(r.Trim())))
+                if (item.Group is null)
                 {
-                    <MudNavLink Href="@item.Href" Icon="@item.Icon"
-                                Match="@(item.MatchAll ? NavLinkMatch.All : NavLinkMatch.Prefix)">@item.Title</MudNavLink>
+                    @Link(item)
+                }
+                else if (shownGroups.Add(item.Group))
+                {
+                    // A group sits where its first item would, and starts open while one of its pages is showing.
+                    var group = item.Group;
+                    var children = visible.Where(i => i.Group == group).ToList();
+                    <MudNavGroup Title="@group" Icon="@GroupIcon(group)" Expanded="@IsOpen(group, children)"
+                                 ExpandedChanged="@(open => _open[group] = open)">
+                        @foreach (var child in children)
+                        {
+                            @Link(child)
+                        }
+                    </MudNavGroup>
                 }
             }
         </MudNavMenu>
     </Authorized>
 </AuthorizeView>
+
+@code {
+    private readonly Dictionary<string, bool> _open = [];
+
+    private static bool CanSee(NavItem item, System.Security.Claims.ClaimsPrincipal user) =>
+        item.Roles is null || item.Roles.Split(',').Any(r => user.IsInRole(r.Trim()));
+
+    private static RenderFragment Link(NavItem item) =>
+        @<MudNavLink Href="@item.Href" Icon="@item.Icon"
+                     Match="@(item.MatchAll ? NavLinkMatch.All : NavLinkMatch.Prefix)">@item.Title</MudNavLink>;
+
+    private static string GroupIcon(string group) => group switch
+    {
+        NavGroups.Settings => Icons.Material.Filled.Settings,
+        _ => Icons.Material.Filled.Folder,
+    };
+
+    private bool IsOpen(string group, List<NavItem> children)
+    {
+        if (_open.TryGetValue(group, out var open)) return open;
+        var path = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+        return children.Any(c => path == c.Href || path.StartsWith(c.Href + "/", StringComparison.OrdinalIgnoreCase));
+    }
+}

@@ -142,8 +142,8 @@ public sealed class ListingEditor(
         // A text block placeholder left in the text (no block by that name): Etsy would show it as written.
         if (changes.Any(c => c.Key == "description") && System.Text.RegularExpressions.Regex.Matches((string?)local["description"] ?? "", @"\{\{\s*text\.[^}]*\}\}")
                 is { Count: > 0 } placeholders)
-            blockers.Add($"The description has {string.Join(", ", placeholders.Select(m => m.Value).Distinct())}, which isn't a text block. " +
-                         "Fix the placeholder or create the block.");
+            blockers.Add($"The description has {string.Join(", ", placeholders.Select(m => m.Value).Distinct())}, which isn't a text template. " +
+                         "Fix the placeholder or create the template.");
         if (changes.Any(c => c.Key == "title"))
             blockers.AddRange(ListingTextRules.TitleProblems((string?)local["title"] ?? ""));
         if (changes.Any(c => c.Key == "tags") && local["tags"] is JsonArray tags)

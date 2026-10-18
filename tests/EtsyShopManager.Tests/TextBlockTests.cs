@@ -143,7 +143,7 @@ public class TextBlockTests
 
         // A placeholder with no block stays as written and blocks the push.
         Assert.Equal(["missing"], await Blocks(shop).SaveDescriptionAsync(ids[4], "Hello {{text.missing}}", "tophattwaffle"));
-        Assert.Contains((await Editor(shop).PreviewAsync(ids[4])).Blockers, b => b.StartsWith("The description has {{text.missing}}, which isn't a text block."));
+        Assert.Contains((await Editor(shop).PreviewAsync(ids[4])).Blockers, b => b.StartsWith("The description has {{text.missing}}, which isn't a text template."));
 
         await Blocks(shop).DetachAsync(blockId, ids[2], "tophattwaffle");
         Assert.Equal(Pasted, await Blocks(shop).SourceAsync(ids[2])); // the text, now the listing's own
