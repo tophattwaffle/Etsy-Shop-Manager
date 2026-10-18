@@ -18,7 +18,7 @@
     --esm-error: var(--mud-palette-error);
     --esm-radius: 12px;
     --esm-radius-sm: 8px;
-    --esm-edge-shadow: rgba(0, 0, 0, 0.8); /* the dark fade at the edge of a swipeable tab row (lighter in light mode) */
+    --esm-edge-shadow: rgba(0, 0, 0, 0.55); /* the dark fade at the edge of a swipeable tab row (lighter in light mode) */
     --esm-font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
 
     /* Shop accents when a shop's profile image gives no usable colour. */
@@ -96,17 +96,17 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
    buttons: the arrows go, the row scrolls natively, and MudBlazor's own translateX paging is switched off. */
 @media (max-width: 959.98px) {
     .mud-tabs-tabbar-inner .mud-tabs-scroll-button { display: none; }
-    /* A dark fade on each side that has more tabs to swipe to. The two "scroll" shadows stay at the edges; the
-       two "local" paper-coloured covers ride along with the tabs and hide a shadow once its end is reached. */
-    .mud-tabs-tabbar-content {
-        overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch;
-        background:
-            linear-gradient(to right, var(--esm-paper) 40%, transparent) left / 44px 100% no-repeat local,
-            linear-gradient(to left, var(--esm-paper) 40%, transparent) right / 44px 100% no-repeat local,
-            linear-gradient(to right, var(--esm-edge-shadow), transparent) left / 28px 100% no-repeat scroll,
-            linear-gradient(to left, var(--esm-edge-shadow), transparent) right / 28px 100% no-repeat scroll,
-            var(--esm-paper);
+    .mud-tabs-tabbar-content { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    /* A dark fade over each side that has more tabs to swipe to, drawn on top of the tab text and underline.
+       esm.tabEdges (app.js) marks the row data-esm-more-start / -end as it scrolls (attributes, which Blazor leaves alone). */
+    .mud-tabs-tabbar-inner { position: relative; }
+    .mud-tabs-tabbar-inner::before, .mud-tabs-tabbar-inner::after {
+        content: ""; position: absolute; top: 0; bottom: 0; width: 28px; z-index: 2; pointer-events: none;
+        opacity: 0; transition: opacity 0.15s;
     }
+    .mud-tabs-tabbar-inner::before { left: 0; background: linear-gradient(to right, var(--esm-edge-shadow), transparent); }
+    .mud-tabs-tabbar-inner::after { right: 0; background: linear-gradient(to left, var(--esm-edge-shadow), transparent); }
+    .mud-tabs-tabbar-inner[data-esm-more-start]::before, .mud-tabs-tabbar-inner[data-esm-more-end]::after { opacity: 1; }
     .mud-tabs-tabbar-content::-webkit-scrollbar { display: none; }
     .mud-tabs-tabbar-content .mud-tabs-tabbar-wrapper { transform: none !important; }
 }

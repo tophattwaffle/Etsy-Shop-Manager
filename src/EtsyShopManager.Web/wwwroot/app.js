@@ -86,6 +86,26 @@ window.esm = {
         }
     },
 
+    // Marks each swipeable tab row (app.css, phones and tablets) with which ends have more tabs past them, so a dark
+    // fade shows over that side. Checked on any scroll, resize or page change, at most once a frame.
+    initTabEdges: function () {
+        let queued = false;
+        const update = () => {
+            queued = false;
+            for (const content of document.querySelectorAll(".mud-tabs-tabbar-content")) {
+                const row = content.parentElement;
+                const max = content.scrollWidth - content.clientWidth;
+                row.toggleAttribute("data-esm-more-start", content.scrollLeft > 1);
+                row.toggleAttribute("data-esm-more-end", content.scrollLeft < max - 1);
+            }
+        };
+        const queue = () => { if (!queued) { queued = true; requestAnimationFrame(update); } };
+        document.addEventListener("scroll", (e) => { if (e.target.classList?.contains("mud-tabs-tabbar-content")) queue(); }, true);
+        window.addEventListener("resize", queue);
+        new MutationObserver(queue).observe(document.body, { childList: true, subtree: true });
+        queue();
+    },
+
     // Clipboard API requires a secure context (HTTPS via HAProxy, or localhost).
     copy: async function (text) {
         try {
@@ -237,4 +257,5 @@ window.esm = {
 };
 
 esm.initReconnect();
+esm.initTabEdges();
 esm.startBlazor();
