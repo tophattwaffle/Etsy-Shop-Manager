@@ -278,6 +278,31 @@ public class ListingImporterTests
     }
 
     [Fact]
+    public async Task A_listing_skipped_by_paging_but_still_on_Etsy_is_not_flagged_missing()
+    {
+        using var shop = new FakeEtsyShop();
+        shop.Listings.AddRange([FakeEtsyShop.Listing(1, "One"), FakeEtsyShop.Listing(2, "Two"), FakeEtsyShop.Listing(3, "Three"),
+            FakeEtsyShop.Listing(4, "Four")]);
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+
+        // Listing 2 is still on Etsy, but the state pages didn't return it (another listing changed state mid-import and
+        // the pages after it shifted); Etsy only knows it by id. Listing 3 was deleted, and 4 removed ("removed" state).
+        var two = shop.Listings[1];
+        var four = shop.Listings[3];
+        shop.Listings.Remove(two);
+        shop.Listings.Remove(four);
+        shop.Listings.RemoveAll(l => (long)l["listing_id"]! == 3);
+        four["state"] = "removed";
+        shop.BatchOnlyListings.AddRange([two, four]);
+        var result = await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+
+        Assert.Equal(2, result.MarkedMissing);
+        await using var db = shop.Db.CreateDbContext();
+        Assert.Equal([3L, 4L], await db.Listings.Where(l => l.IsMissingOnEtsy).Select(l => l.EtsyListingId).OrderBy(id => id).ToListAsync());
+        Assert.Single(shop.RequestedPaths, p => p.Contains("/listings/batch"));
+    }
+
+    [Fact]
     public async Task Interrupted_import_resumes_from_the_saved_page()
     {
         using var shop = new FakeEtsyShop();
@@ -425,6 +450,25 @@ public class TaxonomyImporterTests
         shop.Api.Requests.Clear();
         await shop.Taxonomy.RefreshAsync(force: false, CancellationToken.None);
         Assert.Empty(shop.Api.Requests);
+    }
+
+    [Fact]
+    public async Task A_category_without_properties_is_not_read_again_while_fresh()
+    {
+        using var shop = new FakeEtsyShop();
+        shop.TaxonomiesWithoutProperties.Add(1001);
+        shop.Listings.Add(FakeEtsyShop.Listing(1, "One"));
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        await shop.Taxonomy.RefreshAsync(force: false, CancellationToken.None);
+
+        shop.Api.Requests.Clear();
+        await shop.Taxonomy.RefreshAsync(force: false, CancellationToken.None);
+        Assert.Empty(shop.Api.Requests);
+
+        // A week later it's due again, like any other category.
+        shop.Time.Now += TaxonomyImporter.MaxAge + TimeSpan.FromMinutes(1);
+        await shop.Taxonomy.RefreshAsync(force: false, CancellationToken.None);
+        Assert.Contains(shop.RequestedPaths, p => p.EndsWith("/nodes/1001/properties"));
     }
 }
 

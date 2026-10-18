@@ -20,6 +20,10 @@ public sealed class TaxonomyImporter(
 {
     public static readonly TimeSpan MaxAge = TimeSpan.FromDays(7);
 
+    // Categories Etsy gave no properties for, and when: there's no row to date them, so without this they would be read
+    // again on every refresh. Kept in memory (this is a singleton); after a restart they're read once more.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, DateTime> _empty = new();
+
     public async Task RefreshAsync(bool force, CancellationToken ct)
     {
         var auth = await AnyShopAuthAsync(ct);
@@ -54,7 +58,8 @@ public sealed class TaxonomyImporter(
             var fresh = await db.TaxonomyProperties.GroupBy(p => p.TaxonomyId)
                 .Where(g => g.Min(p => p.ImportedAtUtc) >= now - MaxAge)
                 .Select(g => g.Key).ToListAsync(ct);
-            due = force ? used : used.Except(fresh).ToList();
+            var freshEmpty = _empty.Where(e => e.Value >= now - MaxAge).Select(e => e.Key);
+            due = force ? used : used.Except(fresh).Except(freshEmpty).ToList();
         }
 
         foreach (var taxonomyId in due)
@@ -81,6 +86,8 @@ public sealed class TaxonomyImporter(
             }));
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
+            if (props.Count == 0) _empty[taxonomyId] = now;
+            else _empty.TryRemove(taxonomyId, out _);
         }
 
         if (due.Count > 0) logger.LogInformation("Imported properties for {Count} taxonomy node(s)", due.Count);
