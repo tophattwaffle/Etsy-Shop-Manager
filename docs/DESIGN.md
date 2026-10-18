@@ -26,7 +26,7 @@ Colours exist only in `AppTheme.cs` and in the token block at the top of `app.cs
 | `--esm-line` | Hairline borders and dividers |
 | `--esm-sunk` | Selected filter or nav item, placeholders, code |
 | `--esm-hover` | Hover background |
-| `--esm-brand` | Etsy orange, for the brand mark only |
+| `--esm-brand` | Etsy orange: the brand mark, and the selected tab where no shop colour applies |
 | `--esm-success`, `--esm-info`, `--esm-warning`, `--esm-error` | Status dots and status text |
 | `--esm-radius` (12px), `--esm-radius-sm` (8px) | Panels and cards; thumbnails and inputs |
 | `--shop` | A shop's accent colour, set on the element that belongs to the shop |
@@ -43,7 +43,7 @@ holds, or a count) and `<Actions>` (the page's main buttons). Pages never style 
 **Panels.** Bordered, not shadowed: `<MudPaper Elevation="0" Outlined="true">`, 12px corners. Tabs use
 `Elevation="0" Outlined="true" Rounded="true"`; the tab bar is a rounded box that clips the selected tab to its corners,
 and the selected tab gets a light wash and an underline in the accent: the shop's (`--shop` on the `MudTabs`) on a page
-about one shop, such as a listing, otherwise ink. No drop shadows anywhere in page content. *(checked)*
+about one shop, such as a listing, otherwise Etsy orange (`--esm-brand`). No drop shadows anywhere in page content. *(checked)*
 
 **Buttons.** Pill shaped. The main action on a page is filled `Color.Primary`, which is black in light mode and white in
 dark mode. Secondary actions are `Variant.Outlined` (2px border) or `Variant.Text`. Destructive actions use

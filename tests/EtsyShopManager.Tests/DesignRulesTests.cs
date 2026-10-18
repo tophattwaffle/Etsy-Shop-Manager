@@ -100,7 +100,7 @@ public partial class DesignRulesTests
 
     /// <summary>
     /// Every tab bar is outlined and rounded, so the shared style in app.css applies: the bar clips the selected tab to
-    /// its corners, and the selected tab gets a wash and an underline in the accent (the shop's, else ink).
+    /// its corners, and the selected tab gets a wash and an underline in the accent (the shop's, else Etsy orange).
     /// </summary>
     [Fact]
     public void Tabs_share_the_rounded_accent_style()
@@ -114,8 +114,8 @@ public partial class DesignRulesTests
 
         var css = File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.css"));
         Assert.Contains(".mud-tabs .mud-tabs-tabbar { border-radius: var(--esm-radius); overflow: hidden; }", css);
-        Assert.Contains("background-color: color-mix(in srgb, var(--shop, var(--esm-ink)) 8%, transparent);", css);
-        Assert.Contains(".mud-tabs .mud-tab-slider { background: var(--shop, var(--esm-ink)); }", css);
+        Assert.Contains("background-color: color-mix(in srgb, var(--shop, var(--esm-brand)) 8%, transparent);", css);
+        Assert.Contains(".mud-tabs .mud-tab-slider { background: var(--shop, var(--esm-brand)); }", css);
     }
 
     /// <summary>
