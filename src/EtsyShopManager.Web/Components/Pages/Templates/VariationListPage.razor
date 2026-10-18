@@ -213,6 +213,38 @@ else
                 </MudButton>
             </MudPaper>
         }
+
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" Class="mb-2">Add listings</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-2">
+                Adds the list's switched-on options to any listing as a new variation, and links it. Every combination the
+                listing has takes each option; the price stays as it is (it doesn't vary by the new variation) and the listing's
+                stock is shared. It's an unpushed edit until you review and push.
+            </MudText>
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
+                <MudAutocomplete T="VariationListAddable" Value="@_addTo" ValueChanged="PickAddToAsync" SearchFunc="SearchAddableAsync"
+                                 ToStringFunc="@(a => a is null ? "" : $"{a.Title} · {a.ShopName}")" Label="Listing" Variant="Variant.Outlined"
+                                 Margin="Margin.Dense" ResetValueOnEmptyText="true" Class="esm-w-lg" />
+                <MudTextField T="string" Value="@_addName" ValueChanged="SetAddNameAsync" Label="Variation name" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" Class="esm-w-sm" />
+                <MudButton Variant="Variant.Outlined" Disabled="@(_addPlan is null)" OnClick="AddToListingAsync">Add to listing</MudButton>
+            </MudStack>
+            @if (_addTo is not null)
+            {
+                @if (_addError is not null)
+                {
+                    <MudText Typo="Typo.body2" Class="error-text mt-2">@_addError</MudText>
+                }
+                else if (_addPlan is not null)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        Adds @_addPlan.VariationName with @_addPlan.Values.Count option@(_addPlan.Values.Count == 1 ? "" : "s")
+                        @(_addTo.Variations.Count > 0 ? $"next to {string.Join(" and ", _addTo.Variations)}" : ""):
+                        @_addPlan.Combinations combination@(_addPlan.Combinations == 1 ? "" : "s").
+                    </MudText>
+                }
+            }
+        </MudPaper>
     }
 }
 
@@ -229,6 +261,10 @@ else
     private IReadOnlyList<VariationListCandidate> _candidates = [];
     private IReadOnlyList<TemplatePushItem>? _review;
     private readonly HashSet<(int, long)> _picked = [];
+    private IReadOnlyList<VariationListAddable>? _addable;
+    private VariationListAddable? _addTo;
+    private string? _addName, _addError;
+    private VariationListAddPlan? _addPlan;
 
     private bool Dirty => _saved is null
         ? _name.Trim().Length > 0 || _options.Count > 0
@@ -368,6 +404,42 @@ else
         var count = await Lists.LinkAsync(_saved!.Id, _picked.Select(k => (k.Item1, k.Item2)), await User());
         await LoadAsync();
         Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} linked.", Severity.Success);
+    }
+
+    private async Task<IEnumerable<VariationListAddable>> SearchAddableAsync(string? text, CancellationToken ct)
+    {
+        _addable ??= await Lists.AddableAsync(_saved!.Id, ct);
+        var words = (text ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return _addable.Where(a => words.All(w => a.Title.Contains(w, StringComparison.OrdinalIgnoreCase))).Take(50);
+    }
+
+    private async Task PickAddToAsync(VariationListAddable? listing)
+    {
+        _addTo = listing;
+        if (listing is not null && string.IsNullOrWhiteSpace(_addName)) _addName = await Lists.SuggestedVariationNameAsync(_saved!.Id);
+        await PreviewAddAsync();
+    }
+
+    private async Task SetAddNameAsync(string? name)
+    {
+        _addName = name;
+        await PreviewAddAsync();
+    }
+
+    private async Task PreviewAddAsync()
+    {
+        (_addPlan, _addError) = _addTo is null ? (null, null) : await Lists.PreviewAddAsync(_saved!.Id, _addTo.ListingId, _addName ?? "");
+    }
+
+    private async Task AddToListingAsync()
+    {
+        if (Dirty) { Snackbar.Add("Save the list first.", Severity.Warning); return; }
+        var (plan, error) = await Lists.AddToListingAsync(_saved!.Id, _addTo!.ListingId, _addName ?? "", await User());
+        if (error is not null) { _addError = error; return; }
+        Snackbar.Add($"{plan!.VariationName} added to {_addTo.Title} as an unpushed edit; review and push it when you're ready.", Severity.Success);
+        (_addTo, _addPlan, _addError, _addable) = (null, null, null, null);
+        _review = null;
+        await LoadAsync();
     }
 
     private async Task UnlinkAsync(VariationListUse u)

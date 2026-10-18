@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject ListingImportQueue ImportQueue
 @inject EtsyShopManager.Web.Modules.Templates.TextBlockService TextBlocks
+@inject EtsyShopManager.Web.Modules.Templates.VariationListService VariationLists
 @inject IJSRuntime Js
 
 <PageTitle>Edit @(_snapshot?.Listing.Title ?? "listing") · Etsy Shop Manager</PageTitle>
@@ -192,6 +193,29 @@ else
                 @if (_form![ListingFields.Inventory] is { } inventoryNode)
                 {
                     <VariationsEditor Inventory="inventoryNode" Order="VariationEditor.EtsyOrder(l)" InventoryChanged="@(i => Set(ListingFields.Inventory, i))" />
+                    @if (_variationLists.Count > 0 && VariationEditor.Variations(inventoryNode).Count < VariationEditor.MaxVariations)
+                    {
+                        <div class="esm-variation">
+                            <div class="esm-variation-name">Add from variation list</div>
+                            <div class="esm-variation-add">
+                                <MudSelect T="int?" Value="@_fromList" ValueChanged="PickFromListAsync" Label="Variation list" Variant="Variant.Outlined"
+                                           Margin="Margin.Dense" Class="esm-w-sm">
+                                    @foreach (var (listId, listName) in _variationLists)
+                                    {
+                                        <MudSelectItem T="int?" Value="@listId">@listName</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudTextField T="string" @bind-Value="_fromListName" Label="Variation name" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                              Class="esm-w-sm" />
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_fromList is null || string.IsNullOrWhiteSpace(_fromListName))"
+                                           OnClick="AddFromListAsync">Add from list</MudButton>
+                            </div>
+                            <div class="small muted">
+                                Adds the list's switched-on options as a new variation and links the listing to the list, so later changes
+                                to the list follow. The price doesn't vary by it and stock stays shared.
+                            </div>
+                        </div>
+                    }
                 }
                 @if (Products.Count > 0)
                 {
@@ -409,6 +433,9 @@ else
     private string _description = "", _savedDescription = "";
     private IReadOnlyList<AttributeProperty>? _attributeProperties;
     private bool _unsaved, _pushing, _notFound;
+    private IReadOnlyList<(int Id, string Name)> _variationLists = [];
+    private int? _fromList;
+    private string? _fromListName;
     private IDisposable? _live;
 
     private TableSort<FieldChange> _changeSort = new();
@@ -447,6 +474,8 @@ else
         _lookups = await EditorLookups.LoadAsync(db, _snapshot.Listing.ShopId, categoryIds, _snapshot.Listing.CurrencyCode);
         _allBlocks = await TextBlocks.AllAsync();
         _listingBlocks = await TextBlocks.ForListingAsync(Id);
+        _variationLists = [.. (await db.VariationLists.AsNoTracking().OrderBy(v => v.Name).Select(v => new { v.Id, v.Name }).ToListAsync())
+            .Select(v => (v.Id, v.Name))];
         if (keepForm && _form is not null) return;
         _form = model.LocalState();
         _description = _savedDescription = await TextBlocks.SourceAsync(Id);
@@ -601,6 +630,22 @@ else
             await TextBlocks.SaveDescriptionAsync(Id, _description, await User());
         await LoadAsync();
         Snackbar.Add("Draft saved. Nothing has been sent to Etsy.", Severity.Success);
+    }
+
+    private async Task PickFromListAsync(int? listId)
+    {
+        _fromList = listId;
+        if (listId is { } id) _fromListName = await VariationLists.SuggestedVariationNameAsync(id);
+    }
+
+    private async Task AddFromListAsync()
+    {
+        if (_unsaved) await SaveAsync();
+        var (plan, error) = await VariationLists.AddToListingAsync(_fromList!.Value, Id, _fromListName ?? "", await User());
+        if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
+        (_fromList, _fromListName, _preview) = (null, null, null);
+        await LoadAsync();
+        Snackbar.Add($"{plan!.VariationName} added with {plan.Values.Count} options ({plan.Combinations} combinations) as an unpushed edit.", Severity.Success);
     }
 
     private async Task ReviewAsync()

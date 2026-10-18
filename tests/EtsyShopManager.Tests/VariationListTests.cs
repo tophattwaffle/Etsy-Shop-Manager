@@ -123,6 +123,105 @@ public class VariationListTests
         Assert.Equal(VariationListUseStatus.UpToDate, Assert.Single(await Lists(shop).UsesAsync(listId)).Status);
     }
 
+    /// <summary>Adds listing 3, "Test listing", with no variations: one product at 19.99, stock 5.</summary>
+    private static async Task<int> AddListingWithoutVariationsAsync(FakeEtsyShop shop)
+    {
+        var listing = FakeEtsyShop.Listing(3, "Test listing");
+        var product = FakeEtsyShop.Product(301, "", "", 1999, 5);
+        product["property_values"] = new JsonArray();
+        listing["inventory"] = new JsonObject
+        {
+            ["price_on_property"] = new JsonArray(), ["quantity_on_property"] = new JsonArray(), ["sku_on_property"] = new JsonArray(),
+            ["products"] = new JsonArray(product),
+        };
+        shop.Listings.Add(listing);
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        await using var db = shop.Db.CreateDbContext();
+        return await db.Listings.Where(l => l.EtsyListingId == 3).Select(l => l.Id).SingleAsync();
+    }
+
+    private static async Task PushAsync(FakeEtsyShop shop, int pushId) =>
+        await shop.Provider.GetRequiredService<PushListingJob>().HandleAsync(new JobExecutionContext
+        {
+            JobId = 1, JobType = PushListingJob.Type, Attempt = 1,
+            PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PushPayload(pushId), JobJson.Options),
+        }, CancellationToken.None);
+
+    [Fact]
+    public async Task A_list_added_to_a_listing_without_variations_becomes_a_linked_variation_pushed_through_the_reviewed_push()
+    {
+        var (shop, colored, plain) = await SetupAsync();
+        using var _ = shop;
+        var test = await AddListingWithoutVariationsAsync(shop);
+        var listId = (await Lists(shop).SaveAsync(null, "PLA Colors", [new(0, "Black", true), new(0, "White", true), new(0, "Red", false)], "tophattwaffle")).Id!.Value;
+        await Lists(shop).LinkAsync(listId, [(colored, Color)], "tophattwaffle");
+
+        // Any listing with room for a variation is offered, whatever its values (the colored one already has two).
+        Assert.Equal([plain, test], (await Lists(shop).AddableAsync(listId)).Select(a => a.ListingId).Order());
+        Assert.Equal("Color", await Lists(shop).SuggestedVariationNameAsync(listId)); // the name its linked listings use
+
+        var (preview, error) = await Lists(shop).PreviewAddAsync(listId, test, "Color");
+        Assert.Null(error);
+        Assert.Equal(["Black", "White"], preview!.Values); // Red is switched off
+        Assert.Equal(2, preview.Combinations);
+        Assert.False((await Editor(shop).LoadAsync(test))!.Listing.HasDraft); // a preview saves nothing
+
+        var (plan, addError) = await Lists(shop).AddToListingAsync(listId, test, "Color", "tophattwaffle");
+        Assert.Null(addError);
+        Assert.Empty(shop.Writes); // only a draft
+        var inventory = await InventoryAsync(shop, test);
+        var variation = Assert.Single(VariationEditor.Variations(inventory));
+        Assert.Equal((plan!.PropertyId, "Color"), (variation.PropertyId, variation.Name));
+        Assert.Equal(["Black", "White"], variation.Values);
+        Assert.True(variation.IsCustom);
+        Assert.Empty(inventory["price_on_property"]!.AsArray()); // one price for every color
+        var use = Assert.Single(await Lists(shop).UsesAsync(listId), u => u.ListingId == test);
+        Assert.Equal((VariationListUseStatus.UpToDate, true), (use.Status, use.InventoryPending));
+        Assert.Equal("Test listing already uses this list.", (await Lists(shop).AddToListingAsync(listId, test, "Color", "tophattwaffle")).Error);
+
+        var review = Assert.Single(await Lists(shop).ReviewAsync(listId));
+        Assert.True(review.Preview.CanPush, string.Join("; ", review.Preview.Blockers));
+        await PushAsync(shop, Assert.Single(await Lists(shop).PushAsync(listId, "tophattwaffle")).PushId!.Value);
+        var body = JsonNode.Parse(shop.Writes.Single(w => w.Path == "/v3/application/listings/3/inventory").Body)!;
+        var products = body["products"]!.AsArray().Select(p => p!).ToList();
+        Assert.Equal(["Black", "White"], products.Select(p => (string)p["property_values"]![0]!["values"]![0]!).Order());
+        Assert.All(products, p => Assert.Equal((plan.PropertyId, 19.99m, 5),
+            ((long)p["property_values"]![0]!["property_id"]!, (decimal)p["offerings"]![0]!["price"]!, (int)p["offerings"]![0]!["quantity"]!)));
+        Assert.False((await Editor(shop).LoadAsync(test))!.Listing.HasDraft);
+
+        // Later changes to the list follow, like for any linked listing.
+        var list = (await Lists(shop).GetAsync(listId))!;
+        await Lists(shop).SaveAsync(listId, "PLA Colors", [.. list.Options, new(0, "Galaxy Purple", true)], "tophattwaffle");
+        Assert.Equal(["Color:", "Adds Galaxy Purple"], Assert.Single(await Lists(shop).UsesAsync(listId), u => u.ListingId == test).Changes);
+    }
+
+    [Fact]
+    public async Task Adding_a_list_next_to_another_variation_multiplies_the_combinations_and_says_why_it_cannot()
+    {
+        var (shop, colored, plain) = await SetupAsync();
+        using var _ = shop;
+        var listId = await PlaColorsAsync(shop);
+
+        // The plain listing has Size (price varies by size): each size takes each color, prices still follow the size.
+        Assert.Equal("Size", Assert.Single(await Lists(shop).AddableAsync(listId), a => a.ListingId == plain).Variations.Single());
+        Assert.Equal("There is already a variation called \"Size\".", (await Lists(shop).PreviewAddAsync(listId, plain, "Size")).Error);
+        var (plan, error) = await Lists(shop).AddToListingAsync(listId, plain, "Color", "tophattwaffle");
+        Assert.Null(error);
+        Assert.Equal(6, plan!.Combinations);
+        var inventory = await InventoryAsync(shop, plain);
+        Assert.Equal([100L], inventory["price_on_property"]!.AsArray().Select(x => (long)x!));
+        Assert.Equal(6, inventory["products"]!.AsArray().Count);
+
+        // Two variations already: blocked with the reason. Too many options: blocked before anything is saved.
+        var other = (await Lists(shop).SaveAsync(null, "Sizes", [new(0, "XL", true), new(0, "XXL", true)], "tophattwaffle")).Id!.Value;
+        Assert.Equal("This listing already has 2 variations (Size and Color); remove one in the editor first.",
+            (await Lists(shop).PreviewAddAsync(other, colored, "Fit")).Error);
+        var many = (await Lists(shop).SaveAsync(null, "Many", [.. Enumerable.Range(1, 71).Select(i => new VariationListOption(0, $"Option {i}", true))], "tophattwaffle")).Id!.Value;
+        var test = await AddListingWithoutVariationsAsync(shop);
+        Assert.Equal("The list has 71 options switched on; Etsy allows at most 70 in a variation.", (await Lists(shop).PreviewAddAsync(many, test, "Option")).Error);
+        Assert.Empty(shop.Writes);
+    }
+
     [Fact]
     public async Task Hand_edits_removed_options_and_changes_on_Etsy_are_left_alone()
     {

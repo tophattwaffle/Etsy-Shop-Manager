@@ -31,6 +31,15 @@ public sealed record VariationListUse(int ListingId, string Title, string ShopNa
 public sealed record VariationListSummary(int Id, string Name, int Options, int Enabled, int Listings, int WithChanges, int NeedAttention,
     DateTime UpdatedAtUtc);
 
+/// <summary>What adding a list to a listing as a new variation does.</summary>
+/// <param name="Combinations">The listing's combinations afterwards (each existing one times each option).</param>
+/// <param name="Applied">The options the link starts with.</param>
+public sealed record VariationListAddPlan(JsonObject Inventory, long PropertyId, string VariationName, IReadOnlyList<string> Values,
+    int Combinations, List<VariationListOption> Applied);
+
+/// <summary>A listing the list can be added to as a new variation, with the variations it already has.</summary>
+public sealed record VariationListAddable(int ListingId, string Title, string ShopName, IReadOnlyList<string> Variations);
+
 /// <summary>A listing variation not linked yet whose values are mostly in the list.</summary>
 public sealed record VariationListCandidate(int ListingId, string Title, string ShopName, long PropertyId, string VariationName,
     int InList, int Values);
@@ -48,6 +57,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     public const int MaxNameLength = 80;
     /// <summary>A variation is offered for linking when at least this many of its values are in the list (and at least half).</summary>
     public const int MinOverlap = 2;
+    /// <summary>Etsy's limit on a variation's options (a listing with one variation has at most 70 products).</summary>
+    public const int MaxOptions = 70;
 
     /// <summary>
     /// The plan for one listing (pure). Options are taken in the list's order; new ones go at the end of the listing's
@@ -272,6 +283,110 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         await db.SaveChangesAsync(ct);
         if (count > 0) await audit.WriteAsync("variation-list.linked", nameof(VariationList), listId.ToString(), $"{list.Name}: {count} listing(s)", user, ct);
         return count;
+    }
+
+    /// <summary>
+    /// What adding the list as a new variation does to a listing's local inventory (pure): a custom variation with the
+    /// list's switched-on options, every existing combination taking each option (price, processing and availability copied,
+    /// so the price doesn't vary by the new variation; stock is set when pushed). Throws <see cref="ArgumentException"/>
+    /// with the reason when it can't be added.
+    /// </summary>
+    public static VariationListAddPlan PlanAdd(VariationList list, string variationName, JsonNode localInventory)
+    {
+        var variations = VariationEditor.Variations(localInventory);
+        if (variations.Count >= VariationEditor.MaxVariations)
+            throw new ArgumentException($"This listing already has {VariationEditor.MaxVariations} variations " +
+                $"({string.Join(" and ", variations.Select(v => v.Name))}); remove one in the editor first.");
+        var options = list.Options.Where(o => o.Enabled).ToList();
+        if (options.Count == 0) throw new ArgumentException("Every option in the list is switched off.");
+        if (options.Count > MaxOptions) throw new ArgumentException($"The list has {options.Count} options switched on; Etsy allows at most {MaxOptions} in a variation.");
+        var inventory = VariationEditor.AddVariation(localInventory, variationName, options.Select(o => o.Name));
+        var added = VariationEditor.Variations(inventory).Single(v => variations.All(o => o.PropertyId != v.PropertyId));
+        var combinations = inventory["products"]?.AsArray().Count ?? 0;
+        return new VariationListAddPlan(inventory, added.PropertyId, added.Name ?? variationName, [.. options.Select(o => o.Name)], combinations, options);
+    }
+
+    /// <summary>The variation name to suggest when adding the list: the name most of its linked listings use, else the list's name.</summary>
+    public async Task<string> SuggestedVariationNameAsync(int listId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var list = await db.VariationLists.AsNoTracking().FirstOrDefaultAsync(l => l.Id == listId, ct);
+        if (list is null) return "";
+        var name = (await UsesAsync(db, list, ct)).Select(u => u.VariationName).Where(n => n.Length > 0)
+            .GroupBy(n => n, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).Select(g => g.First()).FirstOrDefault();
+        return name ?? list.Name;
+    }
+
+    /// <summary>Listings the list can be added to as a new variation: not linked to it yet, and with room for another variation.</summary>
+    public async Task<IReadOnlyList<VariationListAddable>> AddableAsync(int listId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var linked = (await db.ListingVariationLists.Where(l => l.VariationListId == listId).Select(l => l.ListingId).ToListAsync(ct)).ToHashSet();
+        var listings = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Shop)
+            .Where(l => l.EtsyState != null && !l.IsMissingOnEtsy).ToListAsync(ct);
+        var result = new List<VariationListAddable>();
+        foreach (var l in listings.Where(l => !linked.Contains(l.Id)))
+        {
+            var model = ListingEditModel.Parse(l.EtsyState!.ManagedJson, l.EtsyState.BaseJson, l.DraftJson);
+            if (model.Local(ListingFields.Inventory) is not { } inventory) continue;
+            var variations = VariationEditor.Variations(inventory);
+            if (variations.Count < VariationEditor.MaxVariations)
+                result.Add(new VariationListAddable(l.Id, l.Title, l.Shop.Name, [.. variations.Select(v => v.Name ?? "")]));
+        }
+        return [.. result.OrderBy(r => r.Title, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>What adding the list to a listing would do, or why it can't (nothing is saved).</summary>
+    public async Task<(VariationListAddPlan? Plan, string? Error)> PreviewAddAsync(int listId, int listingId, string variationName,
+        CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var (list, inventory, error) = await AddSourceAsync(db, listId, listingId, ct);
+        if (error is not null) return (null, error);
+        try { return (PlanAdd(list!, variationName, inventory!), null); }
+        catch (ArgumentException ex) { return (null, ex.Message); }
+    }
+
+    /// <summary>
+    /// Adds the list to a listing as a new variation, as a draft (nothing is sent to Etsy), and links it so later changes
+    /// to the list follow. Pushed through the listing's normal reviewed push.
+    /// </summary>
+    public async Task<(VariationListAddPlan? Plan, string? Error)> AddToListingAsync(int listId, int listingId, string variationName, string? user,
+        CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var (list, inventory, error) = await AddSourceAsync(db, listId, listingId, ct);
+        if (error is not null) return (null, error);
+        VariationListAddPlan plan;
+        try { plan = PlanAdd(list!, variationName, inventory!); }
+        catch (ArgumentException ex) { return (null, ex.Message); }
+        await editor.SaveAsync(listingId, new Dictionary<string, JsonNode?> { [ListingFields.Inventory] = plan.Inventory }, user, ct);
+        db.ListingVariationLists.Add(new ListingVariationList
+        {
+            ListingId = listingId, VariationListId = listId, PropertyId = plan.PropertyId, AppliedOptions = plan.Applied,
+            LinkedAtUtc = time.GetUtcNow().UtcDateTime,
+        });
+        await db.SaveChangesAsync(ct);
+        await audit.WriteAsync("variation-list.added", nameof(VariationList), listId.ToString(),
+            $"{list!.Name}: added as {plan.VariationName} to listing {listingId} ({plan.Combinations} combinations, draft)", user, ct);
+        return (plan, null);
+    }
+
+    private static async Task<(VariationList? List, JsonNode? Inventory, string? Error)> AddSourceAsync(AppDbContext db, int listId, int listingId,
+        CancellationToken ct)
+    {
+        var list = await db.VariationLists.AsNoTracking().FirstOrDefaultAsync(l => l.Id == listId, ct);
+        if (list is null) return (null, null, "That list no longer exists.");
+        var listing = await db.Listings.AsNoTracking().Include(l => l.EtsyState).FirstOrDefaultAsync(l => l.Id == listingId, ct);
+        if (listing?.EtsyState is null) return (null, null, "That listing hasn't been imported.");
+        if (await db.ListingVariationLists.AnyAsync(l => l.ListingId == listingId && l.VariationListId == listId, ct))
+            return (null, null, $"{listing.Title} already uses this list.");
+        var model = ListingEditModel.Parse(listing.EtsyState.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
+        if (model.DriftFields.Contains(ListingFields.Inventory))
+            return (null, null, $"The variations of {listing.Title} changed on Etsy; resolve that in the editor first.");
+        return model.Local(ListingFields.Inventory) is { } inventory
+            ? (list, inventory, null)
+            : (null, null, $"{listing.Title} has no inventory imported; refresh it from Etsy first.");
     }
 
     public async Task UnlinkAsync(int listId, int listingId, string? user, CancellationToken ct = default)
