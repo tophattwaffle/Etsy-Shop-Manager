@@ -55,7 +55,7 @@ last values for up to 5 minutes instead of going unavailable, so dashboards don'
 
 ## Switch the card over
 
-`www/etsy-orders-card.js` is the card (v2.7.0); it reads the same attributes as before. Point each shop at the new sensor:
+`www/etsy-orders-card.js` is the card (v2.8.0); it reads the same attributes as before. Point each shop at the new sensor:
 
 ```yaml
 type: custom:etsy-orders-card
@@ -85,6 +85,23 @@ app's Orders and To make pages, so ticking it in either place shows in the other
 tap marks one more ("1/3", "2/3", …) and a tap on a fully made item clears it. Made items fade with their title struck
 through, the shop's "To make" line counts only what's left, and tapping the checkbox doesn't open the order.
 `show_made: false` hides the checkboxes.
+
+### One list for all shops
+
+`combine_shops: true` (card v2.8.0) shows every shop's orders in one list, most urgent first, as the app's Orders page
+does, instead of a section per shop. A dropdown at the top picks **All shops** or one shop, each with its order count.
+The chips and the "To make" line follow the choice. Under All shops each order names its shop, and its outline is
+the shop's color. The choice is remembered on each device.
+
+```yaml
+type: custom:etsy-orders-card
+combine_shops: true
+shops:
+  - entity: sensor.shopone_open_orders
+    name: Shop One
+  - entity: sensor.shoptwo_open_orders
+    name: Shop Two
+```
 
 ## Development
 
