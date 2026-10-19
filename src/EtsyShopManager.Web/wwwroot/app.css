@@ -60,15 +60,18 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-staging { margin-left: 12px; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; max-width: 40vw; border: 1px solid var(--esm-warning); background: color-mix(in srgb, var(--esm-warning) 22%, transparent); color: var(--esm-ink); }
 .esm-drawer.mud-drawer { border-right: 1px solid var(--esm-line); }
+/* The sidebar ends at the bottom of the visible window (MudBlazor's 100% height runs under a phone browser's toolbar):
+   its links scroll on their own and Reorder stays below them. */
+.esm-drawer.mud-drawer-fixed { bottom: 0; height: auto; overflow: hidden; }
+.esm-drawer .mud-drawer-content { min-height: 0; }
 .esm-nav { padding: 12px 8px; }
+.esm-drawer .esm-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .esm-nav .mud-nav-link { border-radius: 999px; padding: 8px 14px; margin: 1px 0; font-weight: 500; }
 .esm-nav .mud-nav-link:hover { background: var(--esm-hover); }
 .esm-nav .mud-nav-link.active { background: var(--esm-sunk); color: var(--esm-ink); font-weight: 600; }
 .esm-nav .mud-nav-link.active .mud-nav-link-icon { color: var(--esm-ink); }
 /* Sidebar reorder mode: each page or group is a dashed row with a grip and up/down arrows. */
-/* Reorder sits at the bottom of the sidebar, and stays there while a long sidebar scrolls. */
-.esm-nav-foot { margin-top: auto; position: sticky; bottom: 0; padding: 8px; border-top: 1px solid var(--esm-line);
-    background: var(--mud-palette-drawer-background); }
+.esm-nav-foot { flex: none; padding: 8px; border-top: 1px solid var(--esm-line); }
 .esm-nav-foot .esm-nav-reorder { color: var(--esm-muted); }
 .esm-nav-edit-hint { margin: 0 6px 8px; }
 .esm-nav-row { display: flex; align-items: center; gap: 6px; min-height: 40px; margin: 2px 0; padding: 0 2px 0 8px;
