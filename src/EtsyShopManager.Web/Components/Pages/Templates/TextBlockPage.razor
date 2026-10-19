@@ -46,7 +46,7 @@ else
             {
                 <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
             }
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty)" OnClick="SaveAsync">Save template</MudButton>
+            <SaveButtons Text="Save template" Changed="Dirty" OnSave="SaveAsync" OnCancel="Revert" />
         </Actions>
     </PageHeader>
 
@@ -267,6 +267,8 @@ else
     }
 
     private async Task<string?> User() => (await AuthState).User.Identity?.Name;
+
+    private void Revert() => (_name, _text, _slug) = _saved is null ? ("", "", "") : (_saved.Name, _saved.Text, _saved.Slug);
 
     private static string StatusText(TextBlockUse u) => u.Status switch
     {

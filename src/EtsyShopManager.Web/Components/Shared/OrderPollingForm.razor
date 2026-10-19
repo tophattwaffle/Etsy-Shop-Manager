@@ -11,23 +11,23 @@
         per shop (more when many orders changed). Takes effect at the next check.
     </MudText>
     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-        <MudNumericField T="int" @bind-Value="_minutes" Label="Minutes between checks" Min="1" Max="1440"
+        <MudNumericField T="int" @bind-Value="_minutes" Immediate="true" Label="Minutes between checks" Min="1" Max="1440"
                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm" />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+        <SaveButtons Changed="@(_minutes != _savedMinutes)" OnSave="SaveAsync" OnCancel="() => _minutes = _savedMinutes" />
     </MudStack>
 </MudPaper>
 
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
-    private int _minutes;
+    private int _minutes, _savedMinutes;
 
     protected override async Task OnInitializedAsync()
     {
         var seconds = int.TryParse(await Settings.GetAsync(SettingKeys.OrdersPollIntervalSeconds), out var s) && s > 0
             ? s
             : (int)OrdersModule.DefaultPollInterval.TotalSeconds;
-        _minutes = Math.Max(1, (int)Math.Round(seconds / 60.0));
+        _minutes = _savedMinutes = Math.Max(1, (int)Math.Round(seconds / 60.0));
     }
 
     private async Task SaveAsync()
@@ -37,6 +37,7 @@
         await Settings.SetAsync(SettingKeys.OrdersPollIntervalSeconds, (minutes * 60).ToString(), updatedBy: user);
         await Audit.WriteAsync("settings.orders-poll-interval", "Setting", SettingKeys.OrdersPollIntervalSeconds,
             $"{minutes} min", user);
+        _minutes = _savedMinutes = minutes;
         Snackbar.Add($"Orders are checked every {minutes} minute{(minutes == 1 ? "" : "s")}", Severity.Success);
     }
 }

@@ -170,6 +170,30 @@ public partial class DesignRulesTests
         Assert.DoesNotMatch(PlainHeaderCell(), "<SortHeader Sort=\"_sort\" Column=\"name\">Name</SortHeader>");
     }
 
+    /// <summary>
+    /// Forms save through <c>&lt;SaveButtons&gt;</c>, so Save lights up once there are unsaved changes and Cancel appears to
+    /// undo them (docs/DESIGN.md, Unsaved changes). The exceptions aren't forms of saved values: a dialog (its Cancel
+    /// closes it), the one-off password box, the dashboard's arrange mode and the bulk edit panel.
+    /// </summary>
+    [Fact]
+    public void Forms_save_through_SaveButtons()
+    {
+        string[] exempt = ["Pages/Orders/OrderChangesDialog.razor", "Pages/Admin/Users.razor", "Pages/Home.razor",
+            "Pages/Listings/BulkEditPanel.razor", "Shared/SaveButtons.razor"];
+        var offenders = RazorFiles()
+            .Where(f => !exempt.Contains(f.Name))
+            .SelectMany(f => PlainSaveButton().Matches(f.Text).Cast<Match>()
+                .Select(m => $"{f.Name}: \"{m.Value.Trim()}…\" — use <SaveButtons> (see docs/DESIGN.md, Unsaved changes)"))
+            .ToList();
+        Assert.True(offenders.Count == 0, string.Join(Environment.NewLine, offenders));
+        Assert.Matches(PlainSaveButton(), "<MudButton Variant=\"Variant.Outlined\" OnClick=\"() => SaveAsync(s)\">Save</MudButton>");
+        Assert.DoesNotMatch(PlainSaveButton(), "<SaveButtons Text=\"Save template\" Changed=\"Dirty\" OnSave=\"SaveAsync\" OnCancel=\"Revert\" />");
+    }
+
+    // A MudButton whose click calls a Save… method.
+    [GeneratedRegex("<MudButton\\b[^>]*OnClick=\"[^\"]*Save", RegexOptions.Singleline)]
+    private static partial Regex PlainSaveButton();
+
     [GeneratedRegex("<thead\\b.*?</thead>|<HeaderContent>.*?</HeaderContent>", RegexOptions.Singleline)]
     private static partial Regex TableHeader();
 

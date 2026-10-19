@@ -1,0 +1,34 @@
+@* Save and Cancel for a form (docs/DESIGN.md, "Unsaved changes"). Save is a quiet outlined pill while nothing has
+   changed; once something has, it becomes the filled main action and Cancel appears beside it, putting the last saved
+   values back. The form says whether it has changes (SavedValues<T> or its own comparison). Something new that has
+   never been saved passes New, so Save works before any change. *@
+@if (Changed)
+{
+    <MudButton Variant="Variant.Text" Size="Size" Disabled="Busy" OnClick="OnCancel" title="Undo the changes since the last save">Cancel</MudButton>
+}
+<MudButton Variant="@(Highlighted ? Variant.Filled : Variant.Outlined)" Color="@(Highlighted ? Color.Primary : Color.Default)"
+           Size="Size" Disabled="@(!Highlighted || Busy || Disabled)" OnClick="OnSave">@Text</MudButton>
+
+@code {
+    /// <summary>The form differs from what was last saved: Save is highlighted and Cancel shows.</summary>
+    [Parameter] public bool Changed { get; set; }
+
+    /// <summary>Nothing has been saved yet (a new item): Save is highlighted and works without changes; Cancel still
+    /// shows only once something changed.</summary>
+    [Parameter] public bool New { get; set; }
+
+    /// <summary>A save is running: both buttons are disabled.</summary>
+    [Parameter] public bool Busy { get; set; }
+
+    /// <summary>Save can't run for another reason (such as an upload still going).</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Save's label, saying what is saved ("Save template").</summary>
+    [Parameter] public string Text { get; set; } = "Save";
+
+    [Parameter] public Size Size { get; set; } = Size.Medium;
+    [Parameter] public EventCallback OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private bool Highlighted => Changed || New;
+}

@@ -16,8 +16,7 @@
         orders card. Home Assistant picks up changes on its next poll.
     </Summary>
     <Actions>
-        <MudButton Variant="Variant.Outlined" OnClick="RevertAsync" Disabled="!_dirty">Discard changes</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="!_dirty">Save colors</MudButton>
+        <SaveButtons Text="Save colors" Changed="Dirty" OnSave="SaveAsync" OnCancel="RevertAsync" />
     </Actions>
 </PageHeader>
 
@@ -33,7 +32,7 @@
     <MudText Typo="Typo.body2" Class="muted mb-2">
         Words that mean "any color". Those boxes get a slow multi-color effect drawn from the colors below.
     </MudText>
-    <MudTextField T="string" Value="_randomWords" ValueChanged="OnRandomWordsChanged" Label="Words, separated by commas"
+    <MudTextField T="string" Value="_randomWords" ValueChanged="OnRandomWordsChanged" Label="Words, separated by commas" Immediate="true"
                   Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-lg" />
 </MudPaper>
 
@@ -67,8 +66,8 @@
             {
                 <tr @key="row">
                     <td class="esm-minw-sm"><ColorBox Text="@(string.IsNullOrWhiteSpace(row.Name) ? "New color" : row.Name)" Seed="preview" /></td>
-                    <td><MudTextField T="string" @bind-Value="row.Name" @bind-Value:after="Changed" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Name" /></td>
-                    <td><MudTextField T="string" @bind-Value="row.Hex" @bind-Value:after="Changed" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Colors" Placeholder="@OrderColorService.ExampleHex" /></td>
+                    <td><MudTextField T="string" @bind-Value="row.Name" @bind-Value:after="Changed" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Name" /></td>
+                    <td><MudTextField T="string" @bind-Value="row.Hex" @bind-Value:after="Changed" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Colors" Placeholder="@OrderColorService.ExampleHex" /></td>
                     <td><MudCheckBox T="bool" @bind-Value="row.Metallic" @bind-Value:after="Changed" aria-label="Metallic" /></td>
                     <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="@($"Remove {row.Name}")" OnClick="() => Remove(row)" /></td>
                 </tr>
@@ -100,7 +99,7 @@
     private void SortRows() => _rows = _sort.Apply(_rows).ToList();
     private string _randomWords = "";
     private string? _filter;
-    private bool _dirty;
+    private string _savedJson = "";
     private List<string> _problems = [];
     private JsonObject? _preview;
 
@@ -115,7 +114,7 @@
         var config = await Colors.GetAsync();
         _rows = config.Colors.Select(c => new Row { Name = c.Name, Hex = string.Join(", ", c.Hex), Metallic = c.Metallic }).ToList();
         _randomWords = string.Join(", ", config.RandomWords);
-        _dirty = false;
+        _savedJson = Json(Current());
         _problems = [];
         UpdatePreview();
     }
@@ -123,6 +122,11 @@
     // The previews use the list as edited, before it is saved.
     protected override async Task OnAfterRenderAsync(bool firstRender) =>
         await Js.InvokeVoidAsync("esm.colorOrders", _preview);
+
+    // Compared as JSON because the config holds lists; edits that end up back at the saved list aren't changes.
+    private bool Dirty => Json(Current()) != _savedJson;
+
+    private static string Json(OrderColorConfig config) => System.Text.Json.JsonSerializer.Serialize(config);
 
     private OrderColorConfig Current() => new(
         _rows.Select(r => new OrderColor(r.Name, Split(r.Hex), r.Metallic)).ToList(),
@@ -145,11 +149,7 @@
         _preview = usable.ToCardJson();
     }
 
-    private void Changed()
-    {
-        _dirty = true;
-        UpdatePreview();
-    }
+    private void Changed() => UpdatePreview();
 
     private void OnRandomWordsChanged(string? value)
     {

@@ -33,11 +33,11 @@
                     <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="@(_enabled ? "On" : "Off")" />
                 </MudItem>
                 <MudItem xs="6" sm="4">
-                    <MudNumericField T="int" @bind-Value="_threshold" Label="Refill when below" Min="1" Max="998"
+                    <MudNumericField T="int" @bind-Value="_threshold" Immediate="true" Label="Refill when below" Min="1" Max="998"
                                      Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="!_enabled" />
                 </MudItem>
                 <MudItem xs="6" sm="4">
-                    <MudNumericField T="int" @bind-Value="_refillTo" Label="Refill to" Min="2" Max="@StockRefiller.MaxQuantity"
+                    <MudNumericField T="int" @bind-Value="_refillTo" Immediate="true" Label="Refill to" Min="2" Max="@StockRefiller.MaxQuantity"
                                      Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="!_enabled" />
                 </MudItem>
             </MudGrid>
@@ -46,7 +46,7 @@
                 <MudText Typo="Typo.body2" Class="error-text mt-2">@_error</MudText>
             }
             <MudStack Row="true" Class="mt-3">
-                <MudButton Variant="Variant.Outlined" Disabled="!Dirty" OnClick="SaveAsync">Save auto-refill</MudButton>
+                <SaveButtons Text="Save auto-refill" Changed="Dirty" OnSave="SaveAsync" OnCancel="Revert" />
             </MudStack>
         </Authorized>
         <NotAuthorized>
@@ -101,6 +101,12 @@
         _saved = await db.ListingRefills.AsNoTracking().FirstOrDefaultAsync(r => r.ListingId == ListingId);
         if (keepInputs || _saved is null) return;
         (_enabled, _threshold, _refillTo) = (_saved.Enabled, _saved.Threshold, _saved.RefillTo);
+    }
+
+    private void Revert()
+    {
+        (_enabled, _threshold, _refillTo) = _saved is null ? (false, 5, 999) : (_saved.Enabled, _saved.Threshold, _saved.RefillTo);
+        _error = null;
     }
 
     private async Task SaveAsync()

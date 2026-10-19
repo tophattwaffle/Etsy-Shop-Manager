@@ -11,11 +11,11 @@
 
     <MudGrid>
         <MudItem xs="12" md="6">
-            <MudTextField T="string" @bind-Value="_keystring" Label="Keystring" Variant="Variant.Outlined"
+            <MudTextField T="string" @bind-Value="_keystring" Label="Keystring" Variant="Variant.Outlined" Immediate="true"
                           Error="@(_keystringError is not null)" ErrorText="@_keystringError" />
         </MudItem>
         <MudItem xs="12" md="6">
-            <MudTextField T="string" @bind-Value="_secret" Label="Shared secret" Variant="Variant.Outlined"
+            <MudTextField T="string" @bind-Value="_secret" Label="Shared secret" Variant="Variant.Outlined" Immediate="true"
                           InputType="InputType.Password"
                           Placeholder="@(_hasSecret ? "Saved — leave blank to keep" : "")"
                           HelperText="@(_hasSecret ? "A shared secret is saved. Leave blank to keep it." : null)"
@@ -24,7 +24,7 @@
     </MudGrid>
 
     <MudStack Row="true" Class="mt-3">
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save keys</MudButton>
+        <SaveButtons Text="Save keys" Changed="Changed" Busy="_busy" OnSave="SaveAsync" OnCancel="Revert" />
     </MudStack>
 </MudPaper>
 
@@ -33,6 +33,7 @@
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private string? _keystring;
+    private string? _savedKeystring;
     private string? _secret;
     private bool _hasSecret;
     private bool _busy;
@@ -41,9 +42,14 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _keystring = await Settings.GetAsync(SettingKeys.EtsyKeystring);
+        _keystring = _savedKeystring = await Settings.GetAsync(SettingKeys.EtsyKeystring);
         _hasSecret = await Settings.HasValueAsync(SettingKeys.EtsySharedSecret);
     }
+
+    // The saved secret is never shown, so typing one is the change; a blank secret keeps the saved one.
+    private bool Changed => (_keystring ?? "") != (_savedKeystring ?? "") || !string.IsNullOrEmpty(_secret);
+
+    private void Revert() => (_keystring, _secret, _keystringError, _secretError) = (_savedKeystring, null, null, null);
 
     private async Task SaveAsync()
     {
@@ -56,6 +62,7 @@
         {
             var user = (await AuthState).User.Identity?.Name;
             await Settings.SetAsync(SettingKeys.EtsyKeystring, _keystring!.Trim(), updatedBy: user);
+            _keystring = _savedKeystring = _keystring.Trim();
             if (!string.IsNullOrWhiteSpace(_secret))
             {
                 await Settings.SetAsync(SettingKeys.EtsySharedSecret, _secret.Trim(), encrypt: true, updatedBy: user);

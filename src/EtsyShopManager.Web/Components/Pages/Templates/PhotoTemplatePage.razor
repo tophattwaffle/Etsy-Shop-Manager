@@ -43,7 +43,7 @@ else
             {
                 <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
             }
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty || _uploading)" OnClick="SaveAsync">Save template</MudButton>
+            <SaveButtons Text="Save template" Changed="Dirty" Disabled="_uploading" OnSave="SaveAsync" OnCancel="Revert" />
         </Actions>
     </PageHeader>
 
@@ -69,7 +69,7 @@ else
                 <MudTextField T="string" @bind-Value="_alt" Label="Alt text" Lines="2" Variant="Variant.Outlined" Immediate="true" Class="mb-3"
                               Counter="PhotoEditor.MaxAltTextLength" MaxLength="PhotoEditor.MaxAltTextLength"
                               HelperText="Describe the image for buyers using screen readers. It also identifies this photo on each listing, so give each template its own." />
-                <MudNumericField T="int" @bind-Value="_rank" Label="Position from the end" Min="1" Max="PhotoEditor.MaxPhotos" Variant="Variant.Outlined"
+                <MudNumericField T="int" @bind-Value="_rank" Immediate="true" Label="Position from the end" Min="1" Max="PhotoEditor.MaxPhotos" Variant="Variant.Outlined"
                                  HelperText="@($"{PositionText(_rank)}. The listing's own photos come first.")" Class="esm-w-sm" />
             </MudItem>
         </MudGrid>
@@ -270,6 +270,12 @@ else
     }
 
     private async Task<string?> User() => (await AuthState).User.Identity?.Name;
+
+    private void Revert()
+    {
+        (_name, _alt, _file, _rank) = (_saved?.Name ?? "", _saved?.AltText ?? "", _saved?.FileName, _saved?.RankFromEnd ?? 1);
+        _error = null;
+    }
 
     private static string StatusText(PhotoTemplateUse u) => u.Status switch
     {
