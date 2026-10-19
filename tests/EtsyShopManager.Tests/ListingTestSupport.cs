@@ -145,6 +145,7 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddSingleton<EtsyShopManager.Core.Jobs.IJobQueue>(sp => sp.GetRequiredService<RecordingJobQueue>());
         services.AddSingleton<EtsyShopManager.Web.Modules.Editor.ListingEditor>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Editor.BulkListingEditor>();
+        services.AddSingleton<EtsyShopManager.Web.Modules.Editor.PendingChangesService>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Stock.StockRefiller>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Stock.RefillQueue>();
         services.AddTransient<EtsyShopManager.Web.Modules.Editor.PushListingJob>();

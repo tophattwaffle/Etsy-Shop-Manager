@@ -1,0 +1,230 @@
+@page "/listings/pending"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@implements IDisposable
+@inject PendingChangesService Pending
+@inject IJobEvents JobEvents
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject TimeProvider Time
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
+
+<PageTitle>Pending changes · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="listings" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> Back to listings
+</MudLink>
+
+<PageHeader Title="Pending changes">
+    <Summary>
+        @if (_rows is { Count: > 0 })
+        {
+            @($"{Count(_rows.Count, "listing has", "listings have")} changes that aren't on Etsy yet: {Ready.Count:N0} ready to push" +
+              (_rows.Count > Ready.Count ? $", {_rows.Count - Ready.Count:N0} blocked" : ""))
+        }
+    </Summary>
+    <Actions>
+        @if (Ready.Count > 0)
+        {
+            <MudButton Variant="Variant.Outlined" OnClick="ToggleAll">
+                @(AllSelected ? "Clear selection" : "Select all")
+            </MudButton>
+        }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(SelectedReady.Count == 0 || _pushing)" OnClick="PushAsync">
+            Push @Count(SelectedReady.Count, "listing", "listings") to Etsy
+        </MudButton>
+    </Actions>
+</PageHeader>
+
+@if (_rows is null)
+{
+    <MudProgressLinear Indeterminate="true" Class="my-6" />
+}
+else if (_rows.Count == 0)
+{
+    <div class="lp-empty">
+        <p>Every listing matches Etsy, so there's nothing to push. Edits you save in a listing's editor show up here.</p>
+        <a class="esm-button esm-button-secondary" href="listings">Back to listings</a>
+    </div>
+}
+else
+{
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Each listing is pushed on its own with all of its changes, exactly as from its editor, with a snapshot you can restore.
+        Listings changed on etsy.com, or with another problem, are blocked until you fix them in their editor.
+    </MudText>
+    <div class="lp-list-wrap">
+        <table class="lp-list pc-list">
+            <thead>
+                <tr>
+                    <th scope="col" class="lp-list-check">
+                        <MudCheckBox T="bool" Value="@AllSelected" ValueChanged="SelectAll" Disabled="@(Ready.Count == 0)" Size="Size.Small" Dense="true"
+                                     aria-label="Select all listings that are ready to push" />
+                    </th>
+                    <th scope="col"><span class="visually-hidden">Photo</span></th>
+                    <SortHeader Sort="_sort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                    <SortHeader Sort="_sort" Column="changes" Changed="StateHasChanged">Changes</SortHeader>
+                    <SortHeader Sort="_sort" Column="edited" Changed="StateHasChanged">Edited</SortHeader>
+                    <SortHeader Sort="_sort" Column="ready" Changed="StateHasChanged">Ready</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _sort.Apply(_rows))
+                {
+                    var warnings = row.Preview.Warnings;
+                    <tr style="@ShopStyle(row.ShopId)" class="@RowClass(row)"
+                        @onclick="@(() => { if (row.CanPush) Select(row.ListingId, !_selected.Contains(row.ListingId)); })">
+                        <td class="lp-list-check" @onclick:stopPropagation="true">
+                            <MudCheckBox T="bool" Value="@_selected.Contains(row.ListingId)" ValueChanged="@(v => Select(row.ListingId, v))"
+                                         Disabled="@(!row.CanPush)" Size="Size.Small" Dense="true" aria-label="@($"Select {row.Title}")" />
+                        </td>
+                        <td class="lp-list-photo">
+                            @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
+                            {
+                                <img src="@thumb" alt="" loading="lazy" />
+                            }
+                        </td>
+                        <td class="pc-listing">
+                            <a class="lp-list-title" href="@($"listings/{row.ListingId}/edit")" @onclick:stopPropagation="true">@row.Title</a>
+                            <span class="lp-list-sub">@row.ShopName, #@row.EtsyListingId</span>
+                        </td>
+                        <td class="pc-changes">
+                            @foreach (var c in row.Changes)
+                            {
+                                <div class="pc-change">
+                                    <span class="pc-field">@c.Label</span>
+                                    <span class="muted">@c.From</span>
+                                    <span class="pc-arrow" aria-label="becomes">→</span>
+                                    <span>@c.To</span>
+                                </div>
+                            }
+                            @if (warnings.Count is > 0 and <= 2)
+                            {
+                                @foreach (var w in warnings) { <div class="small warning-text">@w</div> }
+                            }
+                            else if (warnings.Count > 2)
+                            {
+                                <details class="pc-notes" @onclick:stopPropagation="true">
+                                    <summary class="small warning-text">@Count(warnings.Count, "note", "notes") about this push</summary>
+                                    @foreach (var w in warnings) { <div class="small warning-text">@w</div> }
+                                </details>
+                            }
+                        </td>
+                        <td class="muted pc-edited">
+                            @(row.EditedAtUtc is { } at ? ListingFormat.Ago(at, Now) : "")
+                            @if (row.EditedBy is { Length: > 0 } by) { <div class="small">by @by</div> }
+                        </td>
+                        <td class="pc-ready">
+                            @if (row.CanPush)
+                            {
+                                <span><span class="esm-status-dot esm-dot-success"></span>Ready</span>
+                            }
+                            else
+                            {
+                                <span><span class="esm-status-dot esm-dot-error"></span>Blocked</span>
+                                @foreach (var b in row.Preview.Blockers) { <div class="small error-text">@b</div> }
+                                <a class="small" href="@($"listings/{row.ListingId}/edit")" @onclick:stopPropagation="true">Fix in the editor</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private const int FallbackAccentCount = 4; // --esm-shop-fallback-N in app.css, as on the listings page
+
+    private IReadOnlyList<PendingListing>? _rows;
+    private readonly HashSet<int> _selected = [];
+    private readonly Dictionary<int, string> _accents = [];
+    private List<int> _shopOrder = [];
+    private bool _pushing;
+    private IDisposable? _live;
+
+    private readonly TableSort<PendingListing> _sort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["changes"] = r => string.Join(", ", r.Changes.Select(c => c.Label)),
+        ["edited"] = r => r.EditedAtUtc,
+        ["ready"] = r => r.CanPush,
+    };
+
+    private DateTime Now => Time.GetUtcNow().UtcDateTime;
+    private IReadOnlyList<PendingListing> Ready => _rows?.Where(r => r.CanPush).ToList() ?? [];
+    private IReadOnlyList<PendingListing> SelectedReady => Ready.Where(r => _selected.Contains(r.ListingId)).ToList();
+    private bool AllSelected => Ready.Count > 0 && Ready.All(r => _selected.Contains(r.ListingId));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // A push, import or refill changes what's pending (a pushed listing drops off once Etsy has it).
+        _live = JobEvents.Subscribe(c => c.IsFinal && c.JobType is PushListingJob.Type or ImportShopListingsJob.Type,
+            _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+    }
+
+    private async Task LoadAsync()
+    {
+        var rows = await Pending.ListAsync();
+        _rows = rows;
+        // Keep the selection across reloads, but only for listings that can still be pushed.
+        _selected.IntersectWith(rows.Where(r => r.CanPush).Select(r => r.ListingId));
+        _shopOrder = [.. rows.Select(r => r.ShopId).Distinct().Order()];
+        foreach (var (id, color) in await ShopAccents.GetEffectiveAsync(_shopOrder)) _accents[id] = color;
+    }
+
+    private string ShopStyle(int shopId) =>
+        $"--shop: {(_accents.TryGetValue(shopId, out var c) ? c : $"var(--esm-shop-fallback-{Math.Max(0, _shopOrder.IndexOf(shopId)) % FallbackAccentCount})")}";
+
+    private string RowClass(PendingListing row) =>
+        (row.CanPush ? "is-selectable " : "") + (_selected.Contains(row.ListingId) ? "is-selected" : "");
+
+    private static string Count(int n, string one, string many) => $"{n:N0} {(n == 1 ? one : many)}";
+
+    private void Select(int id, bool selected)
+    {
+        if (selected) _selected.Add(id);
+        else _selected.Remove(id);
+    }
+
+    private void SelectAll(bool selected)
+    {
+        foreach (var row in Ready) Select(row.ListingId, selected);
+    }
+
+    private void ToggleAll() => SelectAll(!AllSelected);
+
+    private async Task PushAsync()
+    {
+        var picked = SelectedReady;
+        if (picked.Count == 0) return;
+        var ok = await Dialogs.ShowMessageBoxAsync("Push to Etsy",
+            $"Send the changes of {Count(picked.Count, "listing", "listings")} to the live listings on Etsy? Each one is a normal push, " +
+            "with a snapshot of the current Etsy version that you can restore.",
+            yesText: $"Push {Count(picked.Count, "listing", "listings")}", cancelText: "Cancel");
+        if (ok != true) return;
+        _pushing = true;
+        try
+        {
+            var results = await Pending.PushAsync(picked.ToDictionary(r => r.ListingId, r => r.Reviewed), (await AuthState).User);
+            var queued = results.Count(r => r.PushId is not null);
+            if (queued > 0)
+                Snackbar.Add($"{queued:N0} push{(queued == 1 ? "" : "es")} queued; each listing drops off this page once Etsy has it.", Severity.Info);
+            foreach (var r in results.Where(r => r.PushId is null)) Snackbar.Add($"{r.Title}: {string.Join(" ", r.Problems)}", Severity.Warning);
+            _selected.Clear();
+            await LoadAsync();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _pushing = false; }
+    }
+
+    public void Dispose() => _live?.Dispose();
+}

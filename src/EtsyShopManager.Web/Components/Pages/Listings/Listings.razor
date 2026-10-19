@@ -14,6 +14,7 @@
 @inject StockRefiller Refiller
 @inject IDialogService Dialogs
 @inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
+@inject PendingChangesService PendingChanges
 
 <PageTitle>Listings · Etsy Shop Manager</PageTitle>
 
@@ -25,6 +26,16 @@
                 @($"{_facets.OnEtsy:N0} on Etsy across {_shops.Count} shop{(_shops.Count == 1 ? "" : "s")}")
             }
         </Summary>
+        <Actions>
+            @if (_pending > 0)
+            {
+                <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")" Context="auth">
+                    <MudButton Variant="Variant.Outlined" Href="listings/pending" StartIcon="@Icons.Material.Filled.CloudUpload">
+                        @($"{_pending:N0} listing{(_pending == 1 ? " has" : "s have")} pending changes")
+                    </MudButton>
+                </AuthorizeView>
+            }
+        </Actions>
     </PageHeader>
 
     <div class="lp-layout @(_railCollapsed ? "is-rail-collapsed" : "")">
@@ -348,6 +359,7 @@
     private bool _accentsRequested;
     private List<ListingRow>? _rows;
     private ListingFacets? _facets;
+    private int _pending; // listings with changes not on Etsy yet (the Pending changes page)
     private int _total;
     private int _page;
     private bool _loading;
@@ -453,8 +465,9 @@
             var filter = CurrentFilter();
             var (rows, total) = await Queries.SearchAsync(filter, cts.Token);
             var facets = await Queries.GetFacetsAsync(filter, cts.Token);
+            var pending = await PendingChanges.CountAsync(cts.Token);
             if (cts.IsCancellationRequested) return;
-            (_rows, _total, _facets) = (rows, total, facets);
+            (_rows, _total, _facets, _pending) = (rows, total, facets, pending);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
