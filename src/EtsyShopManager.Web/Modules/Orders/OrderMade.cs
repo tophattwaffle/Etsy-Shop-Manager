@@ -15,6 +15,9 @@ public sealed record ToMakeRow(JsonObject Row, IReadOnlyList<OrderItem> Items)
     public int Made => Items.Sum(i => i.UnitsMade);
     public int Left => Quantity - Made;
     public bool IsMade => Left == 0;
+
+    /// <summary>The item's photo (Etsy CDN), from the first of its order items that has one.</summary>
+    public string? ImageUrl => Items.Select(i => i.ImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u));
 }
 
 public static class ToMakeList
