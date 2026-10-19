@@ -246,6 +246,9 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .order-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 /* Print selection: the checkbox beside the buyer (printouts themselves are styled in print.css). */
 .order-pick { display: flex; align-items: flex-start; gap: 2px; }
+/* Select and print actions above an order list: always one row (short labels, icon buttons). */
+.lp-toolbar.esm-order-actions { flex-wrap: nowrap; gap: 4px; white-space: nowrap; }
+.lp-toolbar.esm-order-actions .mud-icon-button.mud-icon-button-size-small { padding: 5px; margin: 0; }
 /* Ship-by pill, exactly as on the Home Assistant card: a see-through fill and outline whose hue (--due-hue, set by
    OrderDue) runs from 120 (green) to 0 (red). Hue-driven, so it is the one colour here not taken from a token. Grey
    without a ship-by date. */
