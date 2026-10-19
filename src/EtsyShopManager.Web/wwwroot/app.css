@@ -56,6 +56,9 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-brand { display: inline-flex; align-items: center; gap: 8px; margin-left: 8px; white-space: nowrap; color: inherit; text-decoration: none; font-weight: 600; font-size: 1.05rem; }
 .esm-version { margin-left: 12px; font-size: 0.75rem; color: var(--esm-muted); white-space: nowrap; }
 .esm-user { margin: 0 8px; font-size: 0.875rem; }
+/* The staging copy (docs/STAGING.md) says so in the bar, so it is never mistaken for the live app. */
+.esm-staging { margin-left: 12px; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; max-width: 40vw; border: 1px solid var(--esm-warning); background: color-mix(in srgb, var(--esm-warning) 22%, transparent); color: var(--esm-ink); }
 .esm-drawer.mud-drawer { border-right: 1px solid var(--esm-line); }
 .esm-nav { padding: 12px 8px; }
 .esm-nav .mud-nav-link { border-radius: 999px; padding: 8px 14px; margin: 1px 0; font-weight: 500; }
@@ -63,7 +66,7 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-nav .mud-nav-link.active { background: var(--esm-sunk); color: var(--esm-ink); font-weight: 600; }
 .esm-nav .mud-nav-link.active .mud-nav-link-icon { color: var(--esm-ink); }
 .esm-content { padding-top: 24px; padding-bottom: 48px; }
-@media (max-width: 599.98px) { .esm-version, .esm-user { display: none; } }
+@media (max-width: 599.98px) { .esm-version, .esm-user, .esm-staging-branch { display: none; } }
 
 /* ---- Page header: every page starts with <PageHeader> ---- */
 .esm-page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 4px 0 24px; }

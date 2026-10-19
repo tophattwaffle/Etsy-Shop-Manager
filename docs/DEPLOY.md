@@ -15,6 +15,7 @@ merge PR → master ──► Gitea ──(runner polls)──► gitea-runner o
 ```
 
 Workflow: `.gitea/workflows/deploy.yml`. It can also be started by hand (Actions → Deploy → Run workflow).
+To look at a branch before merging it, deploy it to the staging copy instead: `docs/STAGING.md`.
 
 ## Security model — read this first
 
