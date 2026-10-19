@@ -109,4 +109,27 @@ public class OpenOrderFilterTests
         var homes = await new OrderQueries(db, TimeProvider.System).GetHomeCountriesAsync();
         Assert.Equal(new Dictionary<int, string> { [1] = "US", [2] = "GB" }, homes);
     }
+
+    [Fact]
+    public void Made_filter_splits_orders_with_every_item_made_from_those_with_something_to_make()
+    {
+        var orders = Orders();
+        orders[0].Items[0].MadeQuantity = 1;                       // 1: its one item made
+        orders[1].Items.Add(new OrderItem { EtsyTransactionId = 21, Quantity = 3, MadeQuantity = 2 }); // 2: one of three left
+        orders[1].Items[0].MadeQuantity = 1;
+        orders[2].Items[0].Quantity = 0;                           // 3: Etsy says 0, still one to make; marked made
+        orders[2].Items[0].MadeQuantity = 1;
+        // 4: nothing made
+
+        var allMade = new OpenOrderFilter { Made = OpenOrderFilter.MadeStates.AllMade };
+        var toMake = new OpenOrderFilter { Made = OpenOrderFilter.MadeStates.ToMake };
+        Assert.Equal([1L, 3], Receipts(allMade.Apply(orders)).Order());
+        Assert.Equal([2L, 4], Receipts(toMake.Apply(orders)).Order());
+        Assert.True(allMade.IsFiltered);
+        Assert.Equal(4, new OpenOrderFilter().Apply(orders).Count);
+
+        // Marking the last unit moves the order across.
+        orders[1].Items[1].MadeQuantity = 3;
+        Assert.Equal([1L, 2, 3], Receipts(allMade.Apply(orders)).Order());
+    }
 }
