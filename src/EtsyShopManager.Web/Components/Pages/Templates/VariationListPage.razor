@@ -40,7 +40,7 @@ else
             {
                 <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
             }
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!Dirty)" OnClick="SaveAsync">Save template</MudButton>
+            <SaveButtons Text="Save template" Changed="Dirty" OnSave="SaveAsync" OnCancel="Revert" />
         </Actions>
     </PageHeader>
 
@@ -311,6 +311,12 @@ else
     }
 
     private async Task<string?> User() => (await AuthState).User.Identity?.Name;
+
+    private void Revert()
+    {
+        _name = _saved?.Name ?? "";
+        _options = [.. _saved?.Options ?? []];
+    }
 
     private static string StatusText(VariationListUse u) => u.Status switch
     {

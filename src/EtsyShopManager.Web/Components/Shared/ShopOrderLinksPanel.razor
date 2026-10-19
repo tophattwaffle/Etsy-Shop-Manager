@@ -48,17 +48,17 @@
                     <AuthorizeView Roles="@Roles.Admin" Context="auth">
                         @if (row.Mode == ModeChrome)
                         {
-                            <MudTextField T="string" @bind-Value="row.ChromeProfile" Label="Chrome profile directory"
+                            <MudTextField T="string" @bind-Value="row.ChromeProfile" Label="Chrome profile directory" Immediate="true"
                                           Placeholder="Default or Profile 1" Variant="Variant.Outlined" Margin="Margin.Dense"
                                           Class="esm-shop-link-profile" />
-                            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveRowAsync(s, row)">Save</MudButton>
+                            <SaveButtons Size="Size.Small" Changed="Changed(row)" OnSave="() => SaveRowAsync(s, row)" OnCancel="() => Revert(s, row)" />
                         }
                         else if (row.Mode == ModeCustom)
                         {
-                            <MudTextField T="string" @bind-Value="row.CustomTemplate" Label="Order link template"
+                            <MudTextField T="string" @bind-Value="row.CustomTemplate" Label="Order link template" Immediate="true"
                                           Placeholder="@ShopOrderLinkService.DefaultTemplate" Variant="Variant.Outlined"
                                           Margin="Margin.Dense" Class="esm-shop-link-custom" Error="@(row.Error is not null)" ErrorText="@row.Error" />
-                            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveRowAsync(s, row)">Save</MudButton>
+                            <SaveButtons Size="Size.Small" Changed="Changed(row)" OnSave="() => SaveRowAsync(s, row)" OnCancel="() => Revert(s, row)" />
                         }
                         <MudSelect T="string" Value="row.Mode" ValueChanged="m => OnModeChangedAsync(s, row, m)"
                                    Label="Open Etsy in" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-shop-link-select">
@@ -140,6 +140,19 @@
         _ => row.SavedTemplate ?? row.CustomTemplate,
     };
 
+    private static string? Template(RowState row) => row.Mode switch
+    {
+        ModeDefault => null,
+        ModeEdge => ShopOrderLinkService.EdgeTemplate,
+        ModeChrome => ShopOrderLinkService.ChromeTemplate(row.ChromeProfile),
+        _ => row.CustomTemplate,
+    };
+
+    private static bool Changed(RowState row) => Template(row) != row.SavedTemplate;
+
+    // Back to the saved choice, including the browser picked in the list when Custom wasn't saved yet.
+    private void Revert(ShopSummary shop, RowState row) => _rows[shop.Id] = BuildRow(row.SavedTemplate);
+
     private async Task OnModeChangedAsync(ShopSummary shop, RowState row, string mode)
     {
         row.Mode = mode;
@@ -151,13 +164,7 @@
     private async Task SaveRowAsync(ShopSummary shop, RowState row)
     {
         row.Error = null;
-        var template = row.Mode switch
-        {
-            ModeDefault => null,
-            ModeEdge => ShopOrderLinkService.EdgeTemplate,
-            ModeChrome => ShopOrderLinkService.ChromeTemplate(row.ChromeProfile),
-            _ => row.CustomTemplate,
-        };
+        var template = Template(row);
 
         if (!ShopOrderLinkService.IsValidTemplate(template, out var error))
         {

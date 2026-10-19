@@ -41,7 +41,7 @@ else
             {
                 <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete layout</MudButton>
             }
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!_dirty)" OnClick="SaveAsync">Save layout</MudButton>
+            <SaveButtons Text="Save layout" Changed="@(_form?.Changed == true)" New="@(_savedId == 0)" OnSave="SaveAsync" OnCancel="CancelAsync" />
         </Actions>
     </PageHeader>
 
@@ -148,7 +148,7 @@ else
     private string _name = "";
     private string _html = "";
     private string _css = "";
-    private bool _dirty;
+    private SavedValues<(string Name, string Html, string Css)>? _form;
     private string? _problem;
     private string _preview = "";
     private List<ShopSummary> _shops = [];
@@ -173,15 +173,15 @@ else
             var source = From is > 0 && await Layouts.GetAsync(From.Value) is { } copy && copy.Kind == _kind ? copy : SlipLayoutService.BuiltIn(_kind);
             (_html, _css) = (source.Html, source.Css);
             _name = $"{(From is > 0 ? source.Name : $"My {SlipLayoutService.Describe(_kind)}")} copy";
-            _dirty = true;
         }
+        _form = new(() => (_name, _html, _css), v => (_name, _html, _css) = v);
         _loaded = true;
         await RefreshPreviewAsync();
     }
 
-    private void NameChanged(string value) { _name = value; _dirty = true; }
-    private Task HtmlChanged(string value) { _html = value; _dirty = true; return RefreshPreviewAsync(); }
-    private Task CssChanged(string value) { _css = value; _dirty = true; return RefreshPreviewAsync(); }
+    private void NameChanged(string value) => _name = value;
+    private Task HtmlChanged(string value) { _html = value; return RefreshPreviewAsync(); }
+    private Task CssChanged(string value) { _css = value; return RefreshPreviewAsync(); }
     private Task PreviewShopChanged(int shopId) { _previewShop = shopId; return RefreshPreviewAsync(); }
 
     private async Task RefreshPreviewAsync()
@@ -200,7 +200,7 @@ else
             return;
         }
         Snackbar.Add($"Saved {_name.Trim()}", Severity.Success);
-        _dirty = false;
+        _form?.Accept();
         if (_savedId == 0)
         {
             _savedId = id;
@@ -215,8 +215,14 @@ else
             yesText: "Reset", cancelText: "Cancel");
         if (confirmed != true) return;
         var builtIn = SlipLayoutService.BuiltIn(_kind);
-        (_html, _css, _dirty) = (builtIn.Html, builtIn.Css, true);
+        (_html, _css) = (builtIn.Html, builtIn.Css);
         await RefreshPreviewAsync();
+    }
+
+    private Task CancelAsync()
+    {
+        _form?.Revert();
+        return RefreshPreviewAsync();
     }
 
     private async Task DeleteAsync()

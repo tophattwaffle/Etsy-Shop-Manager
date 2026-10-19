@@ -43,11 +43,11 @@ else
             @l.Shop.Name · #@l.EtsyListingId ·
             @(model.DriftFields.Count > 0 ? "changed on Etsy, needs your choice"
                 : model.HasDraft ? $"{model.Draft.Count} unpushed change{(model.Draft.Count == 1 ? "" : "s")}" : "matches Etsy")
-            @if (_unsaved) { <span> · unsaved edits on this page</span> }
+            @if (Unsaved) { <span> · unsaved edits on this page</span> }
         </Summary>
         <Actions>
-            <MudButton Variant="Variant.Text" Disabled="@(!_unsaved && !model.HasDraft)" OnClick="DiscardAsync">Discard changes</MudButton>
-            <MudButton Variant="Variant.Outlined" Disabled="!_unsaved" OnClick="SaveAsync">Save draft</MudButton>
+            <MudButton Variant="Variant.Text" Disabled="@(!Unsaved && !model.HasDraft)" OnClick="DiscardAsync">Discard changes</MudButton>
+            <SaveButtons Text="Save draft" Changed="Unsaved" OnSave="SaveAsync" OnCancel="CancelEditsAsync" />
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ReviewAsync">Review and push</MudButton>
         </Actions>
     </PageHeader>
@@ -488,7 +488,7 @@ else
     /// <summary>The description as written here, with text block placeholders; the form's "description" is its rendered text.</summary>
     private string _description = "", _savedDescription = "";
     private IReadOnlyList<AttributeProperty>? _attributeProperties;
-    private bool _unsaved, _pushing, _notFound;
+    private bool _pushing, _notFound;
     private IReadOnlyList<(int Id, string Name)> _variationLists = [];
     private int? _fromList;
     private string? _fromListName;
@@ -519,7 +519,7 @@ else
         // Reload when a push, import or refill for this shop finishes (the page shows the result).
         _live = JobEvents.Subscribe(c => c.IsFinal && c.ShopId == _snapshot?.Listing.ShopId
                                          && c.JobType is PushListingJob.Type or ImportShopListingsJob.Type,
-            _ => InvokeAsync(async () => { await LoadAsync(keepForm: _unsaved); StateHasChanged(); }));
+            _ => InvokeAsync(async () => { await LoadAsync(keepForm: Unsaved); StateHasChanged(); }));
     }
 
     private async Task LoadAsync(bool keepForm = false)
@@ -541,7 +541,6 @@ else
         _description = _savedDescription = await TextBlocks.SourceAsync(Id);
         _category = Long("taxonomy_id") is { } t ? new CategoryOption(t, _lookups.Categories.GetValueOrDefault(t, $"#{t}")) : null;
         _attributeProperties = await AttributeEditor.LoadAsync(db, Long("taxonomy_id"));
-        _unsaved = false;
     }
 
     private static string BlockStatus(EtsyShopManager.Web.Modules.Templates.TextBlockUseStatus s) => s switch
@@ -598,7 +597,20 @@ else
     private int Count(string key) => _form![key]?.AsArray().Count ?? 0;
     private IReadOnlyCollection<long> Partners => [.. (_form!["production_partner_ids"]?.AsArray() ?? []).Select(v => (long)v!)];
 
-    private void Set(string key, JsonNode? value) { _form![key] = value; _unsaved = true; _preview = null; }
+    private void Set(string key, JsonNode? value) { _form![key] = value; _preview = null; }
+
+    /// <summary>The page has edits not saved to the draft yet: anything that differs from the draft, so an edit typed back
+    /// to what it was isn't one.</summary>
+    private bool Unsaved => _snapshot is { } s && _form is not null
+        && (_description != _savedDescription
+            || ListingFields.All.Any(f => f.Editable && !JsonNode.DeepEquals(_form[f.Key], s.Model.Local(f.Key))));
+
+    /// <summary>Cancel: back to the saved draft (Discard changes is the one that goes back to what's on Etsy).</summary>
+    private async Task CancelEditsAsync()
+    {
+        await LoadAsync();
+        _preview = null;
+    }
     private void SetStr(string key, string? v) => Set(key, v is null ? null : JsonValue.Create(v));
     private void SetBool(string key, bool v) => Set(key, JsonValue.Create(v));
     private void SetLong(string key, long? v) => Set(key, v is null ? null : JsonValue.Create(v.Value));
@@ -700,7 +712,7 @@ else
 
     private async Task AddFromListAsync()
     {
-        if (_unsaved) await SaveAsync();
+        if (Unsaved) await SaveAsync();
         var (plan, error) = await VariationLists.AddToListingAsync(_fromList!.Value, Id, _fromListName ?? "", await User());
         if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
         (_fromList, _fromListName, _preview) = (null, null, null);
@@ -714,7 +726,7 @@ else
         if (listId is null) { _linkPreview.Remove(propertyId); return; }
         var result = await VariationLists.PreviewLinkAsync(listId.Value, Id, propertyId);
         // The link is checked against the saved draft; a variation added on this page isn't there until it's saved.
-        _linkPreview[propertyId] = result.Error is not null && _unsaved ? (null, "Save the draft first, then link this variation.") : result;
+        _linkPreview[propertyId] = result.Error is not null && Unsaved ? (null, "Save the draft first, then link this variation.") : result;
     }
 
     private async Task LinkListAsync(long propertyId)
@@ -730,7 +742,7 @@ else
 
     private async Task ApplyLinkedAsync(EtsyShopManager.Web.Modules.Templates.VariationListLink link)
     {
-        if (_unsaved) await SaveAsync();
+        if (Unsaved) await SaveAsync();
         var changed = await VariationLists.ApplyAsync(link.ListId, await User(), listingId: Id);
         _preview = null;
         await LoadAsync();
@@ -747,7 +759,7 @@ else
 
     private async Task ReviewAsync()
     {
-        if (_unsaved) await SaveAsync();
+        if (Unsaved) await SaveAsync();
         _preview = await Editor.PreviewAsync(Id);
     }
 

@@ -40,18 +40,18 @@
                 </MudStack>
                 <MudGrid Spacing="2">
                     <MudItem xs="12">
-                        <MudTextField T="string" @bind-Value="_text[s.Id]" Label="Packing slip note" Lines="3" Variant="Variant.Outlined"
+                        <MudTextField T="string" @bind-Value="_text[s.Id]" Label="Packing slip note" Lines="3" Variant="Variant.Outlined" Immediate="true"
                                       Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxNoteLength" ReadOnly="@(!_canEdit)"
                                       HelperText="Printed on packing slips as &quot;A note from the shop&quot;. Empty for none."
                                       Placeholder="Thanks for your order! If you have any issues, please send me a message on Etsy!" />
                     </MudItem>
                     <MudItem xs="12" md="6">
-                        <MudTextField T="string" @bind-Value="_location[s.Id]" Label="Location line" Variant="Variant.Outlined"
+                        <MudTextField T="string" @bind-Value="_location[s.Id]" Label="Location line" Variant="Variant.Outlined" Immediate="true"
                                       Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxLocationLength"
                                       ReadOnly="@(!_canEdit)" Placeholder="City, State" HelperText="Under the shop's name on both slips. Empty for none." />
                     </MudItem>
                     <MudItem xs="12" md="6">
-                        <MudTextField T="string" @bind-Value="_giftMessage[s.Id]" Label="Gift message when the buyer wrote none" Variant="Variant.Outlined"
+                        <MudTextField T="string" @bind-Value="_giftMessage[s.Id]" Label="Gift message when the buyer wrote none" Variant="Variant.Outlined" Immediate="true"
                                       Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxGiftMessageLength"
                                       ReadOnly="@(!_canEdit)" Placeholder="@OrderPrintService.DefaultGiftMessageText"
                                       HelperText="@($"On gift slips without a message from the buyer. Empty means \"{OrderPrintService.DefaultGiftMessageText}\".")" />
@@ -64,7 +64,10 @@
                     </div>
                     @if (_canEdit)
                     {
-                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveAsync(s)">@($"Save {s.Name}")</MudButton>
+                        <MudStack Row="true" Spacing="2">
+                            <SaveButtons Text="@($"Save {s.Name}")" Size="Size.Small" Changed="_saved[s.Id].Changed" Busy="_saving.Contains(s.Id)"
+                                         OnSave="() => SaveAsync(s)" OnCancel="_saved[s.Id].Revert" />
+                        </MudStack>
                     }
                 </MudStack>
             </div>
@@ -80,7 +83,12 @@
     private readonly Dictionary<int, string?> _location = [];
     private readonly Dictionary<int, bool> _star = [];
     private readonly Dictionary<int, string?> _giftMessage = [];
+    private readonly Dictionary<int, SavedValues<SlipFields>> _saved = [];
+    private readonly HashSet<int> _saving = [];
     private bool _canEdit;
+
+    /// <summary>One shop's fields as the form has them, for spotting unsaved changes.</summary>
+    private sealed record SlipFields(string Note, string Location, string GiftMessage, bool Star);
 
     protected override async Task OnInitializedAsync()
     {
@@ -98,17 +106,33 @@
             _location[s.Id] = locations.GetValueOrDefault(s.Id);
             _star[s.Id] = stars.Contains(s.Id);
             _giftMessage[s.Id] = giftMessages[s.Id];
+            var id = s.Id;
+            _saved[id] = new(
+                () => new(_text[id] ?? "", _location[id] ?? "", _giftMessage[id] ?? "", _star[id]),
+                v => (_text[id], _location[id], _giftMessage[id], _star[id]) = (v.Note, v.Location, v.GiftMessage, v.Star));
         }
     }
 
     private async Task SaveAsync(ShopSummary shop)
     {
-        var user = (await AuthState).User.Identity?.Name;
-        var error = await Print.SetNoteAsync(shop.Id, _text[shop.Id], user)
-            ?? await Print.SetLocationAsync(shop.Id, _location[shop.Id], user)
-            ?? await Print.SetDefaultGiftMessageAsync(shop.Id, _giftMessage[shop.Id], user);
-        if (error is null) await Print.SetStarSellerAsync(shop.Id, _star[shop.Id], user);
-        if (error is null) _giftMessage[shop.Id] = (await Print.GetDefaultGiftMessagesAsync([shop.Id]))[shop.Id];
-        Snackbar.Add(error ?? $"Saved the packing slip for {shop.Name}", error is null ? Severity.Success : Severity.Warning);
+        _saving.Add(shop.Id);
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var error = await Print.SetNoteAsync(shop.Id, _text[shop.Id], user)
+                ?? await Print.SetLocationAsync(shop.Id, _location[shop.Id], user)
+                ?? await Print.SetDefaultGiftMessageAsync(shop.Id, _giftMessage[shop.Id], user);
+            if (error is null)
+            {
+                await Print.SetStarSellerAsync(shop.Id, _star[shop.Id], user);
+                _giftMessage[shop.Id] = (await Print.GetDefaultGiftMessagesAsync([shop.Id]))[shop.Id];
+                _saved[shop.Id].Accept();
+            }
+            Snackbar.Add(error ?? $"Saved the packing slip for {shop.Name}", error is null ? Severity.Success : Severity.Warning);
+        }
+        finally
+        {
+            _saving.Remove(shop.Id);
+        }
     }
 }

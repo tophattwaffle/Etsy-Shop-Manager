@@ -31,7 +31,7 @@
     }
 
     <MudStack Row="true" Class="mt-3">
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save base URL</MudButton>
+        <SaveButtons Text="Save base URL" Changed="@((_input ?? "") != (_saved ?? ""))" Busy="_busy" OnSave="SaveAsync" OnCancel="Revert" />
     </MudStack>
 </MudPaper>
 
@@ -53,6 +53,8 @@
         _saved = await Settings.GetAsync(SettingKeys.BaseUrl);
         _input = _saved;
     }
+
+    private void Revert() => (_input, _error) = (_saved, null);
 
     private async Task SaveAsync()
     {

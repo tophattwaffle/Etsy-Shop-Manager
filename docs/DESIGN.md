@@ -49,6 +49,13 @@ about one shop, such as a listing, otherwise Etsy orange (`--esm-brand`). No dro
 dark mode. Secondary actions are `Variant.Outlined` (2px border) or `Variant.Text`. Destructive actions use
 `Color.Error` and confirm in a dialog. Labels say exactly what happens ("Connect a shop", not "Submit").
 
+**Unsaved changes.** A form saves through `<SaveButtons>`: Save is an outlined pill (disabled) while nothing has changed,
+and turns into the filled main action as soon as a field differs from what was last saved, with a Cancel button beside
+it that puts the saved values back. Cancel shows only while there are changes. The form says whether it has changes,
+usually with `SavedValues<T>` (a record of its fields, compared by value), so typing an edit back to what it was clears
+it. Text fields use `Immediate="true"` so Save lights up while typing. Something new that has never been saved passes
+`New`, so Save works before any change. Dialogs keep their own Save and Cancel (Cancel closes them). *(checked)*
+
 **Status.** Prefer a small dot in the status colour next to plain text, or the `lp-badge` pill used on the listing cards.
 MudChips with `Color.Success`/`Error` are acceptable in tables. Never put status in colour alone: the text says it too.
 Ship-by times use the `esm-due` pill (`OrderDue.For` sets its text and hue), which copies the Home Assistant card: "2d 5h"
