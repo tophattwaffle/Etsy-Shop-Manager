@@ -1,4 +1,4 @@
-// etsy-orders-card v2.9.0 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.9.1 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
@@ -572,7 +572,7 @@ class EtsyOrdersCard extends HTMLElement {
     return `<section class="shop">
       <div class="shop-head"><span class="shop-pick-wrap"><button type="button" class="chip shop-pick${this._menuOpen ? " open" : ""}"
         aria-haspopup="listbox" aria-expanded="${this._menuOpen ? "true" : "false"}" aria-label="Shop: ${esc(current ? current.name : "All shops")}"
-        title="${esc(current ? current.name : "All shops")}">${pillMark}</button>${menu}</span>${chips}</div>
+        title="${esc(current ? current.name : "All shops")}"><span class="mark">${pillMark}</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg></button>${menu}</span>${chips}</div>
       ${makeList}${missing}${missing && !entries.length ? "" : this._orders(entries, !selected && shops.length > 1)}</section>`;
   }
 
@@ -748,8 +748,12 @@ class EtsyOrdersCard extends HTMLElement {
         /* combine_shops: the shop picker is a chip (same pill as the counts beside it) holding only the shop's icon; its
            menu lists each shop's icon and full name. */
         .shop-pick-wrap { position: relative; flex: none; }
-        .chip.shop-pick { display: inline-flex; align-items: center; justify-content: center; min-height: 20px; font: inherit; font-size: 14px;
+        .chip.shop-pick { display: inline-flex; align-items: center; justify-content: center; gap: 2px; padding-right: 4px; min-height: 20px; font: inherit; font-size: 14px;
                           line-height: 1; color: var(--primary-text-color); cursor: pointer; }
+        /* The down arrow beside the icon says the pill is a dropdown; it turns up while the menu is open. */
+        .shop-pick .mark { display: inline-flex; align-items: center; }
+        .shop-pick .caret { width: 16px; height: 16px; flex: none; color: var(--secondary-text-color); transition: transform 0.15s; }
+        .shop-pick.open .caret { transform: rotate(180deg); }
         .chip.shop-pick:hover, .chip.shop-pick.open { border-color: var(--divider-color, rgba(127, 127, 127, 0.4)); }
         .shop-pick:focus-visible, .shop-option:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
         .storefront { width: 16px; height: 16px; display: block; color: #f1823a; }
