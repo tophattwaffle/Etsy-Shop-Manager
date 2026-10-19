@@ -272,6 +272,7 @@
         try
         {
             await MadeItems.SetMadeAsync(items, made, source: this);
+            RefreshShown(); // an order that is now all made (or no longer) leaves a Made filter
             if (items.Any(i => _historyRows.Any(o => o.Items.Contains(i)))) await LoadAsync();
             await LoadHistoryAsync();
         }
@@ -588,6 +589,14 @@
                                 }
                             </MudSelect>
                         }
+                        @* The Made marks: orders ready to pack (every item made) or with something still to make. *@
+                        <MudSelect T="string" Value="_openFilter.Made" ValueChanged="@(v => SetOpenFilter(_openFilter with { Made = v }))"
+                                   Label="Made" Variant="Variant.Outlined" Margin="Margin.Dense" ToStringFunc="@MadeLabel">
+                            @foreach (var (key, label) in MadeOptions)
+                            {
+                                <MudSelectItem T="string" Value="key">@label (@OpenCount(_openFilter with { Made = key }))</MudSelectItem>
+                            }
+                        </MudSelect>
                         <MudSwitch T="bool" Value="_openFilter.HasNote" ValueChanged="@(on => SetOpenFilter(_openFilter with { HasNote = on }))"
                                    Color="Color.Primary" Label="@($"Has note from buyer ({OpenCount(_openFilter with { HasNote = true })})")" />
                         <MudSwitch T="bool" Value="_openFilter.Gift" ValueChanged="@(on => SetOpenFilter(_openFilter with { Gift = on }))"
@@ -621,12 +630,17 @@
 
     private int ActiveFilterCount(int tab) => (_shopId is null ? 0 : 1) + tab switch
     {
-        OpenTab => new[] { _openFilter.Shipping is not null, _openFilter.Destination is not null, _openFilter.HasNote, _openFilter.Gift, _openFilter.Personalized }.Count(on => on),
+        OpenTab => new[] { _openFilter.Shipping is not null, _openFilter.Destination is not null, _openFilter.Made is not null, _openFilter.HasNote, _openFilter.Gift, _openFilter.Personalized }.Count(on => on),
         HistoryTab => _historyGifts ? 1 : 0,
         _ => 0,
     };
 
     private string DestinationLabel(string? key) => DestinationOptions.FirstOrDefault(o => o.Key == key).Label ?? "All";
+
+    private static readonly (string? Key, string Label)[] MadeOptions =
+        [(null, "Any"), (OpenOrderFilter.MadeStates.AllMade, "All made"), (OpenOrderFilter.MadeStates.ToMake, "Still to make")];
+
+    private static string MadeLabel(string? key) => MadeOptions.FirstOrDefault(o => o.Key == key).Label ?? "Any";
 
     // Sort and filters of the Open tab (ship-by date first, as before); the To make tab still counts every open order.
     private OpenOrderFilter _openFilter = new();
