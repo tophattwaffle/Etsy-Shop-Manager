@@ -71,7 +71,7 @@ else
         </MudStack>
     </MudPaper>
 
-    <RefillPanel ListingId="l.Id" ShopId="l.ShopId" />
+    <div style="@_tabStyle"><RefillPanel ListingId="l.Id" ShopId="l.ShopId" /></div>
 
     <MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true" Style="@_tabStyle">
         <MudTabPanel Text="Details">
@@ -255,7 +255,7 @@ else
 
 @code {
     private string? _shopBrowser; // the shop's Etsy browser template (Shops page), null for this browser
-    private string? _tabStyle; // the shop's accent (--shop) for the selected tab, when the shop has one
+    private string? _tabStyle; // the shop's accent (--shop) for the selected tab and the refill switch, when the shop has one
     [Parameter] public int Id { get; set; }
 
     private bool _loading = true;

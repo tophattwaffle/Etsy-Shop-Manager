@@ -110,6 +110,13 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
     .mud-tabs-tabbar-content::-webkit-scrollbar { display: none; }
     .mud-tabs-tabbar-content .mud-tabs-tabbar-wrapper { transform: none !important; }
 }
+/* Toggle switches: when on, the knob and track are the accent, like the selected tab (the shop's --shop where one is
+   set, otherwise Etsy orange); off stays grey. This beats whatever Color a MudSwitch is given (MudBlazor's colour
+   classes are !important). A disabled switch keeps MudBlazor's grey. */
+.mud-switch-base.mud-checked:not(.mud-switch-disabled) { color: var(--shop, var(--esm-brand)) !important; --mud-ripple-color: var(--shop, var(--esm-brand)) !important; }
+.mud-switch-base.mud-checked:not(.mud-switch-disabled) + .mud-switch-track { background-color: var(--shop, var(--esm-brand)) !important; }
+.mud-switch-base.mud-checked:not(.mud-switch-disabled):not(.mud-readonly):hover,
+.mud-switch-base.mud-checked:not(.mud-switch-disabled):not(.mud-readonly):focus-visible { background-color: color-mix(in srgb, var(--shop, var(--esm-brand)) 12%, transparent) !important; }
 .mud-table-head .mud-table-cell, .mud-simple-table thead th { font-weight: 600; color: var(--esm-muted); }
 .mud-alert { border-radius: var(--esm-radius); }
 .mud-chip { font-weight: 600; }

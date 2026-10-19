@@ -45,6 +45,10 @@ holds, or a count) and `<Actions>` (the page's main buttons). Pages never style 
 and the selected tab gets a light wash and an underline in the accent: the shop's (`--shop` on the `MudTabs`) on a page
 about one shop, such as a listing, otherwise Etsy orange (`--esm-brand`). No drop shadows anywhere in page content. *(checked)*
 
+**Toggles.** A `MudSwitch` that is on shows the same accent as the selected tab: knob and track in the shop's colour
+(`--shop` on an element around it) where the switch belongs to one shop, otherwise Etsy orange. Off is grey. The shared
+style in `app.css` does this, so switches take `Color="Color.Primary"` and never set `UncheckedColor`. *(checked)*
+
 **Buttons.** Pill shaped. The main action on a page is filled `Color.Primary`, which is black in light mode and white in
 dark mode. Secondary actions are `Variant.Outlined` (2px border) or `Variant.Text`. Destructive actions use
 `Color.Error` and confirm in a dialog. Labels say exactly what happens ("Connect a shop", not "Submit").
