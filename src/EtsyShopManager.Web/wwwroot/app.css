@@ -246,9 +246,19 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .order-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 /* Print selection: the checkbox beside the buyer (printouts themselves are styled in print.css). */
 .order-pick { display: flex; align-items: flex-start; gap: 2px; }
-/* Select and print actions above an order list: always one row (short labels, icon buttons). */
-.lp-toolbar.esm-order-actions { flex-wrap: nowrap; gap: 4px; white-space: nowrap; }
+/* Select and print actions above an order list: always one row. Each control comes labelled (.esm-act-wide) and as a
+   short label or icon with a tooltip (.esm-act-narrow); the labelled set shows only when the toolbar is wide enough for
+   its longest row to fit (measured: "12 of 34", "Select all shown", "123 selected", Clear and both print buttons need
+   about 660px). */
+.lp-toolbar.esm-order-actions { flex-wrap: nowrap; gap: 4px; white-space: nowrap; container-type: inline-size; }
 .lp-toolbar.esm-order-actions .mud-icon-button.mud-icon-button-size-small { padding: 5px; margin: 0; }
+.esm-act-wide { display: none; }
+.esm-act-wide, .esm-act-narrow { align-items: center; gap: 4px; }
+.esm-act-narrow { display: inline-flex; }
+@container (min-width: 680px) {
+    .esm-act-wide { display: inline-flex; }
+    .esm-act-narrow { display: none; }
+}
 /* Ship-by pill, exactly as on the Home Assistant card: a see-through fill and outline whose hue (--due-hue, set by
    OrderDue) runs from 120 (green) to 0 (red). Hue-driven, so it is the one colour here not taken from a token. Grey
    without a ship-by date. */

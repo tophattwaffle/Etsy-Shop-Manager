@@ -41,15 +41,22 @@
         }
         else
         {
-            @* One row whatever the width: short labels, and the print actions as icon buttons with their names on hover. *@
+            @* Always one row: full labels when the row has room for them, otherwise short labels and icons with tooltips. *@
             <div class="lp-toolbar esm-order-actions">
                 @if (_openFilter.IsFiltered)
                 {
                     <span class="muted small">@_shown.Count of @_open.Count</span>
                 }
-                <MudTooltip Text="@(_openFilter.IsFiltered ? "Select all shown orders" : "Select all unshipped orders")">
-                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen" Disabled="@(_shown.Count == 0)">Select all</MudButton>
-                </MudTooltip>
+                <span class="esm-act-wide">
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen" Disabled="@(_shown.Count == 0)">
+                        @(_openFilter.IsFiltered ? "Select all shown" : "Select all unshipped")
+                    </MudButton>
+                </span>
+                <span class="esm-act-narrow">
+                    <MudTooltip Text="@(_openFilter.IsFiltered ? "Select all shown orders" : "Select all unshipped orders")">
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen" Disabled="@(_shown.Count == 0)">Select all</MudButton>
+                    </MudTooltip>
+                </span>
                 <MudSpacer />
                 @PrintActions(Picked.Count, PrintLink, () => _picked.Clear())
             </div>
@@ -148,11 +155,18 @@
                               Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="lp-search" aria-label="Search order history" />
             </div>
             <div class="lp-toolbar esm-order-actions">
-                <MudTooltip Text="@(AllHistoryRowsPicked ? "Unselect the orders on this page" : "Select the orders on this page")">
+                <span class="esm-act-wide">
                     <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => PickHistoryPage(!AllHistoryRowsPicked)" Disabled="@(_historyRows.Count == 0)">
-                        @(AllHistoryRowsPicked ? "Unselect page" : "Select page")
+                        @(AllHistoryRowsPicked ? "Unselect this page" : "Select this page")
                     </MudButton>
-                </MudTooltip>
+                </span>
+                <span class="esm-act-narrow">
+                    <MudTooltip Text="@(AllHistoryRowsPicked ? "Unselect the orders on this page" : "Select the orders on this page")">
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => PickHistoryPage(!AllHistoryRowsPicked)" Disabled="@(_historyRows.Count == 0)">
+                            @(AllHistoryRowsPicked ? "Unselect page" : "Select page")
+                        </MudButton>
+                    </MudTooltip>
+                </span>
                 <MudSpacer />
                 @PrintActions(_historyPicked.Count, HistoryPrintLink, () => _historyPicked.Clear())
             </div>
@@ -500,25 +514,39 @@
 
     /// <summary>
     /// The right-hand end of an order list's toolbar: how many orders are selected (with a clear button) and the two print
-    /// actions as icon buttons, their full names in tooltips, so the toolbar stays on one row.
+    /// actions. Each control is drawn twice, labelled and as an icon with its name in a tooltip; CSS shows the labelled set
+    /// only when the toolbar is wide enough for the whole row to stay on one line (see .esm-order-actions in app.css).
     /// </summary>
     private RenderFragment PrintActions(int selected, Func<string, string> link, Action clear) => __builder =>
     {
         @if (selected > 0)
         {
             <span class="muted small">@selected selected</span>
-            <MudTooltip Text="Clear the selection">
-                <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="clear" aria-label="Clear the selection" />
-            </MudTooltip>
+            <span class="esm-act-wide">
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="clear">Clear</MudButton>
+            </span>
+            <span class="esm-act-narrow">
+                <MudTooltip Text="Clear the selection">
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="clear" aria-label="Clear the selection" />
+                </MudTooltip>
+            </span>
         }
-        <MudTooltip Text="Print pick list">
-            <MudIconButton Icon="@Icons.Material.Filled.Checklist" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
-                           Href="@link("pick")" Target="_blank" aria-label="Print pick list" />
-        </MudTooltip>
-        <MudTooltip Text="Print packing slips">
-            <MudIconButton Icon="@Icons.Material.Filled.Print" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
-                           Href="@link("slips")" Target="_blank" aria-label="Print packing slips" />
-        </MudTooltip>
+        <span class="esm-act-wide">
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
+                       Disabled="@(selected == 0)" Href="@link("pick")" Target="_blank">Print pick list</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
+                       Disabled="@(selected == 0)" Href="@link("slips")" Target="_blank">Print packing slips</MudButton>
+        </span>
+        <span class="esm-act-narrow">
+            <MudTooltip Text="Print pick list">
+                <MudIconButton Icon="@Icons.Material.Filled.Checklist" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
+                               Href="@link("pick")" Target="_blank" aria-label="Print pick list" />
+            </MudTooltip>
+            <MudTooltip Text="Print packing slips">
+                <MudIconButton Icon="@Icons.Material.Filled.Print" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
+                               Href="@link("slips")" Target="_blank" aria-label="Print packing slips" />
+            </MudTooltip>
+        </span>
     };
 
     private const int OpenTab = 0, ToMakeTab = 1, HistoryTab = 2;
