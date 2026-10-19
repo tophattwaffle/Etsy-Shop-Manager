@@ -191,11 +191,6 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     private static string? ShippingMethod(JsonObject? receipt) => (receipt?["transactions"] as JsonArray ?? [])
         .Select(t => Text(t?["shipping_upgrade"]) ?? Text(t?["shipping_method"])).FirstOrDefault(s => s is not null);
 
-    /// <summary>
-    /// The buyer's email from the receipt (Etsy's buyer_email), printed under Buyer as on Etsy's slip. Null when Etsy didn't
-    /// send it: Etsy shares buyers' emails only with apps it has approved for that, case by case.
-    /// </summary>
-    public static string? BuyerEmail(Order order) => Text(Receipt(order)?["buyer_email"]);
 
     /// <summary>The destination country's ISO code from the receipt (upper case; null when missing).</summary>
     public static string? CountryIso(Order order) => Text(Receipt(order)?["country_iso"])?.ToUpperInvariant();

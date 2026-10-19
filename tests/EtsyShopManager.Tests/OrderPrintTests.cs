@@ -367,25 +367,21 @@ public class OrderPrintTests
     }
 
     [Fact]
-    public async Task The_buyers_email_prints_under_buyer_when_Etsy_sends_it()
+    public async Task Buyer_shows_the_name_on_the_buyers_Etsy_profile_like_Etsys_slip()
     {
         using var db = new TestDb();
         await SeedAsync(db, firstIsGift: false);
         await using (var ctx = db.CreateDbContext())
-        {
-            var order = await ctx.Orders.SingleAsync(o => o.Id == 2);
-            order.RawJson = order.RawJson.Replace("{\"name\":\"Other Sample\",", "{\"name\":\"Other Sample\",\"buyer_email\":\"other.sample@example.com\",");
-            await ctx.SaveChangesAsync();
-        }
+            await ctx.Orders.Where(o => o.Id == 2).ExecuteUpdateAsync(s => s.SetProperty(o => o.BuyerProfileName, "Pat Sample"));
 
         var slips = await RenderAsync<PrintPackingSlips>(db, new InMemorySettings(), "orders/print/slips?ids=1,2");
 
-        var buyer = slips[slips.IndexOf("<div class=\"slip-label\">Buyer</div>", StringComparison.Ordinal)..];
-        Assert.StartsWith("<div class=\"slip-label\">Buyer</div><div>Other Sample</div><div>other.sample@example.com</div>", buyer);
-        // Order 1's receipt has no buyer_email (Etsy only shares it with apps it approved): no empty line for it.
-        Assert.Equal(1, CountOf(slips, "@example.com"));
+        // Order 2 (printed first): the profile name under Buyer, the receipt's name under Ship to.
+        var buyers = slips.Split("<div class=\"slip-label\">Buyer</div>")[1..].Select(s => s[..s.IndexOf("</div>", StringComparison.Ordinal)].Trim()).ToList();
+        Assert.Equal(["<div>Pat Sample", "<div>Sample Buyer"], buyers); // order 1 has no profile name yet: the receipt's name
+        Assert.Contains("<div class=\"slip-label\">Ship to</div><div>Other Sample</div>", slips);
+        Assert.DoesNotContain("buyer_email", SlipLayoutService.BuiltIn(SlipKind.Packing).Html); // Etsy doesn't share emails
     }
-
     [Fact]
     public async Task Apostrophes_print_as_apostrophes_on_gift_slips()
     {

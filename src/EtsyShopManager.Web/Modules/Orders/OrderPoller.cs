@@ -145,7 +145,8 @@ public sealed class OrderPoller(
             if (order.IsPaid && !wasPaid) received.Add(order);
         }
 
-        await FillBuyerNamesAsync(db, shopId, [.. existing.Values.Where(o => o.IsGift && o.GiftFromName is null && o.BuyerUserId > 0)], ct);
+        await FillBuyerNamesAsync(db, shopId, [.. existing.Values.Where(o => o.BuyerUserId > 0
+            && (o.IsGift && o.GiftFromName is null || o.IsOpen && o.BuyerProfileName is null))], ct);
         await ResolveImagesAsync(db, shopId, existing.Values.SelectMany(o => o.Items).Where(i => i.ImageUrl is null).ToList(), ct);
         await db.SaveChangesAsync(ct);
 
@@ -155,32 +156,38 @@ public sealed class OrderPoller(
         return created;
     }
 
-    /// <summary>The OAuth scope Etsy asks for to read a buyer's profile (getUser), for the buyer's name on gift slips.</summary>
+    /// <summary>The OAuth scope Etsy asks for to read a buyer's profile (getUser), for buyers' names on slips.</summary>
     public const string BuyerNameScope = "email_r";
 
     /// <summary>
-    /// Gives the shop's gift orders that lack it the buyer's first name, printed under the gift message as on Etsy's
-    /// gift slip ("- Kate"). Run by <see cref="GiftBuyerNamesJob"/> for orders stored before names were read.
+    /// Gives the shop's orders that lack them the buyer's names from their Etsy profile: the first name under the gift
+    /// message on gift slips ("- Kate"), and the full name under Buyer on packing slips ("Meg Taylor"), for gift orders and
+    /// open orders. Run by <see cref="GiftBuyerNamesJob"/> for orders stored before names were read.
     /// <see cref="GiftBuyerNames.CanRead"/> is false when the shop's token predates <see cref="BuyerNameScope"/>.
     /// </summary>
     public async Task<GiftBuyerNames> FillGiftBuyerNamesAsync(int shopId, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var orders = await db.Orders.Where(o => o.ShopId == shopId && o.IsGift && o.GiftFromName == null && o.BuyerUserId > 0)
-            .ToListAsync(ct);
+        var orders = (await db.Orders.Where(o => o.ShopId == shopId && o.BuyerUserId > 0
+                && (o.IsGift && o.GiftFromName == null || o.IsPaid && !o.IsShipped && o.BuyerProfileName == null))
+            .ToListAsync(ct)).Where(NeedsBuyerName).ToList();
         var canRead = await FillBuyerNamesAsync(db, shopId, orders, ct);
         await db.SaveChangesAsync(ct);
-        var result = new GiftBuyerNames(orders.Count, orders.Count(o => o.GiftFromName is not null), canRead);
+        var result = new GiftBuyerNames(orders.Count, orders.Count(o => !NeedsBuyerName(o)), canRead);
         if (orders.Count > 0)
-            logger.LogInformation("Gift buyer names for shop {ShopId}: {Named} of {Orders} gift order(s) named{Scope}",
+            logger.LogInformation("Buyer names for shop {ShopId}: {Named} of {Orders} order(s) named{Scope}",
                 shopId, result.Named, result.Orders, canRead ? "" : $" (the shop's token lacks {BuyerNameScope}: reconnect it)");
         return result;
     }
 
+    /// <summary>A gift order without the buyer's first name, or an open order without their profile name.</summary>
+    public static bool NeedsBuyerName(Order o) =>
+        o.BuyerUserId > 0 && (o.IsGift && o.GiftFromName is null || o.IsOpen && o.BuyerProfileName is null);
+
     /// <summary>
-    /// Looks up each buyer of <paramref name="orders"/> once (getUser, GET only) and sets their first name on the orders.
+    /// Looks up each buyer of <paramref name="orders"/> once (getUser, GET only) and sets their names on the orders.
     /// Nothing is called when the shop's token lacks <see cref="BuyerNameScope"/> (returns false); a buyer Etsy won't
-    /// show is skipped and tried again the next time.
+    /// show (a closed account) is skipped and tried again the next time.
     /// </summary>
     private async Task<bool> FillBuyerNamesAsync(AppDbContext db, int shopId, IReadOnlyCollection<Order> orders, CancellationToken ct)
     {
@@ -188,22 +195,36 @@ public sealed class OrderPoller(
         var scopes = await db.ShopTokens.Where(t => t.ShopId == shopId).Select(t => t.Scopes).FirstOrDefaultAsync(ct) ?? "";
         if (!scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(BuyerNameScope)) return false;
 
+        var notFound = 0;
         foreach (var buyer in orders.GroupBy(o => o.BuyerUserId))
         {
-            string? name;
+            EtsyUser user;
             try
             {
-                name = (await etsy.GetUserAsync(buyer.Key, EtsyAuth.ForShop(shopId), ct)).FirstName?.Trim();
+                user = await etsy.GetUserAsync(buyer.Key, EtsyAuth.ForShop(shopId), ct);
+            }
+            catch (EtsyApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                notFound++; // the buyer's account is gone: the slips print the names on the receipt
+                continue;
             }
             catch (EtsyApiException ex)
             {
-                // The name is cosmetic: the slip prints without it.
-                logger.LogWarning("Could not read buyer {BuyerUserId} for a gift slip name: {Message}", buyer.Key, ex.Message);
+                // The names are cosmetic: the slips print without them.
+                logger.LogWarning("Could not read buyer {BuyerUserId} for slip names: {Message}", buyer.Key, ex.Message);
                 continue;
             }
-            if (string.IsNullOrEmpty(name)) continue;
-            foreach (var order in buyer) order.GiftFromName = name;
+            var first = user.FirstName?.Trim();
+            var full = string.Join(" ", new[] { first, user.LastName?.Trim() }.Where(s => !string.IsNullOrEmpty(s)));
+            foreach (var order in buyer)
+            {
+                if (!string.IsNullOrEmpty(first)) order.GiftFromName ??= first;
+                if (full.Length > 0) order.BuyerProfileName = full;
+            }
         }
+        if (notFound > 0)
+            logger.LogInformation("Etsy has no profile for {Count} buyer(s) of shop {ShopId} (closed accounts); their slips use the receipt's names",
+                notFound, shopId);
         return true;
     }
 

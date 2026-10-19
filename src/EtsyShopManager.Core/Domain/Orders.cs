@@ -23,6 +23,12 @@ public class Order
     /// profile (getUser): receipts carry gift_sender, but Etsy leaves it empty.
     /// </summary>
     public string? GiftFromName { get; set; }
+
+    /// <summary>
+    /// The buyer's name on their Etsy profile ("Meg Taylor"), printed under Buyer as on Etsy's packing slip; the receipt
+    /// only has the ship-to name. From getUser, for open and gift orders.
+    /// </summary>
+    public string? BuyerProfileName { get; set; }
     public string? MessageFromBuyer { get; set; }
 
     /// <summary>Money in minor units with the divisor Etsy sent (usually 100).</summary>

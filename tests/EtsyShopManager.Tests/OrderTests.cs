@@ -339,7 +339,7 @@ public class OrderPollerTests
         var now = shop.Time.Now.ToUnixTimeSeconds();
         shop.Receipts.Add(Gift(1, now - 100));                   // buyer 501
         shop.Receipts.Add(Gift(2, now - 90));                    // buyer 502, whom Etsy won't show (404)
-        shop.Receipts.Add(Receipt(3, now - 80));                 // not a gift
+        shop.Receipts.Add(Receipt(3, now - 80, shipped: true, status: "Completed")); // not a gift, and shipped
         var repeat = Gift(4, now - 70);
         repeat["buyer_user_id"] = 501;                           // the same buyer again
         shop.Receipts.Add(repeat);
@@ -361,12 +361,33 @@ public class OrderPollerTests
     }
 
     [Fact]
+    public async Task Open_orders_get_the_buyers_profile_name_and_shipped_ones_are_not_looked_up()
+    {
+        using var shop = new FakeEtsyShop();
+        await GrantBuyerNamesAsync(shop);
+        var now = shop.Time.Now.ToUnixTimeSeconds();
+        shop.Receipts.Add(Receipt(1, now - 100));                                         // open: buyer 501
+        shop.Receipts.Add(Receipt(2, now - 90, shipped: true, status: "Completed"));      // shipped: not needed
+        shop.Receipts.Add(Receipt(3, now - 80));                                          // open: buyer 503, account closed (404)
+        shop.BuyerFirstNames[501] = "Meg";
+        shop.BuyerLastNames[501] = "Taylor";
+
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        await using var db = shop.Db.CreateDbContext();
+        var orders = await db.Orders.OrderBy(o => o.EtsyReceiptId).ToListAsync();
+        Assert.Equal(["Meg Taylor", null, null], orders.Select(o => o.BuyerProfileName));
+        Assert.Equal(["/v3/application/users/501", "/v3/application/users/503"], UserCalls(shop));
+        Assert.Empty(shop.Writes);
+    }
+
+    [Fact]
     public async Task Buyer_names_need_the_shop_reconnected_with_the_scope_then_the_job_fills_older_gift_orders()
     {
         using var shop = new FakeEtsyShop(); // token from before email_r was asked for
         var now = shop.Time.Now.ToUnixTimeSeconds();
         shop.Receipts.Add(Gift(1, now - 100));
-        shop.Receipts.Add(Receipt(3, now - 80));
+        shop.Receipts.Add(Receipt(3, now - 80, shipped: true, status: "Completed"));
         shop.BuyerFirstNames[501] = "Kate";
         var poller = shop.Provider.GetRequiredService<OrderPoller>();
         await poller.PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
@@ -376,7 +397,7 @@ public class OrderPollerTests
         var job = new GiftBuyerNamesJob(shop.Db, poller);
         var context = new JobExecutionContext { JobId = 1, JobType = GiftBuyerNamesJob.Type, Attempt = 1, PayloadJson = "{}" };
         await job.HandleAsync(context, CancellationToken.None);
-        Assert.Equal("0 of 1 gift order(s) named; reconnect TestShop to allow buyer names", context.Result);
+        Assert.Equal("0 of 1 order(s) named; reconnect TestShop to allow buyer names", context.Result);
 
         // Reconnecting grants the scope and queues the job, which names the older order.
         await GrantBuyerNamesAsync(shop);
@@ -385,11 +406,11 @@ public class OrderPollerTests
             new ShopConnected(FakeEtsyShop.ShopId, FakeEtsyShop.EtsyShopId, "TestShop", IsReconnect: true), CancellationToken.None);
         Assert.Equal(GiftBuyerNamesJob.Type, Assert.Single(queue.Requests).JobType);
         await job.HandleAsync(context, CancellationToken.None);
-        Assert.Equal("1 of 1 gift order(s) named", context.Result);
+        Assert.Equal("1 of 1 order(s) named", context.Result);
         Assert.Equal("Kate", await StoredSenderAsync(shop, 1));
 
         await job.HandleAsync(context, CancellationToken.None);
-        Assert.Equal("every gift order has a buyer name", context.Result);
+        Assert.Equal("every open and gift order has a buyer name", context.Result);
         Assert.Single(UserCalls(shop));
         Assert.Empty(shop.Writes);
     }
@@ -421,7 +442,7 @@ public class OrderPollerTests
         await using (var db = shop.Db.CreateDbContext())
         {
             await db.Shops.ExecuteUpdateAsync(s => s.SetProperty(x => x.TransactionSoldCount, 12));
-            await db.Orders.ExecuteUpdateAsync(s => s.SetProperty(x => x.GiftFromName, "Kate"));
+            await db.Orders.ExecuteUpdateAsync(s => s.SetProperty(x => x.GiftFromName, "Kate").SetProperty(x => x.BuyerProfileName, "Kate Sample"));
         }
         await StartAsync();
         Assert.Empty(queue.Requests);
