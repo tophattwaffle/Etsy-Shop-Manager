@@ -34,6 +34,8 @@ public sealed class OrdersModule : IModule
         services.AddJobHandler<PollAllOrdersJob>();
         services.AddJobHandler<GiftBuyerNamesJob>();
         services.AddHostedService<GiftBuyerNamesStartup>();
+        services.AddJobHandler<OrderTextRepairJob>();
+        services.AddHostedService<OrderTextRepairStartup>();
         services.AddScoped<IDomainEventHandler<ShopConnected>, PollOrdersOnShopConnected>();
         services.AddScoped<IDomainEventHandler<ShopConnected>, GiftBuyerNamesOnShopConnected>();
 
@@ -250,3 +252,79 @@ public sealed class GiftBuyerNamesOnShopConnected(IJobQueue queue) : IDomainEven
 
 /// <summary>Body of the Made call from Home Assistant: <c>{"made": 2}</c>, the units made of the item.</summary>
 public sealed record HaMadeRequest(int Made);
+
+/// <summary>
+/// One-time fix for orders stored before receipt text was decoded (<see cref="OrderMapper.Text"/>): names, notes, gift
+/// messages, item titles and variations that still hold Etsy's HTML entities (an apostrophe as <c>&amp;#39;</c>) are
+/// decoded in place. Local only, nothing is read from Etsy. Queued by <see cref="OrderTextRepairStartup"/> until it has run.
+/// </summary>
+public sealed class OrderTextRepairJob(IDbContextFactory<AppDbContext> dbFactory, EtsyShopManager.Core.Services.ISettingsStore settings)
+    : IJobHandler
+{
+    public const string Type = "orders.text-repair";
+    public const string DoneKey = "Orders.TextDecoded";
+    public string JobType => Type;
+    public string DisplayName => "Decode Etsy's text in stored orders";
+
+    public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
+    {
+        const int batch = 500;
+        int lastId = 0, changed = 0;
+        while (true)
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var orders = await db.Orders.Include(o => o.Items).Where(o => o.Id > lastId).OrderBy(o => o.Id).Take(batch).ToListAsync(ct);
+            if (orders.Count == 0) break;
+            lastId = orders[^1].Id;
+            foreach (var order in orders)
+                if (Decode(order)) changed++;
+            await db.SaveChangesAsync(ct);
+        }
+        await settings.SetAsync(DoneKey, "1", updatedBy: "system", ct: ct);
+        context.Result = changed == 0 ? "no orders needed it" : $"{changed} order(s) decoded";
+    }
+
+    /// <summary>Decodes the order's stored text; true when anything changed.</summary>
+    public static bool Decode(Order order)
+    {
+        var changed = false;
+        string? Fix(string? s)
+        {
+            if (s is null || !s.Contains('&')) return s;
+            var plain = OrderMapper.Text(s);
+            changed |= plain != s;
+            return plain;
+        }
+
+        order.BuyerName = Fix(order.BuyerName);
+        order.GiftMessage = Fix(order.GiftMessage);
+        order.MessageFromBuyer = Fix(order.MessageFromBuyer);
+        foreach (var item in order.Items)
+        {
+            item.Title = Fix(item.Title);
+            if (item.Variations.Any(v => v.Name.Contains('&') || v.Value.Contains('&')))
+                item.Variations = [.. item.Variations.Select(v => v with { Name = Fix(v.Name)!, Value = Fix(v.Value)! })];
+        }
+        return changed;
+    }
+}
+
+/// <summary>Queues <see cref="OrderTextRepairJob"/> at startup until it has run once.</summary>
+public sealed class OrderTextRepairStartup(IJobQueue queue, EtsyShopManager.Core.Services.ISettingsStore settings,
+    ILogger<OrderTextRepairStartup> logger) : IHostedService
+{
+    public async Task StartAsync(CancellationToken ct)
+    {
+        try
+        {
+            if (await settings.HasValueAsync(OrderTextRepairJob.DoneKey, ct)) return;
+            await queue.EnqueueAsync(new JobRequest { JobType = OrderTextRepairJob.Type, DedupeKey = OrderTextRepairJob.Type, CreatedBy = "system" }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Could not queue decoding the text of stored orders; it is tried again at the next start");
+        }
+    }
+
+    public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+}

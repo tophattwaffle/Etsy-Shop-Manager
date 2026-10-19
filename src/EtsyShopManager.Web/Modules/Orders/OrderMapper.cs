@@ -11,13 +11,13 @@ public static class OrderMapper
     {
         target.EtsyReceiptId = source.ReceiptId;
         target.BuyerUserId = source.BuyerUserId;
-        target.BuyerName = string.IsNullOrWhiteSpace(source.Name) ? null : source.Name;
+        target.BuyerName = string.IsNullOrWhiteSpace(source.Name) ? null : Text(source.Name);
         target.Status = source.Status ?? "";
         target.IsPaid = source.IsPaid;
         target.IsShipped = source.IsShipped;
         target.IsGift = source.IsGift;
-        target.GiftMessage = string.IsNullOrEmpty(source.GiftMessage) ? null : source.GiftMessage;
-        target.MessageFromBuyer = string.IsNullOrEmpty(source.MessageFromBuyer) ? null : source.MessageFromBuyer;
+        target.GiftMessage = string.IsNullOrEmpty(source.GiftMessage) ? null : Text(source.GiftMessage);
+        target.MessageFromBuyer = string.IsNullOrEmpty(source.MessageFromBuyer) ? null : Text(source.MessageFromBuyer);
 
         var money = source.Grandtotal ?? source.Subtotal;
         target.CurrencyCode = money?.CurrencyCode;
@@ -36,6 +36,12 @@ public static class OrderMapper
         SyncItems(target, source.Transactions ?? []);
         target.ShipByUtc = target.Items.Select(i => i.ExpectedShipAtUtc).Where(d => d is not null).Min();
     }
+
+    /// <summary>
+    /// Etsy sends a receipt's text HTML-encoded (an apostrophe arrives as <c>&amp;#39;</c>), like listing text: decoded once
+    /// here, so the app stores and shows plain text and every page encodes it the usual way.
+    /// </summary>
+    public static string Text(string? html) => System.Net.WebUtility.HtmlDecode(html ?? "");
 
     /// <summary>Re-expresses an amount in the order's divisor (Etsy uses the same one throughout a receipt).</summary>
     private static long? Minor(EtsyMoney? money, int divisor) =>
@@ -63,7 +69,7 @@ public static class OrderMapper
             item.EtsyListingId = t.ListingId;
             item.EtsyProductId = t.ProductId;
             item.ListingImageId = t.ListingImageId;
-            item.Title = t.Title;
+            item.Title = t.Title is null ? null : Text(t.Title);
             item.Sku = string.IsNullOrEmpty(t.Sku) ? null : t.Sku;
             item.Quantity = t.Quantity;
             item.PriceAmount = t.Price?.Amount ?? 0;
@@ -76,8 +82,8 @@ public static class OrderMapper
             {
                 PropertyId = v.PropertyId,
                 ValueId = v.ValueId,
-                Name = v.FormattedName ?? "",
-                Value = v.FormattedValue ?? "",
+                Name = Text(v.FormattedName),
+                Value = Text(v.FormattedValue),
             }).ToList();
             if (!item.Variations.SequenceEqual(variations)) item.Variations = variations;
         }
