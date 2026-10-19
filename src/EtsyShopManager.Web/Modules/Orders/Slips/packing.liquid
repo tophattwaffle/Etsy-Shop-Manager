@@ -59,10 +59,11 @@
                 <div class="slip-label">Order date</div>
                 <div>{{ order.order_date }}</div>
             </div>
-            {%- if order.buyer_name %}
+            {%- if order.buyer_name or order.buyer_email %}
             <div class="slip-field">
                 <div class="slip-label">Buyer</div>
-                <div>{{ order.buyer_name }}</div>
+                {%- if order.buyer_name %}<div>{{ order.buyer_name }}</div>{% endif %}
+                {%- if order.buyer_email %}<div>{{ order.buyer_email }}</div>{% endif %}
             </div>
             {%- endif %}
             {%- if order.payment_method %}
