@@ -446,6 +446,16 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .lp-list tbody tr.is-selected { background: var(--esm-sunk); }
 .lp-list tbody tr.is-selectable { cursor: pointer; user-select: none; }
 .lp-list tbody tr.is-selectable .lp-list-title:hover { text-decoration: none; }
+/* Pending changes page: the list view, each row with what its push changes */
+.pc-list td { vertical-align: top; }
+.pc-listing { min-width: 200px; }
+.pc-changes { min-width: 320px; }
+.pc-change { margin-bottom: 4px; overflow-wrap: anywhere; }
+.pc-field { font-weight: 600; margin-right: 6px; }
+.pc-arrow { margin: 0 4px; color: var(--esm-muted); }
+.pc-notes summary { cursor: pointer; }
+.pc-edited { white-space: nowrap; }
+.pc-ready { min-width: 180px; }
 .lp-bulk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .lp-bulk-fields { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .lp-bulk-fields .mud-input-control { flex: 1 1 160px; margin: 0; }
@@ -687,6 +697,7 @@ a.lp-status-error:hover { text-decoration: underline; }
 .esm-dot-success { background: var(--esm-success); }
 .esm-dot-info { background: var(--esm-info); }
 .esm-dot-warning { background: var(--esm-warning); }
+.esm-dot-error { background: var(--esm-error); }
 /* Line diff of a description (TextDiff.razor): removed lines struck through, added lines marked, gaps as an ellipsis */
 .esm-diff { font-family: Consolas, "Cascadia Mono", monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; border: 1px solid var(--esm-line); border-radius: var(--esm-radius-sm); padding: 8px 12px; background: var(--esm-sunk); }
 .esm-diff-line { min-height: 1.2em; }
