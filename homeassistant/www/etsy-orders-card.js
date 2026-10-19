@@ -1,4 +1,4 @@
-// etsy-orders-card v2.8.0 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.9.0 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
@@ -20,9 +20,11 @@
 //                      hidden otherwise). An item of several units counts up one per tap
 //                      ("1/3", "2/3", …) and clears after the last.
 //   combine_shops:     one list of every shop's orders, most urgent first, with a
-//                      shop dropdown at the top ("All shops" or one shop, with
-//                      order counts; remembered per device), like the app's
-//                      Orders page. Under "All shops" each order names its shop.
+//                      shop picker at the top, like the app's Orders page: a pill
+//                      showing the shop's icon (the app's storefront for All shops)
+//                      that opens a menu of icons, full names and order counts;
+//                      remembered per device. Under "All shops" each order names
+//                      its shop. Give each shop an icon for the pill.
 //                      (default false: a section per shop)
 //   green_hours:       ship-by pills and the header's "Next" chip are fully
 //                      green at this many hours or more to ship (default 72)
@@ -63,6 +65,8 @@
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const shortTitle = (t) => String(t || "").split("|")[0].trim();
+// The app's brand mark (Material "storefront", as in its top bar), for "All shops" in the combined view's shop picker.
+const STOREFRONT = `<svg class="storefront" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.9,8.89l-1.05-4.37c-0.22-0.9-1-1.52-1.91-1.52H5.05C4.15,3,3.36,3.63,3.15,4.52L2.1,8.89 c-0.24,1.02-0.02,2.06,0.62,2.88C2.8,11.88,2.91,11.96,3,12.06V19c0,1.1,0.9,2,2,2h14c1.1,0,2-0.9,2-2v-6.94 c0.09-0.09,0.2-0.18,0.28-0.28C21.92,10.96,22.15,9.91,21.9,8.89z M18.91,4.99l1.05,4.37c0.1,0.42,0.01,0.84-0.25,1.17 C19.57,10.71,19.27,11,18.77,11c-0.61,0-1.14-0.49-1.21-1.14L16.98,5L18.91,4.99z M13,5h1.96l0.54,4.52 c0.05,0.39-0.07,0.78-0.33,1.07C14.95,10.85,14.63,11,14.22,11C13.55,11,13,10.41,13,9.69V5z M8.49,9.52L9.04,5H11v4.69 C11,10.41,10.45,11,9.71,11c-0.34,0-0.65-0.15-0.89-0.41C8.57,10.3,8.45,9.91,8.49,9.52z M4.04,9.36L5.05,5h1.97L6.44,9.86 C6.36,10.51,5.84,11,5.23,11c-0.49,0-0.8-0.29-0.93-0.47C4.03,10.21,3.94,9.78,4.04,9.36z M5,19v-6.03C5.08,12.98,5.15,13,5.23,13 c0.87,0,1.66-0.36,2.24-0.95c0.6,0.6,1.4,0.95,2.31,0.95c0.87,0,1.65-0.36,2.23-0.93c0.59,0.57,1.39,0.93,2.29,0.93 c0.84,0,1.64-0.35,2.24-0.95c0.58,0.59,1.37,0.95,2.24,0.95c0.08,0,0.15-0.02,0.23-0.03V19H5z"/></svg>`;
 const isAndroid = () => typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent || "");
 const words = (s) => String(s || "").toLowerCase().match(/[a-z]+/g) || [];
 const CSS_KEYWORDS = new Set(["inherit", "initial", "unset", "revert", "currentcolor", "transparent"]);
@@ -396,6 +400,14 @@ class EtsyOrdersCard extends HTMLElement {
     window.addEventListener("blur", this._onWindowFocus);
     // A tap or click means the page is in use, even where the WebView sends no focus event.
     window.addEventListener("pointerdown", this._onWindowFocus);
+    // A tap anywhere outside the card closes its shop menu.
+    this._onOutside = (e) => {
+      if (this._menuOpen && !e.composedPath().includes(this)) {
+        this._menuOpen = false;
+        this._render();
+      }
+    };
+    document.addEventListener("pointerdown", this._onOutside);
     document.addEventListener("visibilitychange", this._onVisibility);
     this._updatePaused();
   }
@@ -405,6 +417,7 @@ class EtsyOrdersCard extends HTMLElement {
     window.removeEventListener("focus", this._onWindowFocus);
     window.removeEventListener("blur", this._onWindowFocus);
     window.removeEventListener("pointerdown", this._onWindowFocus);
+    document.removeEventListener("pointerdown", this._onOutside);
     document.removeEventListener("visibilitychange", this._onVisibility);
   }
 
@@ -532,8 +545,10 @@ class EtsyOrdersCard extends HTMLElement {
       ${makeList}${this._orders(entries, false)}</section>`;
   }
 
-  // combine_shops: every shop's orders in one list, most urgent first, with a shop dropdown on top (like the shop
-  // list on the app's Orders page). "All shops" names each order's shop; the choice is kept per device.
+  // combine_shops: every shop's orders in one list, most urgent first, with a shop picker on top (like the shop list on
+  // the app's Orders page). The picker is a pill like the chips beside it, showing only the shop's icon (the app's
+  // storefront mark for All shops); it opens a menu of icons and full names. "All shops" names each order's shop; the
+  // choice is kept per device.
   _combined() {
     const shops = this._config.shops;
     const selected = shops.some((s) => s.entity === this._selectedShop) ? this._selectedShop : "";
@@ -543,12 +558,21 @@ class EtsyOrdersCard extends HTMLElement {
     const items = shown.reduce((n, p) => n + (p.st ? this._itemCount(p.st, p.entries.map((e) => e.o)) : 0), 0);
     const { chips, makeList } = this._summary(entries, items);
     const total = perShop.reduce((n, p) => n + p.entries.length, 0);
-    const options = [`<option value=""${selected ? "" : " selected"}>All shops (${total})</option>`]
-      .concat(perShop.map((p) => `<option value="${esc(p.s.entity)}"${p.s.entity === selected ? " selected" : ""}>${esc(p.name)} (${p.st ? p.entries.length : "not found"})</option>`))
-      .join("");
+    const current = perShop.find((p) => p.s.entity === selected);
+    const choices = [{ value: "", mark: STOREFRONT, name: "All shops", count: total }].concat(
+      perShop.map((p) => ({ value: p.s.entity, mark: p.s.icon ? esc(p.s.icon) : "", name: p.name, count: p.st ? p.entries.length : null })),
+    );
+    // A shop without an icon shows its name on the pill instead.
+    const pillMark = current ? (current.s.icon ? esc(current.s.icon) : esc(current.name)) : STOREFRONT;
+    const menu = this._menuOpen
+      ? `<div class="shop-menu" role="listbox" aria-label="Shop">${choices.map((c) => `<button type="button" class="shop-option${c.value === selected ? " on" : ""}"
+          role="option" aria-selected="${c.value === selected}" data-shop="${esc(c.value)}"><span class="mark">${c.mark}</span><span class="name">${esc(c.name)}</span><span class="count">${c.count ?? "not found"}</span></button>`).join("")}</div>`
+      : "";
     const missing = shown.filter((p) => !p.st).map((p) => `<div class="empty">Entity not found: ${esc(p.s.entity)}</div>`).join("");
     return `<section class="shop">
-      <div class="shop-head"><select class="shop-select" aria-label="Shop">${options}</select>${chips}</div>
+      <div class="shop-head"><span class="shop-pick-wrap"><button type="button" class="chip shop-pick${this._menuOpen ? " open" : ""}"
+        aria-haspopup="listbox" aria-expanded="${this._menuOpen ? "true" : "false"}" aria-label="Shop: ${esc(current ? current.name : "All shops")}"
+        title="${esc(current ? current.name : "All shops")}">${pillMark}</button>${menu}</span>${chips}</div>
       ${makeList}${missing}${missing && !entries.length ? "" : this._orders(entries, !selected && shops.length > 1)}</section>`;
   }
 
@@ -565,16 +589,44 @@ class EtsyOrdersCard extends HTMLElement {
     }
   }
 
-  _onChange(e) {
-    const select = e.composedPath().find((el) => el.classList?.contains("shop-select"));
-    if (!select) return;
-    this._selectedShop = select.value;
+  // The shop picker: the pill opens and closes the menu, a menu entry picks that shop.
+  _onShopClick(path) {
+    if (path.find((el) => el.classList?.contains("shop-pick"))) {
+      this._setMenu(!this._menuOpen);
+      return true;
+    }
+    const option = path.find((el) => el.classList?.contains("shop-option"));
+    if (!option) return false;
+    this._selectedShop = option.dataset.shop;
     try {
-      localStorage.setItem(this._storageKey(), select.value);
+      localStorage.setItem(this._storageKey(), option.dataset.shop);
     } catch (err) {
       // Private mode or storage off: the choice lasts until the page reloads.
     }
+    this._setMenu(false);
+    return true;
+  }
+
+  // Opening focuses the chosen shop in the menu; closing puts focus back on the pill.
+  _setMenu(open) {
+    this._menuOpen = open;
     this._render();
+    const target = open ? this.shadowRoot.querySelector(".shop-option.on") : this.shadowRoot.querySelector(".shop-pick");
+    target?.focus({ preventScroll: true });
+  }
+
+  // Escape closes the menu; arrow keys move between its entries.
+  _onKeyDown(e) {
+    if (!this._menuOpen) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this._setMenu(false);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const options = [...this.shadowRoot.querySelectorAll(".shop-option")];
+      const at = options.indexOf(this.shadowRoot.activeElement);
+      options[(at + (e.key === "ArrowDown" ? 1 : options.length - 1)) % options.length]?.focus();
+    }
   }
 
   // Desktop: the shop's own override (e.g. a microsoft-edge: link), else the web link.
@@ -657,6 +709,7 @@ class EtsyOrdersCard extends HTMLElement {
 
   // A Made checkbox sits inside the order's link: the tap marks the item and doesn't open the order.
   _onClick(e) {
+    if (this._onShopClick(e.composedPath())) return;
     const btn = e.composedPath().find((el) => el.classList?.contains("made-btn"));
     if (!btn) return;
     e.preventDefault();
@@ -682,7 +735,7 @@ class EtsyOrdersCard extends HTMLElement {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
-      this.shadowRoot.addEventListener("change", (e) => this._onChange(e));
+      this.shadowRoot.addEventListener("keydown", (e) => this._onKeyDown(e));
     }
     this.shadowRoot.innerHTML = `
       <style>
@@ -692,12 +745,24 @@ class EtsyOrdersCard extends HTMLElement {
         .shop-icon { font-size: 20px; }
         .shop-name { font-size: 18px; font-weight: 500; color: var(--primary-text-color); }
         .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
-        /* combine_shops: the shop dropdown, sized like the shop name it replaces. */
-        .shop-select { min-width: 0; max-width: 100%; font: inherit; font-size: 16px; font-weight: 500; color: var(--primary-text-color);
-                       background: var(--secondary-background-color, rgba(127, 127, 127, 0.15)); border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
-                       border-radius: 8px; padding: 4px 8px; cursor: pointer; }
-        .shop-select:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
-        .shop-select option { color: var(--primary-text-color); background: var(--card-background-color, var(--secondary-background-color)); }
+        /* combine_shops: the shop picker is a chip (same pill as the counts beside it) holding only the shop's icon; its
+           menu lists each shop's icon and full name. */
+        .shop-pick-wrap { position: relative; flex: none; }
+        .chip.shop-pick { display: inline-flex; align-items: center; justify-content: center; min-height: 20px; font: inherit; font-size: 14px;
+                          line-height: 1; color: var(--primary-text-color); cursor: pointer; }
+        .chip.shop-pick:hover, .chip.shop-pick.open { border-color: var(--divider-color, rgba(127, 127, 127, 0.4)); }
+        .shop-pick:focus-visible, .shop-option:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+        .storefront { width: 16px; height: 16px; display: block; color: #f1823a; }
+        .shop-menu { position: absolute; z-index: 2; top: calc(100% + 4px); left: 0; min-width: 200px; max-width: 80vw; padding: 4px;
+                     display: flex; flex-direction: column; border-radius: 12px; border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+                     background: var(--card-background-color, var(--ha-card-background, #1c1c1c)); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); }
+        .shop-option { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-radius: 8px; background: none;
+                       color: var(--primary-text-color); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+        .shop-option:hover { background: rgba(127, 127, 127, 0.15); }
+        .shop-option.on { background: var(--secondary-background-color, rgba(127, 127, 127, 0.2)); font-weight: 500; }
+        .shop-option .mark { width: 20px; display: inline-flex; justify-content: center; flex: none; }
+        .shop-option .name { flex: 1; white-space: nowrap; }
+        .shop-option .count { font-size: 12px; color: var(--secondary-text-color); }
         .order-shop { flex: none; font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
         .chip { font-size: 12px; padding: 1px 8px; border-radius: 10px; color: var(--secondary-text-color); border: 1px solid transparent;
                 background: var(--secondary-background-color, rgba(127, 127, 127, 0.15)); }
