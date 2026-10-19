@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @inject SetupState Setup
+@inject IWebHostEnvironment Env
 
 <MudThemeProvider Theme="_theme" IsDarkMode="_dark" />
 <MudPopoverProvider />
@@ -18,6 +19,12 @@
         <MudTooltip Text="@VersionTooltip">
             <span class="esm-version">v@(AppVersion.Display)</span>
         </MudTooltip>
+        @if (Env.IsStaging())
+        {
+            <MudTooltip Text="A copy of the shop data for trying changes before they are merged. It cannot reach Etsy.">
+                <span class="esm-staging">Staging<span class="esm-staging-branch">@StagingBranch</span></span>
+            </MudTooltip>
+        }
         <MudSpacer />
         <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit" OnClick="() => _dark = !_dark" title="@(_dark ? "Switch to light mode" : "Switch to dark mode")" />
@@ -69,6 +76,8 @@
         $"Version {AppVersion.Version}" +
         (AppVersion.Commit is null ? "" : $", commit {AppVersion.Commit}") +
         (AppVersion.BuiltAtUtc is { } built ? $", built {built.ToLocalTime():yyyy-MM-dd HH:mm}" : "");
+
+    private static string StagingBranch => StagingCopy.Branch is { } branch ? $" · {branch}" : "";
 
     protected override async Task OnInitializedAsync() =>
         _setupIncomplete = !await Setup.IsSetupCompletedAsync();

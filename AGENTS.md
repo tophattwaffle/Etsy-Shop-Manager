@@ -55,6 +55,9 @@ pytest
 - Merges to `master` deploy automatically: `.gitea/workflows/deploy.yml` runs on a self-hosted runner on the Windows
   host (build.ps1 → self-contained win-x64 publish → `scripts/deploy.ps1`, which backs up DB + binaries, swaps,
   waits for `/health`, and rolls back on failure). `master` is protected; work goes on branches and is merged by PR.
+- To let TopHATTwaffle look at a branch before merging, run `pwsh scripts/deploy-staging.ps1` from its checkout: it runs that
+  build as the staging copy on the host (`http://<host>:5085`, its own service and data, environment Staging, which
+  can't reach Etsy). `-RefreshData` resets staging's data from the newest live backup. See `docs/STAGING.md`.
 
 ## Architecture
 

@@ -99,6 +99,8 @@ builder.Services.AddSingleton<IEtsyCredentialsProvider, EtsyCredentialsProvider>
 builder.Services.AddSingleton<IEtsyTokenStore, ShopTokenStore>();
 builder.Services.AddSingleton<IEtsyWriteJournal, EtsyWriteJournal>();
 builder.Services.AddEtsy(builder.Configuration);
+if (builder.Environment.IsStaging())
+    builder.Services.AddStagingEtsyLockout(); // the staging copy never reaches Etsy (docs/STAGING.md)
 
 // ---- Feature modules ------------------------------------------------------------------------------
 var modules = builder.AddModules(
@@ -120,6 +122,8 @@ if (trustedProxies.Length == 0)
     startupLogger.LogWarning("ReverseProxy:TrustedProxies is empty; X-Forwarded-* headers from HAProxy will be ignored.");
 
 await app.Services.InitializeDatabaseAsync(startupLogger);
+if (app.Environment.IsStaging())
+    await StagingCopy.RemoveEtsySecretsAsync(app.Services, startupLogger); // before any job can run
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
