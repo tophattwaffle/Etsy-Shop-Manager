@@ -97,8 +97,31 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         var notes = await GetNotesAsync(ids, ct);
         var locations = await GetLocationsAsync(ids, ct);
         var stars = await GetStarSellersAsync(ids, ct);
+        var defaultGiftMessage = await GetDefaultGiftMessageAsync(ct);
         return ids.ToDictionary(id => id,
-            id => new SlipModel.ShopSettings(notes.GetValueOrDefault(id), locations.GetValueOrDefault(id), stars.Contains(id)));
+            id => new SlipModel.ShopSettings(notes.GetValueOrDefault(id), locations.GetValueOrDefault(id), stars.Contains(id),
+                defaultGiftMessage));
+    }
+
+    public const string DefaultGiftMessageKey = "Slips.DefaultGiftMessage";
+    public const string DefaultGiftMessageText = "Enjoy your gift from Etsy";
+    public const int MaxGiftMessageLength = 200;
+
+    /// <summary>
+    /// What a gift slip prints as the gift message when the buyer wrote none (Packing slips page): "Enjoy your gift from
+    /// Etsy" until it is changed.
+    /// </summary>
+    public async Task<string> GetDefaultGiftMessageAsync(CancellationToken ct = default) =>
+        await settings.GetAsync(DefaultGiftMessageKey, ct) is { Length: > 0 } text ? text : DefaultGiftMessageText;
+
+    /// <summary>Sets the default gift message; an empty one goes back to "Enjoy your gift from Etsy".</summary>
+    public async Task<string?> SetDefaultGiftMessageAsync(string? text, string? user, CancellationToken ct = default)
+    {
+        var value = string.IsNullOrWhiteSpace(text) ? null : string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (value?.Length > MaxGiftMessageLength) return $"Keep the gift message to {MaxGiftMessageLength} characters.";
+        await settings.SetAsync(DefaultGiftMessageKey, value, updatedBy: user, ct: ct);
+        await audit.WriteAsync("slips.default-gift-message", "Setting", DefaultGiftMessageKey, value ?? "reset", user, ct);
+        return null;
     }
 
     public async Task<string?> SetNoteAsync(int shopId, string? text, string? user, CancellationToken ct = default)

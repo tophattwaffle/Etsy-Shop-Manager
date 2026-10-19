@@ -41,7 +41,8 @@ public sealed record SlipItem(string Title, IReadOnlyList<string> Variations, st
 public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<SlipItem> Items)
 {
     /// <summary>A shop's own slip settings (Packing slips page) that go on its slips.</summary>
-    public sealed record ShopSettings(string? Note, string? Location, bool StarSeller);
+    /// <param name="DefaultGiftMessage">Printed as the gift message when the buyer wrote none (Packing slips page).</param>
+    public sealed record ShopSettings(string? Note, string? Location, bool StarSeller, string? DefaultGiftMessage = null);
 
     /// <summary>The model for one stored order.</summary>
     public static SlipModel For(Order order, ShopSettings shop)
@@ -58,7 +59,8 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
             new SlipOrder(order.EtsyReceiptId, ListingFormat.Local(order.EtsyCreatedAtUtc, "MMM d, yyyy"),
                 order.ShipByUtc is null ? null : ListingFormat.Local(order.ShipByUtc, "MMM d, yyyy"),
                 Blank(order.BuyerName), address.Name, address.Lines, details.PaymentMethod, details.ShippingMethod,
-                Blank(order.MessageFromBuyer), order.IsGift, Blank(message), OrderPrintService.GiftSender(order),
+                Blank(order.MessageFromBuyer), order.IsGift, Blank(message) ?? (order.IsGift ? Blank(shop.DefaultGiftMessage) : null),
+                OrderPrintService.GiftSender(order),
                 items.Sum(i => Math.Max(1, i.Quantity)), [.. details.Totals.Select(t => new SlipTotal(t.Label, t.Amount))],
                 details.OrderTotal, items.Select(i => i.ImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)),
                 order.AddressOverride is not null, etsyAddress.Name, etsyAddress.Lines),
@@ -72,14 +74,15 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
 
     /// <summary>
     /// A made-up order for previewing a layout (no buyer's data), with the shop's real name, icon and slip settings.
-    /// <paramref name="second"/> gives a different one, for the other half of a gift slip sheet.
+    /// <paramref name="second"/> gives a different one, for the other half of a gift slip sheet, whose buyer wrote no gift
+    /// message (so it shows the default one).
     /// </summary>
     public static SlipModel Sample(Shop shop, ShopSettings settings, SlipKind kind, bool second = false) => second
         ? new(
             ShopOf(shop, settings),
             new SlipOrder(1234567891, "Oct 17, 2026", "Oct 21, 2026", "Casey Example", kind == SlipKind.Gift ? "Jordan Example" : "Casey Example",
                 ["22 Sample Avenue", "Riverside, CA 92501", "United States"], "Paid via Etsy Payments", "USPS Ground Advantage",
-                null, kind == SlipKind.Gift, kind == SlipKind.Gift ? "Congratulations on the new job! So proud of you." : null,
+                null, kind == SlipKind.Gift, kind == SlipKind.Gift ? Blank(settings.DefaultGiftMessage) : null, // no message from the buyer
                 kind == SlipKind.Gift ? "Casey" : null, 1, [new("Item total", "$18.50"), new("Shipping total", "$4.50")], "$23.00", null,
                 false, null, []),
             [new("Sample mug | personalized gift", ["Color: White"], "Jordan", 1, "1 x $18.50", null)])
@@ -356,7 +359,7 @@ public sealed class SlipLayoutService(IDbContextFactory<AppDbContext> dbFactory,
             shop = await db.Shops.AsNoTracking().Where(s => shopId == null || s.Id == shopId).OrderBy(s => s.Name).FirstOrDefaultAsync(ct);
         shop ??= new Shop { Name = "SampleShop", Title = "Little things, made well", TransactionSoldCount = 1234 };
         var settings = shop.Id == 0
-            ? new SlipModel.ShopSettings("Thanks for your order!", "Springfield, Illinois", true)
+            ? new SlipModel.ShopSettings("Thanks for your order!", "Springfield, Illinois", true, OrderPrintService.DefaultGiftMessageText)
             : (await print.GetShopSettingsAsync([shop.Id], ct))[shop.Id];
 
         // A gift slip is half a sheet: show a whole sheet with two made-up gift orders, as they print.
