@@ -367,32 +367,45 @@ public class OrderPrintTests
     }
 
     [Fact]
-    public async Task A_gift_without_a_message_prints_the_default_one_which_can_be_changed()
+    public async Task A_gift_without_a_message_prints_its_shops_default_one()
     {
         using var db = new TestDb();
         await SeedAsync(db, firstIsGift: true);
         await using (var ctx = db.CreateDbContext())
+        {
+            ctx.Shops.Add(new Shop { Id = 2, EtsyShopId = 43, Name = "OtherShop", ConnectedAtUtc = DateTime.UtcNow });
+            await ctx.SaveChangesAsync();
             await ctx.Orders.Where(o => o.Id == 1).ExecuteUpdateAsync(s => s.SetProperty(o => o.GiftMessage, (string?)null));
+            // Order 2 becomes the other shop's gift order, also without a message.
+            await ctx.Orders.Where(o => o.Id == 2).ExecuteUpdateAsync(s => s.SetProperty(o => o.ShopId, 2).SetProperty(o => o.IsGift, true));
+        }
         var settings = new InMemorySettings();
         var print = new OrderPrintService(db, settings, new NullAuditLog());
 
-        Assert.Contains("<div class=\"gift-message\">Enjoy your gift from Etsy</div>", await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1"));
+        Assert.Equal(2, CountOf(await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2"),
+            "<div class=\"gift-message\">Enjoy your gift from Etsy</div>"));
 
-        Assert.Null(await print.SetDefaultGiftMessageAsync("  Enjoy, from all of us  ", "tophattwaffle"));
-        Assert.Equal("Enjoy, from all of us", await print.GetDefaultGiftMessageAsync());
-        Assert.Contains("<div class=\"gift-message\">Enjoy, from all of us</div>", await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1"));
-        Assert.Equal("Keep the gift message to 200 characters.", await print.SetDefaultGiftMessageAsync(new string('x', 201), "tophattwaffle"));
+        // Each shop has its own; a shop that sets none keeps Etsy's wording.
+        Assert.Null(await print.SetDefaultGiftMessageAsync(1, "  Enjoy, from all of us  ", "tophattwaffle"));
+        Assert.Equal(new Dictionary<int, string> { [1] = "Enjoy, from all of us", [2] = "Enjoy your gift from Etsy" },
+            await print.GetDefaultGiftMessagesAsync([1, 2]));
+        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.Contains("<div class=\"gift-message\">Enjoy, from all of us</div>", slips);
+        Assert.Contains("<div class=\"gift-message\">Enjoy your gift from Etsy</div>", slips);
+        Assert.Equal("Keep the gift message to 200 characters.", await print.SetDefaultGiftMessageAsync(1, new string('x', 201), "tophattwaffle"));
 
-        // The buyer's own message always wins, and an emptied setting goes back to Etsy's wording.
+        // The one message both shops shared before still applies to a shop without its own; emptying a shop's message
+        // gives it Etsy's wording rather than that shared one.
+        await settings.SetAsync(OrderPrintService.SharedGiftMessageKey, "Have fun!");
+        Assert.Equal("Have fun!", (await print.GetDefaultGiftMessagesAsync([2]))[2]);
+        Assert.Null(await print.SetDefaultGiftMessageAsync(1, " ", "tophattwaffle"));
+        Assert.Equal("Enjoy your gift from Etsy", (await print.GetDefaultGiftMessagesAsync([1]))[1]);
+
+        // The buyer's own message always wins.
         await using (var ctx = db.CreateDbContext())
             await ctx.Orders.Where(o => o.Id == 1).ExecuteUpdateAsync(s => s.SetProperty(o => o.GiftMessage, "Happy birthday!"));
-        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1");
-        Assert.Contains("<div class=\"gift-message\">Happy birthday!</div>", slips);
-        Assert.DoesNotContain("Enjoy, from all of us", slips);
-        Assert.Null(await print.SetDefaultGiftMessageAsync(" ", "tophattwaffle"));
-        Assert.Equal("Enjoy your gift from Etsy", await print.GetDefaultGiftMessageAsync());
+        Assert.Contains("<div class=\"gift-message\">Happy birthday!</div>", await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1"));
     }
-
     [Fact]
     public async Task A_printout_with_two_gift_orders_puts_both_on_one_sheet()
     {

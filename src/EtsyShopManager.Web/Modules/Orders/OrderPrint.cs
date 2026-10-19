@@ -90,37 +90,47 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         await audit.WriteAsync("shop.star-seller", nameof(Shop), shopId.ToString(), isStarSeller ? "on" : "off", user, ct);
     }
 
-    /// <summary>Each shop's note, location line and Star Seller switch, as its slips print them.</summary>
+    /// <summary>Each shop's note, location line, Star Seller switch and default gift message, as its slips print them.</summary>
     public async Task<Dictionary<int, SlipModel.ShopSettings>> GetShopSettingsAsync(IEnumerable<int> shopIds, CancellationToken ct = default)
     {
         var ids = shopIds.Distinct().ToList();
         var notes = await GetNotesAsync(ids, ct);
         var locations = await GetLocationsAsync(ids, ct);
         var stars = await GetStarSellersAsync(ids, ct);
-        var defaultGiftMessage = await GetDefaultGiftMessageAsync(ct);
+        var giftMessages = await GetDefaultGiftMessagesAsync(ids, ct);
         return ids.ToDictionary(id => id,
             id => new SlipModel.ShopSettings(notes.GetValueOrDefault(id), locations.GetValueOrDefault(id), stars.Contains(id),
-                defaultGiftMessage));
+                giftMessages[id]));
     }
 
-    public const string DefaultGiftMessageKey = "Slips.DefaultGiftMessage";
     public const string DefaultGiftMessageText = "Enjoy your gift from Etsy";
     public const int MaxGiftMessageLength = 200;
 
-    /// <summary>
-    /// What a gift slip prints as the gift message when the buyer wrote none (Packing slips page): "Enjoy your gift from
-    /// Etsy" until it is changed.
-    /// </summary>
-    public async Task<string> GetDefaultGiftMessageAsync(CancellationToken ct = default) =>
-        await settings.GetAsync(DefaultGiftMessageKey, ct) is { Length: > 0 } text ? text : DefaultGiftMessageText;
+    /// <summary>The gift message a shop's gift slips print when the buyer wrote none (Packing slips page).</summary>
+    public static string GiftMessageKey(int shopId) => $"Shops.GiftMessage.{shopId}";
 
-    /// <summary>Sets the default gift message; an empty one goes back to "Enjoy your gift from Etsy".</summary>
-    public async Task<string?> SetDefaultGiftMessageAsync(string? text, string? user, CancellationToken ct = default)
+    /// <summary>The one message all shops used before it was set per shop; a shop without its own still prints it.</summary>
+    public const string SharedGiftMessageKey = "Slips.DefaultGiftMessage";
+
+    /// <summary>
+    /// What each shop's gift slips print as the gift message when the buyer wrote none: the shop's own message, else
+    /// "Enjoy your gift from Etsy".
+    /// </summary>
+    public async Task<Dictionary<int, string>> GetDefaultGiftMessagesAsync(IEnumerable<int> shopIds, CancellationToken ct = default)
+    {
+        var own = await GetPerShopAsync(shopIds, GiftMessageKey, ct);
+        var fallback = await settings.GetAsync(SharedGiftMessageKey, ct) is { Length: > 0 } shared ? shared : DefaultGiftMessageText;
+        return shopIds.Distinct().ToDictionary(id => id, id => own.GetValueOrDefault(id) ?? fallback);
+    }
+
+    /// <summary>Sets a shop's default gift message; an empty one goes back to "Enjoy your gift from Etsy".</summary>
+    public async Task<string?> SetDefaultGiftMessageAsync(int shopId, string? text, string? user, CancellationToken ct = default)
     {
         var value = string.IsNullOrWhiteSpace(text) ? null : string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         if (value?.Length > MaxGiftMessageLength) return $"Keep the gift message to {MaxGiftMessageLength} characters.";
-        await settings.SetAsync(DefaultGiftMessageKey, value, updatedBy: user, ct: ct);
-        await audit.WriteAsync("slips.default-gift-message", "Setting", DefaultGiftMessageKey, value ?? "reset", user, ct);
+        // An emptied message means Etsy's wording, so the shop must not fall back to the shared message from before.
+        await settings.SetAsync(GiftMessageKey(shopId), value ?? DefaultGiftMessageText, updatedBy: user, ct: ct);
+        await audit.WriteAsync("shop.gift-message", nameof(Shop), shopId.ToString(), value ?? "reset", user, ct);
         return null;
     }
 

@@ -8,13 +8,15 @@
 @* What each shop's packing slips print besides the order: the note printed as "A note from the shop" (Orders → Print
    packing slips), like the packing slip note set on Etsy, which Etsy's API doesn't share; and the shop's location line
    under its name, like Etsy's gift slip (Etsy's API has no shop city or state); and whether it prints Etsy's Star Seller
-   badge (Etsy's API doesn't say whether a shop is a Star Seller). *@
+   badge (Etsy's API doesn't say whether a shop is a Star Seller); and the gift message its gift slips print when the buyer
+   wrote none. *@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Shop details on slips</MudText>
     <MudText Typo="Typo.body2" Class="muted mb-3">
         The note is printed on each shop's packing slips as "A note from the shop", like the note you can set on Etsy (Etsy
         doesn't share that note with apps, so set it here). The location line is printed under the shop's name, as on Etsy's
-        gift slips. Leave either empty for none. Turn on Star Seller while the shop has Etsy's Star Seller badge (Etsy
+        gift slips. Leave either empty for none. The gift message is printed on the shop's gift slips when the buyer didn't
+        write one; empty means "@OrderPrintService.DefaultGiftMessageText". Turn on Star Seller while the shop has Etsy's Star Seller badge (Etsy
         reviews it each month and doesn't share it with apps) to print the badge on its slips.
     </MudText>
 
@@ -41,6 +43,9 @@
                 <MudTextField T="string" @bind-Value="_location[s.Id]" Label="Location line" Variant="Variant.Outlined"
                               Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxLocationLength"
                               ReadOnly="@(!_canEdit)" Placeholder="City, State" />
+                <MudTextField T="string" @bind-Value="_giftMessage[s.Id]" Label="Gift message when the buyer wrote none" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxGiftMessageLength" Class="esm-minw-md"
+                              ReadOnly="@(!_canEdit)" Placeholder="@OrderPrintService.DefaultGiftMessageText" />
                 <MudSwitch T="bool" @bind-Value="_star[s.Id]" Color="Color.Primary" Label="Star Seller" ReadOnly="@(!_canEdit)" />
                 @if (_canEdit)
                 {
@@ -58,6 +63,7 @@
     private readonly Dictionary<int, string?> _text = [];
     private readonly Dictionary<int, string?> _location = [];
     private readonly Dictionary<int, bool> _star = [];
+    private readonly Dictionary<int, string?> _giftMessage = [];
     private bool _canEdit;
 
     protected override async Task OnInitializedAsync()
@@ -69,11 +75,13 @@
         var notes = await Print.GetNotesAsync(ids);
         var locations = await Print.GetLocationsAsync(ids);
         var stars = await Print.GetStarSellersAsync(ids);
+        var giftMessages = await Print.GetDefaultGiftMessagesAsync(ids);
         foreach (var s in _shops)
         {
             _text[s.Id] = notes.GetValueOrDefault(s.Id);
             _location[s.Id] = locations.GetValueOrDefault(s.Id);
             _star[s.Id] = stars.Contains(s.Id);
+            _giftMessage[s.Id] = giftMessages[s.Id];
         }
     }
 
@@ -81,8 +89,10 @@
     {
         var user = (await AuthState).User.Identity?.Name;
         var error = await Print.SetNoteAsync(shop.Id, _text[shop.Id], user)
-            ?? await Print.SetLocationAsync(shop.Id, _location[shop.Id], user);
+            ?? await Print.SetLocationAsync(shop.Id, _location[shop.Id], user)
+            ?? await Print.SetDefaultGiftMessageAsync(shop.Id, _giftMessage[shop.Id], user);
         if (error is null) await Print.SetStarSellerAsync(shop.Id, _star[shop.Id], user);
+        if (error is null) _giftMessage[shop.Id] = (await Print.GetDefaultGiftMessagesAsync([shop.Id]))[shop.Id];
         Snackbar.Add(error ?? $"Saved the packing slip for {shop.Name}", error is null ? Severity.Success : Severity.Warning);
     }
 }
