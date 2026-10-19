@@ -119,6 +119,28 @@ public partial class DesignRulesTests
     }
 
     /// <summary>
+    /// A switch that is on shows the accent (the shop's, else Etsy orange) through the shared style in app.css, so no
+    /// switch picks its own colours.
+    /// </summary>
+    [Fact]
+    public void Toggles_show_the_accent_when_on()
+    {
+        Assert.Contains("Color=\"Color.Primary\"",
+            MudSwitchTag().Match("<MudSwitch T=\"bool\" ValueChanged=\"@(v => Set(v))\" Color=\"Color.Primary\" />").Value);
+
+        var offenders = RazorFiles()
+            .SelectMany(f => MudSwitchTag().Matches(f.Text).Cast<Match>()
+                .Where(t => !t.Value.Contains("Color=\"Color.Primary\"") || t.Value.Contains("UncheckedColor="))
+                .Select(_ => $"{f.Name}: <MudSwitch> takes Color=\"Color.Primary\" and no UncheckedColor (see docs/DESIGN.md, Toggles)"))
+            .ToList();
+        Assert.True(offenders.Count == 0, string.Join(Environment.NewLine, offenders));
+
+        var css = File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.css"));
+        Assert.Contains(".mud-switch-base.mud-checked:not(.mud-switch-disabled) { color: var(--shop, var(--esm-brand)) !important;", css);
+        Assert.Contains(".mud-switch-base.mud-checked:not(.mud-switch-disabled) + .mud-switch-track { background-color: var(--shop, var(--esm-brand)) !important; }", css);
+    }
+
+    /// <summary>
     /// Data tables sort by clicking a column header: every labelled header cell is a <c>&lt;SortHeader&gt;</c> (or a
     /// <c>MudTableSortLabel</c> in a MudTable). Header cells without a label (checkboxes, photos, actions) are fine, and an
     /// editing grid whose rows must keep their order opts out with <c>&lt;thead class="esm-fixed-order"&gt;</c>.
@@ -157,6 +179,10 @@ public partial class DesignRulesTests
 
     [GeneratedRegex("<MudTabs\\b[^>]*>", RegexOptions.Singleline)]
     private static partial Regex MudTabsTag();
+
+    // The whole tag, past the "=>" of lambdas in its attributes.
+    [GeneratedRegex("<MudSwitch\\b(?:=>|[^>])*>", RegexOptions.Singleline)]
+    private static partial Regex MudSwitchTag();
 
     [GeneratedRegex("Typo=\"Typo\\.h[1-4]\"")]
     private static partial Regex HeadingTypo();
