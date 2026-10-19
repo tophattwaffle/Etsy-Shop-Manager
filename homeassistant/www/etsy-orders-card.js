@@ -1,4 +1,4 @@
-// etsy-orders-card v2.7.0 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.8.0 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
@@ -19,6 +19,11 @@
 //                      and To make pages (default true; needs integration 0.4.0 or later,
 //                      hidden otherwise). An item of several units counts up one per tap
 //                      ("1/3", "2/3", …) and clears after the last.
+//   combine_shops:     one list of every shop's orders, most urgent first, with a
+//                      shop dropdown at the top ("All shops" or one shop, with
+//                      order counts; remembered per device), like the app's
+//                      Orders page. Under "All shops" each order names its shop.
+//                      (default false: a section per shop)
 //   green_hours:       ship-by pills and the header's "Next" chip are fully
 //                      green at this many hours or more to ship (default 72)
 //   red_hours:         ...and fully red at this many hours or fewer, blending
@@ -320,6 +325,7 @@ class EtsyOrdersCard extends HTMLElement {
       show_prices: false,
       show_make_list: true,
       show_made: true,
+      combine_shops: false,
       green_hours: 72,
       red_hours: 12,
       order_url: "https://www.etsy.com/your/orders/sold?order_id={receipt_id}",
@@ -327,6 +333,7 @@ class EtsyOrdersCard extends HTMLElement {
       shops: config.shops.map((s) => (typeof s === "string" ? { entity: s } : s)),
     };
     this._own = config;
+    this._selectedShop = this._loadSelectedShop();
     this._colors = null;
     this._signature = null;
     if (this._hass) this._render();
@@ -445,15 +452,35 @@ class EtsyOrdersCard extends HTMLElement {
     }
   }
 
-  _shop(shop) {
-    const c = this._config;
+  // A shop's sensor state, display name and icon.
+  _shopInfo(shop) {
     const st = this._hass.states[shop.entity];
-    const name = shop.name || st?.attributes.friendly_name || shop.entity;
-    const icon = shop.icon ? `<span class="shop-icon">${esc(shop.icon)}</span>` : "";
-    if (!st) return `<section class="shop"><div class="shop-head">${icon}<span class="shop-name">${esc(name)}</span></div><div class="empty">Entity not found: ${esc(shop.entity)}</div></section>`;
+    return {
+      st,
+      name: shop.name || st?.attributes.friendly_name || shop.entity,
+      icon: shop.icon ? `<span class="shop-icon">${esc(shop.icon)}</span>` : "",
+    };
+  }
 
-    const orders = [...(st.attributes.open_orders || [])].sort((a, b) => (a.ship_by_ts || Infinity) - (b.ship_by_ts || Infinity));
-    const items = st.attributes.total_items_needed ?? orders.reduce((n, o) => n + (o.items || []).reduce((k, i) => k + (i.quantity || 1), 0), 0);
+  // A shop's open orders, each with what drawing it needs: the shop's order link, its accent color and name.
+  _entries(shop) {
+    const { st, name } = this._shopInfo(shop);
+    if (!st) return [];
+    const orderUrl = this._orderUrlTemplate(shop);
+    // The shop's color from the app (keyed by Etsy shop id), unless the card sets its own.
+    const accent = shop.accent || this._shopAccents?.[String(st.attributes.shop_id)];
+    return (st.attributes.open_orders || []).map((o) => ({ o, orderUrl, accent, shopName: name }));
+  }
+
+  // Soonest ship-by first, orders without one last (as the app's Orders page sorts).
+  _byShipBy(entries) {
+    return [...entries].sort((a, b) => (a.o.ship_by_ts || Infinity) - (b.o.ship_by_ts || Infinity));
+  }
+
+  // The header chips (orders, items and made, next ship-by, total) and the "To make" line for a set of orders.
+  _summary(entries, items) {
+    const c = this._config;
+    const orders = entries.map((e) => e.o);
     const made = orders.reduce((n, o) => n + (o.items || []).reduce((k, i) => k + this._made(o, i), 0), 0);
     const chips = [
       `<span class="chip">${orders.length} order${orders.length === 1 ? "" : "s"}</span>`,
@@ -481,17 +508,73 @@ class EtsyOrdersCard extends HTMLElement {
         ? left.sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span class="make-item">${esc(t)} <b>×${n}</b></span>`).join("")
         : `<span class="make-done">All made ✓</span>`}</div>`;
     }
+    return { chips: `<span class="chips">${chips.join("")}</span>`, makeList };
+  }
 
-    const orderUrl = this._orderUrlTemplate(shop);
-    // The shop's color from the app (keyed by Etsy shop id), unless the card sets its own.
-    const accent = shop.accent || this._shopAccents?.[String(st.attributes.shop_id)];
-    const body = orders.length
-      ? orders.map((o) => this._order(o, orderUrl, accent)).join("")
+  _itemCount(st, orders) {
+    return st.attributes.total_items_needed ?? orders.reduce((n, o) => n + (o.items || []).reduce((k, i) => k + (i.quantity || 1), 0), 0);
+  }
+
+  _orders(entries, showShop) {
+    return entries.length
+      ? entries.map((e) => this._order(e.o, e.orderUrl, e.accent, showShop ? e.shopName : null)).join("")
       : `<div class="empty">🎉 No open orders — nothing to ship.</div>`;
+  }
 
+  // One section per shop (the default layout).
+  _shop(shop) {
+    const { st, name, icon } = this._shopInfo(shop);
+    if (!st) return `<section class="shop"><div class="shop-head">${icon}<span class="shop-name">${esc(name)}</span></div><div class="empty">Entity not found: ${esc(shop.entity)}</div></section>`;
+    const entries = this._byShipBy(this._entries(shop));
+    const { chips, makeList } = this._summary(entries, this._itemCount(st, entries.map((e) => e.o)));
     return `<section class="shop">
-      <div class="shop-head">${icon}<span class="shop-name">${esc(name)}</span><span class="chips">${chips.join("")}</span></div>
-      ${makeList}${body}</section>`;
+      <div class="shop-head">${icon}<span class="shop-name">${esc(name)}</span>${chips}</div>
+      ${makeList}${this._orders(entries, false)}</section>`;
+  }
+
+  // combine_shops: every shop's orders in one list, most urgent first, with a shop dropdown on top (like the shop
+  // list on the app's Orders page). "All shops" names each order's shop; the choice is kept per device.
+  _combined() {
+    const shops = this._config.shops;
+    const selected = shops.some((s) => s.entity === this._selectedShop) ? this._selectedShop : "";
+    const perShop = shops.map((s) => ({ s, ...this._shopInfo(s), entries: this._entries(s) }));
+    const shown = perShop.filter((p) => !selected || p.s.entity === selected);
+    const entries = this._byShipBy(shown.flatMap((p) => p.entries));
+    const items = shown.reduce((n, p) => n + (p.st ? this._itemCount(p.st, p.entries.map((e) => e.o)) : 0), 0);
+    const { chips, makeList } = this._summary(entries, items);
+    const total = perShop.reduce((n, p) => n + p.entries.length, 0);
+    const options = [`<option value=""${selected ? "" : " selected"}>All shops (${total})</option>`]
+      .concat(perShop.map((p) => `<option value="${esc(p.s.entity)}"${p.s.entity === selected ? " selected" : ""}>${esc(p.name)} (${p.st ? p.entries.length : "not found"})</option>`))
+      .join("");
+    const missing = shown.filter((p) => !p.st).map((p) => `<div class="empty">Entity not found: ${esc(p.s.entity)}</div>`).join("");
+    return `<section class="shop">
+      <div class="shop-head"><select class="shop-select" aria-label="Shop">${options}</select>${chips}</div>
+      ${makeList}${missing}${missing && !entries.length ? "" : this._orders(entries, !selected && shops.length > 1)}</section>`;
+  }
+
+  // The device's last shop choice in the combined view (per card, by its shop list); none if storage is off.
+  _storageKey() {
+    return `etsy-orders-card:shop:${this._config.shops.map((s) => s.entity).join(",")}`;
+  }
+
+  _loadSelectedShop() {
+    try {
+      return localStorage.getItem(this._storageKey()) || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  _onChange(e) {
+    const select = e.composedPath().find((el) => el.classList?.contains("shop-select"));
+    if (!select) return;
+    this._selectedShop = select.value;
+    try {
+      localStorage.setItem(this._storageKey(), select.value);
+    } catch (err) {
+      // Private mode or storage off: the choice lasts until the page reloads.
+    }
+    this._render();
   }
 
   // Desktop: the shop's own override (e.g. a microsoft-edge: link), else the web link.
@@ -506,7 +589,8 @@ class EtsyOrdersCard extends HTMLElement {
     return shop.order_url !== undefined ? shop.order_url : web;
   }
 
-  _order(o, orderUrl, accent) {
+  // shopName: shown on the order in the combined list's "All shops" view.
+  _order(o, orderUrl, accent, shopName = null) {
     const c = this._config;
     const due = this._due(o.ship_by_ts);
     const buyer = (o.buyer_name || "").trim() || `#${o.receipt_id}`;
@@ -538,7 +622,7 @@ class EtsyOrdersCard extends HTMLElement {
     const cls = `order${due.urgent ? " urgent" : ""}${accent ? " accent" : ""}`;
     const style = accent ? ` style="--shop: ${esc(accent)}"` : "";
     const open = url ? `<a class="${cls}" href="${esc(url)}"${target}${style}>` : `<div class="${cls}"${style}>`;
-    return `${open}<div class="order-head"><span class="due ${due.cls}" style="${due.style}">${esc(due.text)}</span><span class="buyer">${esc(buyer)}</span>${price}</div>${items}${url ? "</a>" : "</div>"}`;
+    return `${open}<div class="order-head"><span class="due ${due.cls}" style="${due.style}">${esc(due.text)}</span><span class="buyer">${esc(buyer)}</span>${shopName ? `<span class="order-shop">${esc(shopName)}</span>` : ""}${price}</div>${items}${url ? "</a>" : "</div>"}`;
   }
 
   // Units to make of an item, as the app counts them (at least one).
@@ -598,6 +682,7 @@ class EtsyOrdersCard extends HTMLElement {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
+      this.shadowRoot.addEventListener("change", (e) => this._onChange(e));
     }
     this.shadowRoot.innerHTML = `
       <style>
@@ -607,6 +692,13 @@ class EtsyOrdersCard extends HTMLElement {
         .shop-icon { font-size: 20px; }
         .shop-name { font-size: 18px; font-weight: 500; color: var(--primary-text-color); }
         .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+        /* combine_shops: the shop dropdown, sized like the shop name it replaces. */
+        .shop-select { min-width: 0; max-width: 100%; font: inherit; font-size: 16px; font-weight: 500; color: var(--primary-text-color);
+                       background: var(--secondary-background-color, rgba(127, 127, 127, 0.15)); border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+                       border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+        .shop-select:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+        .shop-select option { color: var(--primary-text-color); background: var(--card-background-color, var(--secondary-background-color)); }
+        .order-shop { flex: none; font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
         .chip { font-size: 12px; padding: 1px 8px; border-radius: 10px; color: var(--secondary-text-color); border: 1px solid transparent;
                 background: var(--secondary-background-color, rgba(127, 127, 127, 0.15)); }
         .chip.next { color: var(--primary-text-color); font-weight: 500; }
@@ -659,7 +751,7 @@ class EtsyOrdersCard extends HTMLElement {
         @media (prefers-reduced-motion: reduce) { ha-card *, ha-card *::before, ha-card *::after { animation: none !important; } }
         .empty { color: var(--secondary-text-color); font-size: 14px; padding: 4px 0; }
       </style>
-      <ha-card class="${this._paused ? "paused" : ""}" style="--phase: -${this._animClock() % 240000}ms">${this._config.shops.map((s) => this._shop(s)).join("")}</ha-card>`;
+      <ha-card class="${this._paused ? "paused" : ""}" style="--phase: -${this._animClock() % 240000}ms">${this._config.combine_shops ? this._combined() : this._config.shops.map((s) => this._shop(s)).join("")}</ha-card>`;
   }
 }
 
