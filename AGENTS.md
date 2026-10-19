@@ -105,7 +105,7 @@ are unique per listing only. Photos go into a content-hashed image store (`Image
 canonical form + hash of the fields the app manages (quantity, Etsy product/offering ids, stats and timestamps are
 deliberately excluded); it is the basis for drift detection. Bump `ManagedListingState.CurrentVersion` when
 its field set or normalisation changes (listings read with an older version must be re-imported before they can be
-pushed). Etsy returns title/description/tags HTML-encoded; the mapper decodes them once, and pushes send plain text.
+pushed). Etsy returns title/description/tags HTML-encoded; the mapper decodes them once, and pushes send plain text. Receipt text is encoded the same way: `OrderMapper.Text` decodes names, notes, gift messages, item titles and variations, and `OrderPrintService` decodes what it reads from the stored receipt.
 
 ### Editor, push and auto-refill
 `ListingEditModel` (Core) holds three versions as managed JSON: **Etsy** (last read), **base** (last agreed) and

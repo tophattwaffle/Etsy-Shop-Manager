@@ -149,8 +149,9 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         catch (System.Text.Json.JsonException) { return null; }
     }
 
+    // Receipt text as plain text: Etsy sends it HTML-encoded (OrderMapper.Text).
     private static string? Text(JsonNode? node) =>
-        node is JsonValue v && v.TryGetValue<string>(out var s) && s.Trim().Length > 0 ? s.Trim() : null;
+        node is JsonValue v && v.TryGetValue<string>(out var s) && OrderMapper.Text(s).Trim() is { Length: > 0 } text ? text : null;
 
     /// <summary>
     /// What Etsy's own packing slip shows besides the address and items, from the stored receipt (Etsy's ShopReceipt):

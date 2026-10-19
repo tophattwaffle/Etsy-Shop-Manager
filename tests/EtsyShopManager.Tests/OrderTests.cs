@@ -426,6 +426,76 @@ public class OrderPollerTests
         await StartAsync();
         Assert.Empty(queue.Requests);
     }
+
+    /// <summary>A gift receipt as Etsy sends it: its text HTML-encoded (an apostrophe as &amp;#39;).</summary>
+    private static JsonObject EncodedGift(long id, long updated)
+    {
+        var receipt = Gift(id, updated);
+        receipt["name"] = "Pat O&#39;Brien";
+        receipt["gift_message"] = "Happy Mother&#39;s Day &amp; love you!";
+        receipt["message_from_buyer"] = "It&#39;s a surprise";
+        var transaction = (JsonObject)((JsonArray)receipt["transactions"]!)[0]!;
+        transaction["title"] = "Kid&#39;s &quot;Galaxy&quot; vase";
+        transaction["variations"] = new JsonArray(new JsonObject
+        {
+            ["property_id"] = 54, ["value_id"] = null, ["formatted_name"] = "Personalization", ["formatted_value"] = "Dad&#39;s",
+        });
+        return receipt;
+    }
+
+    [Fact]
+    public async Task Etsys_encoded_receipt_text_is_stored_as_plain_text()
+    {
+        using var shop = new FakeEtsyShop();
+        shop.Receipts.Add(EncodedGift(1, shop.Time.Now.ToUnixTimeSeconds() - 100));
+
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+
+        await using var db = shop.Db.CreateDbContext();
+        var order = await db.Orders.Include(o => o.Items).SingleAsync();
+        Assert.Equal(("Pat O'Brien", "Happy Mother's Day & love you!", "It's a surprise"), (order.BuyerName, order.GiftMessage, order.MessageFromBuyer));
+        var item = Assert.Single(order.Items);
+        Assert.Equal("Kid's \"Galaxy\" vase", item.Title);
+        Assert.Equal("Dad's", Assert.Single(item.Variations).Value);
+        // What the slips read straight from the stored receipt is decoded too.
+        Assert.Equal("Pat O'Brien", OrderPrintService.Address(order).Name);
+    }
+
+    [Fact]
+    public async Task Orders_stored_before_the_fix_are_decoded_once()
+    {
+        using var shop = new FakeEtsyShop();
+        shop.Receipts.Add(EncodedGift(1, shop.Time.Now.ToUnixTimeSeconds() - 100));
+        await shop.Provider.GetRequiredService<OrderPoller>().PollShopAsync(FakeEtsyShop.ShopId, CancellationToken.None);
+        await using (var db = shop.Db.CreateDbContext()) // as an older version stored it
+        {
+            var order = await db.Orders.Include(o => o.Items).SingleAsync();
+            (order.BuyerName, order.GiftMessage) = ("Pat O&#39;Brien", "Happy Mother&#39;s Day &amp; love you!");
+            order.Items[0].Title = "Kid&#39;s vase";
+            order.Items[0].Variations = [order.Items[0].Variations[0] with { Value = "Dad&#39;s" }];
+            await db.SaveChangesAsync();
+        }
+        var settings = shop.Provider.GetRequiredService<EtsyShopManager.Core.Services.ISettingsStore>();
+        var queue = new RecordingJobQueue();
+        var startup = new OrderTextRepairStartup(queue, settings, Microsoft.Extensions.Logging.Abstractions.NullLogger<OrderTextRepairStartup>.Instance);
+        await startup.StartAsync(CancellationToken.None);
+        Assert.Equal(OrderTextRepairJob.Type, Assert.Single(queue.Requests).JobType);
+
+        var context = new JobExecutionContext { JobId = 1, JobType = OrderTextRepairJob.Type, Attempt = 1, PayloadJson = "{}" };
+        await new OrderTextRepairJob(shop.Db, settings).HandleAsync(context, CancellationToken.None);
+
+        Assert.Equal("1 order(s) decoded", context.Result);
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var order = await db.Orders.Include(o => o.Items).SingleAsync();
+            Assert.Equal(("Pat O'Brien", "Happy Mother's Day & love you!"), (order.BuyerName, order.GiftMessage));
+            Assert.Equal(("Kid's vase", "Dad's"), (order.Items[0].Title, order.Items[0].Variations[0].Value));
+        }
+        queue.Requests.Clear();
+        await startup.StartAsync(CancellationToken.None);
+        Assert.Empty(queue.Requests); // runs once
+        Assert.Empty(shop.Writes);
+    }
 }
 
 public class ApiKeyTests
