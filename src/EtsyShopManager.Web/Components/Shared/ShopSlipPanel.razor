@@ -13,11 +13,7 @@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Shop details on slips</MudText>
     <MudText Typo="Typo.body2" Class="muted mb-3">
-        The note is printed on each shop's packing slips as "A note from the shop", like the note you can set on Etsy (Etsy
-        doesn't share that note with apps, so set it here). The location line is printed under the shop's name, as on Etsy's
-        gift slips. Leave either empty for none. The gift message is printed on the shop's gift slips when the buyer didn't
-        write one; empty means "@OrderPrintService.DefaultGiftMessageText". Turn on Star Seller while the shop has Etsy's Star Seller badge (Etsy
-        reviews it each month and doesn't share it with apps) to print the badge on its slips.
+        What each shop prints on its slips besides the order. Etsy doesn't share these with apps, so they are set here.
     </MudText>
 
     @if (_shops is null)
@@ -32,26 +28,46 @@
     {
         @foreach (var s in _shops)
         {
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2" Wrap="Wrap.Wrap">
-                <span class="lp-shopmark">
-                    @if (s.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(s.Id)" alt="" /> }
-                    else { @s.Name[..1].ToUpperInvariant() }
-                </span>
-                <MudTextField T="string" @bind-Value="_text[s.Id]" Label="@($"{s.Name} packing slip note")" Lines="2" Sizing="InputSizing.Auto" Variant="Variant.Outlined"
-                              Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxNoteLength" Class="esm-grow"
-                              ReadOnly="@(!_canEdit)" Placeholder="Thanks for your order! If you have any issues, please send me a message on Etsy!" />
-                <MudTextField T="string" @bind-Value="_location[s.Id]" Label="Location line" Variant="Variant.Outlined"
-                              Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxLocationLength"
-                              ReadOnly="@(!_canEdit)" Placeholder="City, State" />
-                <MudTextField T="string" @bind-Value="_giftMessage[s.Id]" Label="Gift message when the buyer wrote none" Variant="Variant.Outlined"
-                              Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxGiftMessageLength" Class="esm-minw-md"
-                              ReadOnly="@(!_canEdit)" Placeholder="@OrderPrintService.DefaultGiftMessageText" />
-                <MudSwitch T="bool" @bind-Value="_star[s.Id]" Color="Color.Primary" Label="Star Seller" ReadOnly="@(!_canEdit)" />
-                @if (_canEdit)
-                {
-                    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveAsync(s)">Save</MudButton>
-                }
-            </MudStack>
+            @* One block per shop, stacked: its name, then the note full width, then the shorter fields side by side on
+               wider screens (one under the other on a phone), then the switch and Save. *@
+            <div class="esm-slip-shop">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+                    <span class="lp-shopmark">
+                        @if (s.IconUrl is { Length: > 0 }) { <img src="@ShopIconCache.UrlFor(s.Id)" alt="" /> }
+                        else { @s.Name[..1].ToUpperInvariant() }
+                    </span>
+                    <MudText Typo="Typo.subtitle1">@s.Name</MudText>
+                </MudStack>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12">
+                        <MudTextField T="string" @bind-Value="_text[s.Id]" Label="Packing slip note" Lines="3" Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxNoteLength" ReadOnly="@(!_canEdit)"
+                                      HelperText="Printed on packing slips as &quot;A note from the shop&quot;. Empty for none."
+                                      Placeholder="Thanks for your order! If you have any issues, please send me a message on Etsy!" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField T="string" @bind-Value="_location[s.Id]" Label="Location line" Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxLocationLength"
+                                      ReadOnly="@(!_canEdit)" Placeholder="City, State" HelperText="Under the shop's name on both slips. Empty for none." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField T="string" @bind-Value="_giftMessage[s.Id]" Label="Gift message when the buyer wrote none" Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxGiftMessageLength"
+                                      ReadOnly="@(!_canEdit)" Placeholder="@OrderPrintService.DefaultGiftMessageText"
+                                      HelperText="@($"On gift slips without a message from the buyer. Empty means \"{OrderPrintService.DefaultGiftMessageText}\".")" />
+                    </MudItem>
+                </MudGrid>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-2" Wrap="Wrap.Wrap">
+                    <div>
+                        <MudSwitch T="bool" @bind-Value="_star[s.Id]" Color="Color.Primary" Label="Star Seller" ReadOnly="@(!_canEdit)" />
+                        <MudText Typo="Typo.caption" Class="muted">On while the shop has Etsy's Star Seller badge (Etsy reviews it monthly).</MudText>
+                    </div>
+                    @if (_canEdit)
+                    {
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => SaveAsync(s)">@($"Save {s.Name}")</MudButton>
+                    }
+                </MudStack>
+            </div>
         }
     }
 </MudPaper>
