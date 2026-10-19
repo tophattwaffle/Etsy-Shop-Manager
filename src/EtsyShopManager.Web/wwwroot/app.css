@@ -619,3 +619,17 @@ a.lp-status-error:hover { text-decoration: underline; }
 /* ---- Packing slips: layout editor (Components/Pages/PackingSlips) ---- */
 .esm-code textarea { font-family: Consolas, "Cascadia Mono", monospace; font-size: 0.8rem; line-height: 1.45; white-space: pre; }
 .esm-slip-preview { display: block; width: 100%; height: 700px; border: 1px solid var(--esm-line); border-radius: var(--esm-radius-sm); }
+
+/* Packing slips page: each shop's slip details (ShopSlipPanel), one stacked block per shop, divided by a hairline. */
+.esm-slip-shop + .esm-slip-shop { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--esm-line); }
+/* A table whose rows become stacked cards on a phone (Packing slips page): headers hidden, each cell on its own line with
+   its column name (data-label) in front. */
+@media (max-width: 599.98px) {
+    .mud-simple-table.esm-stack-table table, .mud-simple-table.esm-stack-table tbody { display: block; }
+    .mud-simple-table.esm-stack-table thead { display: none; }
+    .mud-simple-table.esm-stack-table tr, .mud-simple-table.esm-stack-table td { display: block; }
+    .mud-simple-table.esm-stack-table tr + tr { border-top: 1px solid var(--esm-line); }
+    .mud-simple-table.esm-stack-table td { border: 0 !important; padding: 4px 0 !important; text-align: left; }
+    .mud-simple-table.esm-stack-table td[data-label]::before { content: attr(data-label); display: block; font-size: 0.75rem; color: var(--esm-muted); }
+    .mud-simple-table.esm-stack-table td.text-right { white-space: normal; }
+}

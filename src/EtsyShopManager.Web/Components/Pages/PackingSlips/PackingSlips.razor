@@ -41,7 +41,7 @@ else
         }
         else
         {
-            <MudSimpleTable Dense="true">
+            <MudSimpleTable Dense="true" Class="esm-stack-table">
                 <thead>
                     <tr>
                         <SortHeader Sort="_shopSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
@@ -64,7 +64,7 @@ else
                             </td>
                             @foreach (var kind in Enum.GetValues<SlipKind>())
                             {
-                                <td>
+                                <td data-label="@(kind == SlipKind.Gift ? "Gift slip" : "Packing slip")">
                                     <MudSelect T="int" Value="@_assigned.GetValueOrDefault((s.Id, kind))" ValueChanged="@(id => AssignAsync(s, kind, id))"
                                                Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-minw-md" aria-label="@($"{s.Name} {SlipLayoutService.Describe(kind)} layout")">
                                         <MudSelectItem Value="0">@SlipLayoutService.BuiltIn(kind).Name</MudSelectItem>
@@ -90,7 +90,7 @@ else
             A layout is an HTML template with placeholders such as <code>{{ order.receipt_id }}</code>, and the CSS that styles
             it. The built-in layouts can't be changed, but you can copy them. Only admins can make or edit layouts.
         </MudText>
-        <MudSimpleTable Dense="true" Hover="true">
+        <MudSimpleTable Dense="true" Hover="true" Class="esm-stack-table">
             <thead>
                 <tr>
                     <SortHeader Sort="_layoutSort" Column="name" Changed="StateHasChanged">Name</SortHeader>
@@ -108,9 +108,9 @@ else
                             @if (l.Id == 0 || !_isAdmin) { @l.Name }
                             else { <MudLink Href="@($"packing-slips/layouts/{l.Id}")">@l.Name</MudLink> }
                         </td>
-                        <td>@SlipLayoutService.Describe(l.Kind)</td>
-                        <td>@UsedBy(l)</td>
-                        <td>@(l.Id == 0 ? "—" : ListingFormat.Local(l.UpdatedAtUtc))</td>
+                        <td data-label="For">@SlipLayoutService.Describe(l.Kind)</td>
+                        <td data-label="Shops using it">@UsedBy(l)</td>
+                        <td data-label="Updated">@(l.Id == 0 ? "—" : ListingFormat.Local(l.UpdatedAtUtc))</td>
                         <td class="text-right">
                             @if (_isAdmin)
                             {
