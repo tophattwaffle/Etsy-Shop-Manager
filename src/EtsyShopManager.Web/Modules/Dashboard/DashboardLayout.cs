@@ -84,11 +84,16 @@ public sealed class DashboardLayoutService(ISettingsStore settings)
         settings.SetAsync(SettingKey(userId), null, updatedBy: userId, ct: ct);
 }
 
-/// <summary>Registers the dashboard's layout store.</summary>
+/// <summary>Registers the dashboard's layout store and its sidebar entry.</summary>
 public sealed class DashboardModule : IModule
 {
     public string Name => "Dashboard";
 
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
         services.AddSingleton<DashboardLayoutService>();
+
+    public IEnumerable<NavItem> NavItems =>
+    [
+        new("Dashboard", "", MudBlazor.Icons.Material.Filled.Dashboard, Order: 0, MatchAll: true),
+    ];
 }
