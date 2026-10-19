@@ -51,6 +51,12 @@
             </div>
             {%- endif %}
             <hr class="slip-rule-short" />
+            {%- if shop.from_lines.size > 0 %}
+            <div class="slip-field">
+                <div class="slip-label">From</div>
+                {%- for line in shop.from_lines %}<div>{{ line }}</div>{% endfor %}
+            </div>
+            {%- endif %}
             <div class="slip-field">
                 <div class="slip-label">Order</div>
                 <div>#{{ order.receipt_id }}</div>

@@ -6,8 +6,9 @@
 @inject ISnackbar Snackbar
 
 @* What each shop's packing slips print besides the order: the note printed as "A note from the shop" (Orders → Print
-   packing slips), like the packing slip note set on Etsy, which Etsy's API doesn't share; and the shop's location line
-   under its name, like Etsy's gift slip (Etsy's API has no shop city or state); and whether it prints Etsy's Star Seller
+   packing slips), like the packing slip note set on Etsy, which Etsy's API doesn't share; the ships-from address under
+   From, whose city and state also go under the shop's name like Etsy's gift slip (Etsy's API has neither); whether it
+   prints Etsy's Star Seller
    badge (Etsy's API doesn't say whether a shop is a Star Seller); and the gift message its gift slips print when the buyer
    wrote none. *@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
@@ -46,9 +47,10 @@
                                       Placeholder="Thanks for your order! If you have any issues, please send me a message on Etsy!" />
                     </MudItem>
                     <MudItem xs="12" md="6">
-                        <MudTextField T="string" @bind-Value="_location[s.Id]" Label="Location line" Variant="Variant.Outlined" Immediate="true"
-                                      Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxLocationLength"
-                                      ReadOnly="@(!_canEdit)" Placeholder="City, State" HelperText="Under the shop's name on both slips. Empty for none." />
+                        <MudTextField T="string" @bind-Value="_from[s.Id]" Label="Ships from address" Lines="4" Variant="Variant.Outlined" Immediate="true"
+                                      Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxFromAddressLength" ReadOnly="@(!_canEdit)"
+                                      Placeholder="@("Shop name\nStreet\nCITY, ST 12345\nUnited States")"
+                                      HelperText="@FromHelp(s.Id)" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudTextField T="string" @bind-Value="_giftMessage[s.Id]" Label="Gift message when the buyer wrote none" Variant="Variant.Outlined" Immediate="true"
@@ -80,7 +82,7 @@
 
     private List<ShopSummary>? _shops;
     private readonly Dictionary<int, string?> _text = [];
-    private readonly Dictionary<int, string?> _location = [];
+    private readonly Dictionary<int, string?> _from = [];
     private readonly Dictionary<int, bool> _star = [];
     private readonly Dictionary<int, string?> _giftMessage = [];
     private readonly Dictionary<int, SavedValues<SlipFields>> _saved = [];
@@ -88,7 +90,7 @@
     private bool _canEdit;
 
     /// <summary>One shop's fields as the form has them, for spotting unsaved changes.</summary>
-    private sealed record SlipFields(string Note, string Location, string GiftMessage, bool Star);
+    private sealed record SlipFields(string Note, string From, string GiftMessage, bool Star);
 
     protected override async Task OnInitializedAsync()
     {
@@ -97,19 +99,19 @@
         _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
         var ids = _shops.Select(s => s.Id).ToList();
         var notes = await Print.GetNotesAsync(ids);
-        var locations = await Print.GetLocationsAsync(ids);
+        var from = await Print.GetFromAddressesAsync(ids);
         var stars = await Print.GetStarSellersAsync(ids);
         var giftMessages = await Print.GetDefaultGiftMessagesAsync(ids);
         foreach (var s in _shops)
         {
             _text[s.Id] = notes.GetValueOrDefault(s.Id);
-            _location[s.Id] = locations.GetValueOrDefault(s.Id);
+            _from[s.Id] = from.GetValueOrDefault(s.Id);
             _star[s.Id] = stars.Contains(s.Id);
             _giftMessage[s.Id] = giftMessages[s.Id];
             var id = s.Id;
             _saved[id] = new(
-                () => new(_text[id] ?? "", _location[id] ?? "", _giftMessage[id] ?? "", _star[id]),
-                v => (_text[id], _location[id], _giftMessage[id], _star[id]) = (v.Note, v.Location, v.GiftMessage, v.Star));
+                () => new(_text[id] ?? "", _from[id] ?? "", _giftMessage[id] ?? "", _star[id]),
+                v => (_text[id], _from[id], _giftMessage[id], _star[id]) = (v.Note, v.From, v.GiftMessage, v.Star));
         }
     }
 
@@ -120,7 +122,7 @@
         {
             var user = (await AuthState).User.Identity?.Name;
             var error = await Print.SetNoteAsync(shop.Id, _text[shop.Id], user)
-                ?? await Print.SetLocationAsync(shop.Id, _location[shop.Id], user)
+                ?? await Print.SetFromAddressAsync(shop.Id, _from[shop.Id], user)
                 ?? await Print.SetDefaultGiftMessageAsync(shop.Id, _giftMessage[shop.Id], user);
             if (error is null)
             {
@@ -135,4 +137,12 @@
             _saving.Remove(shop.Id);
         }
     }
+
+    /// <summary>What the address does, with the city and state it gives the gift slip.</summary>
+    private static string FromHelp(int shopId, string? address) =>
+        OrderPrintService.CityState(OrderPrintService.FromLines(address)) is { } cityState
+            ? $"Printed under From on packing slips; \"{cityState}\" goes under the shop's name on gift slips."
+            : "Printed under From on packing slips; its city and state go under the shop's name on gift slips. Empty for none.";
+
+    private string FromHelp(int shopId) => FromHelp(shopId, _from.GetValueOrDefault(shopId));
 }

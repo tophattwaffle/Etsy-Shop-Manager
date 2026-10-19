@@ -132,6 +132,42 @@ public class OrderPrintTests
         Assert.Empty(await print.GetNotesAsync([1, 2])); // kept apart from the packing slip note
     }
 
+    [Theory]
+    [InlineData("Sample Shop\n1 Example Street\nPmb 120\nSPRINGFIELD, IL 62701-1234\nUnited States", "Springfield, Illinois")]
+    [InlineData("Sample Shop\n9 Test Road, Unit 4\nSan Luis Obispo, CA 93401", "San Luis Obispo, California")]
+    [InlineData("Sample Shop\n12 Maple Ave\nToronto, ON M5V 2T6\nCanada", "Toronto, ON")]
+    [InlineData("Sample Shop\n1 Example Street", null)]
+    [InlineData("", null)]
+    public void The_gift_slip_location_is_the_ships_from_addresss_city_and_state(string address, string? expected) =>
+        Assert.Equal(expected, OrderPrintService.CityState(OrderPrintService.FromLines(address)));
+
+    [Fact]
+    public async Task The_ships_from_address_prints_under_From_and_gives_the_location_line()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        var settings = new InMemorySettings();
+        var print = new OrderPrintService(db, settings, new NullAuditLog());
+        await print.SetLocationAsync(1, "Old Town, Somewhere", "tophattwaffle"); // typed before the address existed
+
+        Assert.Null(await print.SetFromAddressAsync(1, "  Sample   Shop \r\n1 Example Street\n\nSPRINGFIELD, IL 62701\nUnited States  ", "tophattwaffle"));
+        Assert.Equal("Sample Shop\n1 Example Street\nSPRINGFIELD, IL 62701\nUnited States", (await print.GetFromAddressesAsync([1]))[1]);
+        Assert.Empty(await print.GetLocationsAsync([1])); // replaced by the address's city and state
+        Assert.Equal("Keep the ships-from address to 300 characters.", await print.SetFromAddressAsync(1, new string('x', 301), "tophattwaffle"));
+
+        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.Contains("<div class=\"slip-label\">From</div><div>Sample Shop</div><div>1 Example Street</div><div>SPRINGFIELD, IL 62701</div><div>United States</div>", slips);
+        var gift = slips[slips.IndexOf("<section class=\"gift-slip\"", StringComparison.Ordinal)..];
+        Assert.Contains("<div>Springfield, Illinois</div>", gift);
+        Assert.DoesNotContain("Old Town", slips);
+
+        // No address: no From on the slip, and no location line.
+        Assert.Null(await print.SetFromAddressAsync(1, " ", "tophattwaffle"));
+        slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.DoesNotContain("slip-label\">From<", slips);
+        Assert.DoesNotContain("Springfield, Illinois", slips);
+    }
+
     [Fact]
     public async Task Completed_and_shipped_orders_still_print_from_history()
     {
