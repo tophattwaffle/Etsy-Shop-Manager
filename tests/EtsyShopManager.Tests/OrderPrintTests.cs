@@ -367,6 +367,28 @@ public class OrderPrintTests
     }
 
     [Fact]
+    public async Task Apostrophes_print_as_apostrophes_on_gift_slips()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        await using (var ctx = db.CreateDbContext())
+        {
+            // Etsy's encoded text in the stored receipt, and the decoded message the poller keeps.
+            var order = await ctx.Orders.SingleAsync(o => o.Id == 1);
+            order.GiftMessage = "Happy Mother's Day!";
+            order.RawJson = order.RawJson.Replace("\"name\":\"Sample Buyer\"", "\"name\":\"Pat O&#39;Brien\"")
+                .Replace("\"gift_sender\":\"Grandma Sample\"", "\"gift_sender\":\"Kate &amp; Sam\"");
+            await ctx.SaveChangesAsync();
+        }
+
+        var slips = await RenderAsync<PrintPackingSlips>(db, new InMemorySettings(), "orders/print/slips?ids=1");
+
+        foreach (var text in new[] { "Happy Mother&#x27;s Day!", "Shipped to: Pat O&#x27;Brien", "- Kate &amp; Sam" })
+            Assert.Contains(text, slips); // encoded once, so a browser shows ' and &
+        Assert.DoesNotContain("&amp;#", slips);
+    }
+
+    [Fact]
     public async Task A_gift_without_a_message_prints_its_shops_default_one()
     {
         using var db = new TestDb();
