@@ -1,4 +1,4 @@
-// etsy-orders-card v2.9.1 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.9.2 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
@@ -26,7 +26,7 @@
 //                      remembered per device. Under "All shops" each order names
 //                      its shop. Give each shop an icon for the pill.
 //                      (default false: a section per shop)
-//   green_hours:       ship-by pills and the header's "Next" chip are fully
+//   green_hours:       ship-by pills and the header's next ship-by chip are fully
 //                      green at this many hours or more to ship (default 72)
 //   red_hours:         ...and fully red at this many hours or fewer, blending
 //                      green → yellow → red in between; below it the whole
@@ -501,7 +501,8 @@ class EtsyOrdersCard extends HTMLElement {
     ];
     if (orders.length) {
       const next = this._due(orders[0].ship_by_ts);
-      chips.push(`<span class="chip next ${next.cls}" style="${next.style}">Next: ${esc(next.text)}</span>`);
+      // Just the time to the soonest ship-by, coloured like the order pills (the title says what it is).
+      chips.push(`<span class="chip next ${next.cls}" style="${next.style}" title="Next ship-by">${esc(next.text)}</span>`);
     }
     if (c.show_prices && orders.length) {
       const total = orders.reduce((n, o) => n + (o.order_total || 0), 0);

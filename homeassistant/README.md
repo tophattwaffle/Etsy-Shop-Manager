@@ -55,7 +55,7 @@ last values for up to 5 minutes instead of going unavailable, so dashboards don'
 
 ## Switch the card over
 
-`www/etsy-orders-card.js` is the card (v2.9.1); it reads the same attributes as before. Point each shop at the new sensor:
+`www/etsy-orders-card.js` is the card (v2.9.2); it reads the same attributes as before. Point each shop at the new sensor:
 
 ```yaml
 type: custom:etsy-orders-card
