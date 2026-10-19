@@ -27,7 +27,7 @@
         </Summary>
     </PageHeader>
 
-    <div class="lp-layout">
+    <div class="lp-layout @(_railCollapsed ? "is-rail-collapsed" : "")">
         <section class="lp-main" aria-label="Listings">
             <div class="lp-toolbar">
                 <MudTextField T="string" Value="_text" ValueChanged="OnTextChanged" Placeholder="Search by title, SKU, tag or listing id"
@@ -267,6 +267,7 @@
         </section>
 
         <aside class="lp-rail" aria-label="Filters">
+            <RailToggle Collapsed="_railCollapsed" CollapsedChanged="@(c => _railCollapsed = c)" />
             <fieldset class="lp-facets">
                 <legend>Shop</legend>
                 <button type="button" class="lp-facet" aria-pressed="@(_shopId is null ? "true" : "false")" @onclick="() => OnShopChanged(null)">
@@ -351,6 +352,9 @@
     private int _page;
     private bool _loading;
     private string _view = GridView;
+
+    // Desktop only: the filter panel folded to a strip (remembered per browser, see RailToggle).
+    private bool _railCollapsed;
     private string? _text;
     private int? _shopId;
     private string _status = "active";
@@ -400,6 +404,11 @@
     {
         if (firstRender)
         {
+            if (await RailToggle.LoadAsync(Js))
+            {
+                _railCollapsed = true;
+                StateHasChanged();
+            }
             var view = await Js.InvokeAsync<string?>("esm.getPref", "listingsView");
             if (view is GridView or ListView && view != _view)
             {

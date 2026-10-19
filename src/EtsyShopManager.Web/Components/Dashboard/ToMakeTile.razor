@@ -32,6 +32,7 @@ else
             <div class="esm-dash-make @(make.IsMade ? "is-made" : "")">
                 <MadeToggle Made="@make.Made" Quantity="@make.Quantity" Labelled="false" ReadOnly="@(!_canMark)"
                             What="@OrderDue.ShortTitle((string?)row["title"])" MadeChanged="@(m => SetMadeAsync(make.Items, m))" />
+                @if (make.ImageUrl is { } photo) { <img class="esm-make-photo" src="@photo" alt="" loading="lazy" /> } else { <span class="esm-make-photo"></span> }
                 <span class="esm-dash-qty">×@make.Quantity</span>
                 <div class="esm-grow">
                     <div class="esm-made-text">@OrderDue.ShortTitle((string?)row["title"])</div>

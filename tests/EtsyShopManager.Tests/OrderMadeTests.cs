@@ -181,6 +181,19 @@ public class OrderMadeTests
         Assert.Empty(shop.Api.Requests); // nothing goes to Etsy
     }
 
+    [Fact]
+    public void A_to_make_row_shows_the_photo_of_its_first_item_that_has_one()
+    {
+        var row = new ToMakeRow(new JsonObject(),
+        [
+            new OrderItem { Quantity = 1 },
+            new OrderItem { Quantity = 1, ImageUrl = "https://i.etsystatic.com/sample/1.jpg" },
+            new OrderItem { Quantity = 1, ImageUrl = "https://i.etsystatic.com/sample/2.jpg" },
+        ]);
+        Assert.Equal("https://i.etsystatic.com/sample/1.jpg", row.ImageUrl);
+        Assert.Null(new ToMakeRow(new JsonObject(), [new OrderItem { Quantity = 1, ImageUrl = "" }]).ImageUrl);
+    }
+
     private static OrderItem Item(IEnumerable<Order> orders, long receiptId) =>
         orders.Single(o => o.EtsyReceiptId == receiptId).Items.Single();
 }

@@ -1,0 +1,30 @@
+@inject IJSRuntime Js
+@* Desktop only: folds the right-hand panel (shop and filters) to a narrow strip so the list gets the room. The choice is
+   one per browser, shared by every page with the panel. Phones fold the panel their own way, so this is hidden there. *@
+
+<button type="button" class="lp-rail-toggle" aria-expanded="@(Collapsed ? "false" : "true")"
+        aria-label="@(Collapsed ? "Show the side panel" : "Hide the side panel")" title="@(Collapsed ? "Show the side panel" : "Hide the side panel")"
+        @onclick="ToggleAsync">
+    <MudIcon Icon="@(Collapsed ? Icons.Material.Filled.KeyboardDoubleArrowLeft : Icons.Material.Filled.KeyboardDoubleArrowRight)" Size="Size.Small" />
+    @if (!Collapsed)
+    {
+        <span>Hide panel</span>
+    }
+</button>
+
+@code {
+    private const string PrefKey = "sidePanelCollapsed";
+
+    [Parameter] public bool Collapsed { get; set; }
+    [Parameter] public EventCallback<bool> CollapsedChanged { get; set; }
+
+    /// <summary>Whether this browser last folded the panel (read after the first render, when JS is available).</summary>
+    public static async Task<bool> LoadAsync(IJSRuntime js) => await js.InvokeAsync<string?>("esm.getPref", PrefKey) == "1";
+
+    private async Task ToggleAsync()
+    {
+        var collapsed = !Collapsed;
+        await Js.InvokeVoidAsync("esm.setPref", PrefKey, collapsed ? "1" : "0");
+        await CollapsedChanged.InvokeAsync(collapsed);
+    }
+}

@@ -33,7 +33,7 @@
 @* The tabs come first; each tab's shop picker, sync status and filters sit in the panel beside it (above it, folded, on phones). *@
 <MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
     <MudTabPanel Text="@($"Open ({_open.Count})")">
-        <div class="lp-layout">
+        <div class="lp-layout @(_railCollapsed ? "is-rail-collapsed" : "")">
         <section class="lp-main" aria-label="Open orders">
         @if (_open.Count == 0)
         {
@@ -41,24 +41,24 @@
         }
         else
         {
-            <div class="lp-toolbar">
+            @* Always one row: full labels when the row has room for them, otherwise short labels and icons with tooltips. *@
+            <div class="lp-toolbar esm-order-actions @(Picked.Count > 0 ? "has-selection" : "")">
                 @if (_openFilter.IsFiltered)
                 {
-                    <span class="muted small">@_shown.Count of @_open.Count orders</span>
+                    <span class="muted small">@_shown.Count of @_open.Count</span>
                 }
-                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen" Disabled="@(_shown.Count == 0)">
-                    @(_openFilter.IsFiltered ? "Select all shown" : "Select all unshipped")
-                </MudButton>
-                @if (Picked.Count > 0)
-                {
-                    <span class="muted small">@Picked.Count selected</span>
-                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _picked.Clear()">Clear</MudButton>
-                }
+                <span class="esm-act-wide">
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen" Disabled="@(_shown.Count == 0)">
+                        @(_openFilter.IsFiltered ? "Select all shown" : "Select all")
+                    </MudButton>
+                </span>
+                <span class="esm-act-narrow">
+                    <MudTooltip Text="@(_openFilter.IsFiltered ? "Select all shown orders" : "Select all unshipped orders")">
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen" Disabled="@(_shown.Count == 0)">Select all</MudButton>
+                    </MudTooltip>
+                </span>
                 <MudSpacer />
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
-                           Disabled="@(Picked.Count == 0)" Href="@PrintLink("pick")" Target="_blank">Print pick list</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
-                           Disabled="@(Picked.Count == 0)" Href="@PrintLink("slips")" Target="_blank">Print packing slips</MudButton>
+                @PrintActions(Picked.Count, PrintLink, () => _picked.Clear())
             </div>
         @if (_shown.Count == 0)
         {
@@ -80,7 +80,7 @@
     </MudTabPanel>
 
     <MudTabPanel Text="@($"To make ({_toMake.Sum(r => r.Left)})")">
-        <div class="lp-layout">
+        <div class="lp-layout @(_railCollapsed ? "is-rail-collapsed" : "")">
         <section class="lp-main" aria-label="Items to make">
         @if (_toMake.Count == 0)
         {
@@ -115,7 +115,12 @@
                                             MadeChanged="@(m => SetMadeAsync(make.Items, m))" />
                             </td>
                             <td class="text-right"><b>@make.Quantity</b></td>
-                            <td class="esm-made-text">@ShortTitle((string?)row["title"])</td>
+                            <td>
+                                <div class="esm-make-item">
+                                    @if (make.ImageUrl is { } photo) { <img class="esm-make-photo" src="@photo" alt="" loading="lazy" /> } else { <span class="esm-make-photo"></span> }
+                                    <span class="esm-made-text">@ShortTitle((string?)row["title"])</span>
+                                </div>
+                            </td>
                             <td>
                                 @* One pill per variation, as on the order cards (one long pill wrapped into a circle on phones). *@
                                 <div class="order-vars">
@@ -141,7 +146,7 @@
     </MudTabPanel>
 
     <MudTabPanel Text="History">
-        <div class="lp-layout">
+        <div class="lp-layout @(_railCollapsed ? "is-rail-collapsed" : "")">
         <section class="lp-main" aria-label="Order history">
             @* The same cards as the Open tab, a page at a time (searched, filtered and sorted by the server). *@
             <div class="lp-toolbar">
@@ -149,20 +154,21 @@
                               Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
                               Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="lp-search" aria-label="Search order history" />
             </div>
-            <div class="lp-toolbar">
-                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => PickHistoryPage(!AllHistoryRowsPicked)" Disabled="@(_historyRows.Count == 0)">
-                    @(AllHistoryRowsPicked ? "Unselect this page" : "Select this page")
-                </MudButton>
-                @if (_historyPicked.Count > 0)
-                {
-                    <span class="muted small">@_historyPicked.Count selected</span>
-                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _historyPicked.Clear()">Clear</MudButton>
-                }
+            <div class="lp-toolbar esm-order-actions @(_historyPicked.Count > 0 ? "has-selection" : "")">
+                <span class="esm-act-wide">
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => PickHistoryPage(!AllHistoryRowsPicked)" Disabled="@(_historyRows.Count == 0)">
+                        @(AllHistoryRowsPicked ? "Unselect this page" : "Select this page")
+                    </MudButton>
+                </span>
+                <span class="esm-act-narrow">
+                    <MudTooltip Text="@(AllHistoryRowsPicked ? "Unselect the orders on this page" : "Select the orders on this page")">
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => PickHistoryPage(!AllHistoryRowsPicked)" Disabled="@(_historyRows.Count == 0)">
+                            @(AllHistoryRowsPicked ? "Unselect page" : "Select page")
+                        </MudButton>
+                    </MudTooltip>
+                </span>
                 <MudSpacer />
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
-                           Disabled="@(_historyPicked.Count == 0)" Href="@HistoryPrintLink("pick")" Target="_blank">Print pick list</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
-                           Disabled="@(_historyPicked.Count == 0)" Href="@HistoryPrintLink("slips")" Target="_blank">Print packing slips</MudButton>
+                @PrintActions(_historyPicked.Count, HistoryPrintLink, () => _historyPicked.Clear())
             </div>
             @if (_historyRows.Count == 0)
             {
@@ -298,6 +304,11 @@
     // and read any shop accent not yet cached from the shop's profile image.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && await RailToggle.LoadAsync(Js))
+        {
+            _railCollapsed = true;
+            StateHasChanged();
+        }
         await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
         if (_status.Count > 0 && !_accentsRequested)
         {
@@ -501,10 +512,50 @@
         </div>
     };
 
+    /// <summary>
+    /// The right-hand end of an order list's toolbar: how many orders are selected (with a clear button) and the two print
+    /// actions. Each control is drawn twice, labelled and as an icon with its name in a tooltip; CSS shows the labelled set
+    /// only when the toolbar is wide enough for the whole row to stay on one line (see .esm-order-actions in app.css).
+    /// </summary>
+    private RenderFragment PrintActions(int selected, Func<string, string> link, Action clear) => __builder =>
+    {
+        @if (selected > 0)
+        {
+            <span class="muted small">@selected selected</span>
+            <span class="esm-act-wide">
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="clear">Clear</MudButton>
+            </span>
+            <span class="esm-act-narrow">
+                <MudTooltip Text="Clear the selection">
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="clear" aria-label="Clear the selection" />
+                </MudTooltip>
+            </span>
+        }
+        <span class="esm-act-wide">
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
+                       Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("pick")))">Print pick list</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
+                       Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("slips")))">Print packing slips</MudButton>
+        </span>
+        <span class="esm-act-narrow">
+            <MudTooltip Text="Print pick list">
+                <MudIconButton Icon="@Icons.Material.Filled.Checklist" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
+                               OnClick="@(() => PrintAsync(link("pick")))" aria-label="Print pick list" />
+            </MudTooltip>
+            <MudTooltip Text="Print packing slips">
+                <MudIconButton Icon="@Icons.Material.Filled.Print" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
+                               OnClick="@(() => PrintAsync(link("slips")))" aria-label="Print packing slips" />
+            </MudTooltip>
+        </span>
+    };
+
     private const int OpenTab = 0, ToMakeTab = 1, HistoryTab = 2;
 
     // Phones only: the filter panel starts folded (on wider screens it is always open beside the list).
     private bool _filtersOpen;
+
+    // Desktop only: the side panel folded to a strip (remembered per browser, see RailToggle).
+    private bool _railCollapsed;
 
     /// <summary>
     /// The panel beside each tab: shop picker and sync status for every tab, then that tab's own sort and filters. Single
@@ -514,6 +565,7 @@
     {
         var active = ActiveFilterCount(tab);
         <aside class="lp-rail esm-filter-rail" aria-label="Shop and filters">
+            <RailToggle Collapsed="_railCollapsed" CollapsedChanged="@(c => _railCollapsed = c)" />
             <button type="button" class="esm-filter-toggle" aria-expanded="@Pressed(_filtersOpen)" @onclick="() => _filtersOpen = !_filtersOpen">
                 <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
                 <span class="esm-filter-toggle-label">Shop and filters</span>
@@ -693,6 +745,10 @@
     }
 
     private void SelectAllOpen() => _picked.UnionWith(_shown.Select(o => o.Id));
+
+    // Prints a printout page without leaving this one: it loads in a hidden frame and opens the browser's print dialog
+    // (esm.printPage). The page itself still works on its own, with its Print button.
+    private async Task PrintAsync(string url) => await Js.InvokeVoidAsync("esm.printPage", url);
 
     private string PrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", Picked)}";
 

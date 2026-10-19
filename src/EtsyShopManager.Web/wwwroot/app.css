@@ -246,6 +246,26 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .order-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 /* Print selection: the checkbox beside the buyer (printouts themselves are styled in print.css). */
 .order-pick { display: flex; align-items: flex-start; gap: 2px; }
+/* Select and print actions above an order list: always one row. Each control comes labelled (.esm-act-wide) and as a
+   short label or icon with a tooltip (.esm-act-narrow); the labelled set shows only when the toolbar is wide enough for
+   the row as it is now to fit. Measured longest rows: without a selection ("12 of 34", "Select all shown" and both
+   print buttons) about 520px; with one (plus "123 selected" and Clear) about 660px. */
+.lp-toolbar.esm-order-actions { flex-wrap: nowrap; gap: 4px; white-space: nowrap; container-type: inline-size; }
+.lp-toolbar.esm-order-actions .mud-icon-button.mud-icon-button-size-small { padding: 5px; margin: 0; }
+/* The hidden frame a printout loads in to print without leaving the page (esm.printPage): not display:none, so it
+   lays out and prints. */
+.esm-print-frame { position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; }
+.esm-act-wide { display: none; }
+.esm-act-wide, .esm-act-narrow { align-items: center; gap: 4px; }
+.esm-act-narrow { display: inline-flex; }
+@container (min-width: 540px) {
+    .esm-order-actions:not(.has-selection) .esm-act-wide { display: inline-flex; }
+    .esm-order-actions:not(.has-selection) .esm-act-narrow { display: none; }
+}
+@container (min-width: 680px) {
+    .esm-act-wide { display: inline-flex; }
+    .esm-act-narrow { display: none; }
+}
 /* Ship-by pill, exactly as on the Home Assistant card: a see-through fill and outline whose hue (--due-hue, set by
    OrderDue) runs from 120 (green) to 0 (red). Hue-driven, so it is the one colour here not taken from a token. Grey
    without a ship-by date. */
@@ -432,6 +452,20 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .lp-status { font-size: 0.8rem; color: var(--esm-muted); text-decoration: none; }
 .lp-status-busy { color: var(--mud-palette-info); }
 .lp-status-warn { color: var(--mud-palette-warning); }
+/* Desktop: the side panel folds to a strip with just its toggle (RailToggle); phones fold it their own way. Open, the
+   toggle sits on the line of the panel's first heading ("Shop"), so it takes no height of its own. */
+.lp-rail-toggle { display: none; }
+@media (min-width: 960px) {
+    .lp-rail-toggle {
+        display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border: 0;
+        border-radius: 999px; background: transparent; color: var(--esm-muted); font: inherit; font-size: 0.8rem; cursor: pointer;
+        position: absolute; top: 0; right: 0; z-index: 1;
+    }
+    .lp-rail-toggle:hover { background: var(--esm-hover); color: var(--esm-ink); }
+    .lp-layout.is-rail-collapsed { grid-template-columns: minmax(0, 1fr) 36px; gap: 12px; }
+    .lp-layout.is-rail-collapsed .lp-rail > :not(.lp-rail-toggle) { display: none; }
+    .lp-layout.is-rail-collapsed .lp-rail-toggle { position: static; padding: 6px; }
+}
 
 /* Orders: shop picker, sync status and filters beside each tab; on phones folded behind a button above the list */
 .esm-filter-rail { gap: 0; }
@@ -609,6 +643,9 @@ a.lp-status-error:hover { text-decoration: underline; }
 .esm-dash-item { font-size: 0.9rem; }
 .esm-dash-make { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--esm-line); }
 .esm-dash-qty { font-weight: 600; min-width: 2.5em; }
+/* A small photo of the item to make (To make tab and the dashboard module); an empty tile when Etsy gave none. */
+.esm-make-photo { width: 40px; height: 40px; flex: none; object-fit: cover; border-radius: var(--esm-radius-sm); background: var(--esm-sunk); display: block; }
+.esm-make-item { display: flex; align-items: center; gap: 10px; }
 .esm-dash-shipby { white-space: nowrap; }
 
 @media (max-width: 959.98px) {
