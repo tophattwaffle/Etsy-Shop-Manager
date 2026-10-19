@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -76,6 +77,21 @@ class EtsyShopManagerCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self._announce_new_orders(data)
         return data
 
+    def has_receipt(self, receipt_id: str) -> bool:
+        """Whether one of this entry's shops has that order open."""
+        return any(
+            str(order.get("receipt_id")) == receipt_id
+            for shop in (self.data or {}).values()
+            for order in shop.get("open_orders") or []
+        )
+
+    @callback
+    def async_set_item_made(self, receipt_id: str, transaction_id: str, made: int) -> None:
+        """Show an item marked made at once (the app has saved it), without waiting for the next poll."""
+        updated = with_item_made(self.data or {}, receipt_id, transaction_id, made)
+        if updated is not None:
+            self.async_set_updated_data(updated)
+
     def _announce_new_orders(self, data: dict[str, dict[str, Any]]) -> None:
         current = {
             shop_id: {str(o.get("receipt_id")) for o in shop.get("open_orders") or []}
@@ -107,6 +123,23 @@ class EtsyShopManagerCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                     "orders": [item for r in receipts for item in r.get("items") or []],
                 },
             )
+
+
+def with_item_made(
+    data: dict[str, dict[str, Any]], receipt_id: str, transaction_id: str, made: int
+) -> dict[str, dict[str, Any]] | None:
+    """A copy of the coordinator data with one item's made_quantity set, or None when that item isn't in it."""
+    for shop_id, shop in data.items():
+        for oi, order in enumerate(shop.get("open_orders") or []):
+            if str(order.get("receipt_id")) != receipt_id:
+                continue
+            for ii, item in enumerate(order.get("items") or []):
+                if str(item.get("transaction_id")) == transaction_id:
+                    updated = dict(data)
+                    updated[shop_id] = copy.deepcopy(shop)
+                    updated[shop_id]["open_orders"][oi]["items"][ii]["made_quantity"] = made
+                    return updated
+    return None
 
 
 EtsyShopManagerConfigEntry = ConfigEntry[EtsyShopManagerCoordinator]

@@ -36,7 +36,8 @@ public class HaPayloadTests
     /// <summary>
     /// open-orders.expected.json was produced by running the old etsyapp integration's own Python
     /// (build_receipt_summary, _is_open_order, _aggregate_items_needed) on receipts.json, with dates in UTC.
-    /// The card reads this shape, so the port must match it field for field.
+    /// The card reads this shape, so the port must match it field for field. Fields the app added since (made_quantity)
+    /// are in the expected file too.
     /// </summary>
     [Fact]
     public void Open_orders_payload_matches_the_old_integration()

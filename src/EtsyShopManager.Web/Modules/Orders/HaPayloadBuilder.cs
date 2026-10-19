@@ -73,6 +73,8 @@ public static class HaPayloadBuilder
             ["created_date"] = Format(item.EtsyCreatedAtUtc, timeZone),
             ["updated_date"] = null,
             ["expected_ship_ts"] = Unix(item.ExpectedShipAtUtc),
+            // Units marked made in the app or on the card (the card's Made checkboxes); added after the old integration.
+            ["made_quantity"] = item.UnitsMade,
         };
         if (personalization.Count > 0) detail["personalization"] = string.Join(" | ", personalization);
         if (!string.IsNullOrEmpty(item.ImageUrl)) detail["image_url"] = item.ImageUrl;

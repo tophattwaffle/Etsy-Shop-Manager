@@ -15,12 +15,16 @@ For each shop connected in the app:
   `etsy-orders-card` works unchanged:
   `open_orders_count`, `total_items_needed`, `items_needed`, `open_orders` (each with `receipt_id`, `buyer_name`,
   `ship_by_ts`, `order_total`, `currency_code`, `items[]` with `title`, `quantity`, `variations`, `personalization`,
-  `image_url`, …), plus `shop_id`, `shop_name` and `orders_synced_at`.
+  `image_url`, …), plus `shop_id`, `shop_name` and `orders_synced_at`. Each item also has `transaction_id` and
+  `made_quantity` (units marked made in the app or on the card).
   `open_orders` and `items_needed` are kept out of the recorder (HA limits recorded attributes to 16 KB).
 - An event, `etsy_shop_manager_new_order`, when an order appears that wasn't open at the previous update, and a
   matching **New order received** device trigger. Event data: `device_id`, `shop_id`, `shop_name`, `new_orders`,
   `receipts` (the new orders, same shape as `open_orders`) and `orders` (their items, flattened). Orders already
   open when Home Assistant starts are not announced.
+- An action, **Mark item made** (`etsy_shop_manager.set_made`, integration 0.4.0 or later), with `receipt_id`,
+  `transaction_id` and `made` (units made, 0 to unmark). It saves the mark in the app, the same mark the app's Orders
+  and To make pages set, and the sensor shows it right away. Nothing is sent to Etsy. The card's Made checkboxes use it.
 
 Shops connected in the app later get their sensor automatically at the next update.
 
@@ -51,7 +55,7 @@ last values for up to 5 minutes instead of going unavailable, so dashboards don'
 
 ## Switch the card over
 
-`www/etsy-orders-card.js` is the card (v2.6.1); it reads the same attributes as before. Point each shop at the new sensor:
+`www/etsy-orders-card.js` is the card (v2.7.0); it reads the same attributes as before. Point each shop at the new sensor:
 
 ```yaml
 type: custom:etsy-orders-card
@@ -73,6 +77,14 @@ the card through the sensors' `color_config` attribute (integration 0.3.0 or lat
 the same engine, so both always match. Anything still set in the card's YAML is merged on top (YAML wins per color
 name), so once the app has your list you can delete `colors`, `metallic` and `random_words` from the card config. The
 look settings (`color_tint`, `metallic_shine`, `random_style`, animations) stay in the card config.
+
+### Made checkboxes
+
+With integration 0.4.0 or later, each item on the card has a Made checkbox (card v2.7.0). It is the same mark as on the
+app's Orders and To make pages, so ticking it in either place shows in the other. For an item of several units, each
+tap marks one more ("1/3", "2/3", …) and a tap on a fully made item clears it. Made items fade with their title struck
+through, the shop's "To make" line counts only what's left, and tapping the checkbox doesn't open the order.
+`show_made: false` hides the checkboxes.
 
 ## Development
 

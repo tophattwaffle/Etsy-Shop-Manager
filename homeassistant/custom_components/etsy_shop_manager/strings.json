@@ -52,6 +52,26 @@
       }
     }
   },
+  "services": {
+    "set_made": {
+      "name": "Mark item made",
+      "description": "Sets how many units of an order item are made, as the Made checkboxes in the app and on the etsy-orders-card do. Kept in Etsy Shop Manager only; nothing is sent to Etsy.",
+      "fields": {
+        "receipt_id": {
+          "name": "Receipt ID",
+          "description": "The Etsy order (receipt) number."
+        },
+        "transaction_id": {
+          "name": "Transaction ID",
+          "description": "The order item, as transaction_id in the sensor's open_orders items."
+        },
+        "made": {
+          "name": "Units made",
+          "description": "How many units of the item are made (0 unmarks it). More than the quantity counts as all of them."
+        }
+      }
+    }
+  },
   "device_automation": {
     "trigger_type": {
       "new_order": "New order received"
