@@ -1,4 +1,4 @@
-// etsy-orders-card v2.6.1 — open Etsy orders as order cards, most urgent first.
+// etsy-orders-card v2.7.0 — open Etsy orders as order cards, most urgent first.
 //
 // Reads the `open_orders` / `total_items_needed` attributes of Etsy open-order
 // sensors. The color list (`colors`, `metallic`, `random_words`) comes from the
@@ -14,7 +14,11 @@
 //                      with the web order page as fallback) instead of the
 //                      per-shop desktop links. Omit to use plain web links.
 //   show_prices:       show order totals and the shop total (default false)
-//   show_make_list:    show the per-shop "To make" summary (default true)
+//   show_make_list:    show the per-shop "To make" summary, less what is made (default true)
+//   show_made:         a Made checkbox on each item, kept in sync with the app's Orders
+//                      and To make pages (default true; needs integration 0.4.0 or later,
+//                      hidden otherwise). An item of several units counts up one per tap
+//                      ("1/3", "2/3", …) and clears after the last.
 //   green_hours:       ship-by pills and the header's "Next" chip are fully
 //                      green at this many hours or more to ship (default 72)
 //   red_hours:         ...and fully red at this many hours or fewer, blending
@@ -315,6 +319,7 @@ class EtsyOrdersCard extends HTMLElement {
     this._config = {
       show_prices: false,
       show_make_list: true,
+      show_made: true,
       green_hours: 72,
       red_hours: 12,
       order_url: "https://www.etsy.com/your/orders/sold?order_id={receipt_id}",
@@ -449,7 +454,11 @@ class EtsyOrdersCard extends HTMLElement {
 
     const orders = [...(st.attributes.open_orders || [])].sort((a, b) => (a.ship_by_ts || Infinity) - (b.ship_by_ts || Infinity));
     const items = st.attributes.total_items_needed ?? orders.reduce((n, o) => n + (o.items || []).reduce((k, i) => k + (i.quantity || 1), 0), 0);
-    const chips = [`<span class="chip">${orders.length} order${orders.length === 1 ? "" : "s"}</span>`, `<span class="chip">${items} item${items === 1 ? "" : "s"}</span>`];
+    const made = orders.reduce((n, o) => n + (o.items || []).reduce((k, i) => k + this._made(o, i), 0), 0);
+    const chips = [
+      `<span class="chip">${orders.length} order${orders.length === 1 ? "" : "s"}</span>`,
+      `<span class="chip">${items} item${items === 1 ? "" : "s"}${made ? ` · ${made} made` : ""}</span>`,
+    ];
     if (orders.length) {
       const next = this._due(orders[0].ship_by_ts);
       chips.push(`<span class="chip next ${next.cls}" style="${next.style}">Next: ${esc(next.text)}</span>`);
@@ -462,14 +471,15 @@ class EtsyOrdersCard extends HTMLElement {
     let makeList = "";
     if (c.show_make_list && orders.length) {
       const counts = new Map();
+      // What is left: units marked made are taken off, and a title with nothing left drops out.
       for (const o of orders) for (const i of o.items || []) {
         const t = shortTitle(i.title);
-        counts.set(t, (counts.get(t) || 0) + (i.quantity || 1));
+        counts.set(t, (counts.get(t) || 0) + this._units(i) - this._made(o, i));
       }
-      makeList = `<div class="make"><span class="make-label">To make</span>${[...counts]
-        .sort((a, b) => b[1] - a[1])
-        .map(([t, n]) => `<span class="make-item">${esc(t)} <b>×${n}</b></span>`)
-        .join("")}</div>`;
+      const left = [...counts].filter(([, n]) => n > 0);
+      makeList = `<div class="make"><span class="make-label">To make</span>${left.length
+        ? left.sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span class="make-item">${esc(t)} <b>×${n}</b></span>`).join("")
+        : `<span class="make-done">All made ✓</span>`}</div>`;
     }
 
     const orderUrl = this._orderUrlTemplate(shop);
@@ -516,7 +526,10 @@ class EtsyOrdersCard extends HTMLElement {
         const qty = (i.quantity || 1) > 1 ? `<span class="qty">×${i.quantity}</span>` : "";
         const note = i.personalization ? box("div", "note", i.personalization, `${ii}.note`, false) : "";
         const img = i.image_url ? `<img src="${esc(i.image_url)}" alt="" loading="lazy">` : `<div class="noimg"></div>`;
-        return `<div class="item">${img}<div class="item-body"><div class="title">${qty}${esc(shortTitle(i.title))}</div>${vars ? `<div class="vars">${vars}</div>` : ""}${note}</div></div>`;
+        const units = this._units(i);
+        const made = this._made(o, i);
+        const done = made >= units;
+        return `<div class="item${done && this._canMark(i) ? " made" : ""}">${img}<div class="item-body"><div class="title">${qty}${esc(shortTitle(i.title))}</div>${vars ? `<div class="vars">${vars}</div>` : ""}${note}</div>${this._madeButton(o, i, units, made)}</div>`;
       })
       .join("");
     // Only web links get a new tab; an OS handler link (another browser) would leave a blank one behind.
@@ -528,9 +541,64 @@ class EtsyOrdersCard extends HTMLElement {
     return `${open}<div class="order-head"><span class="due ${due.cls}" style="${due.style}">${esc(due.text)}</span><span class="buyer">${esc(buyer)}</span>${price}</div>${items}${url ? "</a>" : "</div>"}`;
   }
 
+  // Units to make of an item, as the app counts them (at least one).
+  _units(i) {
+    return Math.max(1, i.quantity || 1);
+  }
+
+  // Whether the item can be marked made here: the app sends made_quantity (integration 0.4.0 or later).
+  _canMark(i) {
+    return this._config.show_made && i.made_quantity !== undefined && i.transaction_id !== undefined;
+  }
+
+  // Units marked made: a tap still being saved wins over the sensor until the sensor shows it.
+  _made(o, i) {
+    const key = `${o.receipt_id}|${i.transaction_id}`;
+    const pending = this._pending?.get(key);
+    if (pending !== undefined && pending === (i.made_quantity || 0)) this._pending.delete(key);
+    const made = this._pending?.get(key) ?? i.made_quantity ?? 0;
+    return Math.min(this._units(i), Math.max(0, made));
+  }
+
+  // The Made checkbox: ticks one unit made per tap ("1/3", "2/3", "3/3"), and a tap on a fully made item clears it.
+  _madeButton(o, i, units, made) {
+    if (!this._canMark(i)) return "";
+    const done = made >= units;
+    const next = done ? 0 : made + 1;
+    const title = done ? "Made. Tap to unmark" : units > 1 ? `${made} of ${units} made. Tap to mark one more` : "Tap to mark made";
+    return `<button type="button" class="made-btn${done ? " on" : made ? " part" : ""}" aria-pressed="${done ? "true" : made ? "mixed" : "false"}"
+      title="${esc(title)}" aria-label="${esc(`${shortTitle(i.title)}: ${title}`)}" data-receipt="${esc(o.receipt_id)}"
+      data-transaction="${esc(i.transaction_id)}" data-next="${next}"><span class="box">${made ? "✓" : ""}</span>${units > 1 ? `<span class="count">${made}/${units}</span>` : ""}</button>`;
+  }
+
+  // A Made checkbox sits inside the order's link: the tap marks the item and doesn't open the order.
+  _onClick(e) {
+    const btn = e.composedPath().find((el) => el.classList?.contains("made-btn"));
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const receipt_id = btn.dataset.receipt;
+    const transaction_id = btn.dataset.transaction;
+    const made = Number(btn.dataset.next);
+    const key = `${receipt_id}|${transaction_id}`;
+    this._pending = this._pending || new Map();
+    this._pending.set(key, made);
+    this._render();
+    this._hass.callService("etsy_shop_manager", "set_made", { receipt_id, transaction_id, made }).catch((err) => {
+      this._pending.delete(key);
+      this._render();
+      this.dispatchEvent(new CustomEvent("hass-notification", {
+        detail: { message: `Couldn't save the Made mark: ${err?.message || err}` }, bubbles: true, composed: true,
+      }));
+    });
+  }
+
   _render() {
     if (!this._hass || !this._config) return;
-    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+      this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
+    }
     this.shadowRoot.innerHTML = `
       <style>
         ha-card { padding: 12px; display: flex; flex-direction: column; gap: 16px; }
@@ -565,6 +633,20 @@ class EtsyOrdersCard extends HTMLElement {
         .qty { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; font-weight: 600; font-size: 12px;
                color: var(--text-primary-color, #fff); background: var(--primary-color); }
         .vars { display: flex; flex-wrap: wrap; gap: 4px; }
+        /* Made checkbox: a box that fills in the success color; partly made items show the count beside it. */
+        .made-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; align-self: center; margin: -4px -4px -4px 0;
+                    padding: 6px; border: 0; background: none; color: var(--secondary-text-color); font: inherit; font-size: 12px;
+                    cursor: pointer; border-radius: 8px; -webkit-tap-highlight-color: transparent; }
+        .made-btn:hover { background: rgba(127, 127, 127, 0.15); }
+        .made-btn:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+        .made-btn .box { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+                         border: 2px solid var(--secondary-text-color); border-radius: 5px; font-size: 14px; font-weight: 700; line-height: 1; }
+        .made-btn.part .box { border-color: var(--success-color, #43a047); color: var(--success-color, #43a047); }
+        .made-btn.on .box { border-color: var(--success-color, #43a047); background: var(--success-color, #43a047); color: #fff; }
+        .made-btn.on, .made-btn.part { color: var(--primary-text-color); }
+        .item.made img, .item.made .noimg, .item.made .item-body { opacity: 0.55; }
+        .item.made .title { text-decoration: line-through; }
+        .make-done { color: var(--success-color, #43a047); font-weight: 500; }
         .var { font-size: 11px; padding: 1px 6px; border-radius: 8px; color: var(--secondary-text-color);
                border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3)); }
         .note { font-size: 13px; padding: 4px 8px; border-left: 3px solid var(--accent-color, var(--primary-color));

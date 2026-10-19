@@ -37,8 +37,10 @@ def order(receipt_id: str, ship_by: int = 1760800000) -> dict:
         "currency_code": "USD",
         "items": [
             {
+                "transaction_id": f"{receipt_id}0",
                 "title": "Galaxy vase",
                 "quantity": 1,
+                "made_quantity": 0,
                 "variations": [{"property": "Color", "value": "Black"}],
                 "listing_id": "7001",
                 "image_url": "https://i.etsystatic.com/x.jpg",

@@ -22,6 +22,12 @@ TRIGGER_NEW_ORDER = "new_order"
 
 API_PREFIX = "/api/ha/v1"
 
+# The set_made action (the card's Made checkboxes).
+SERVICE_SET_MADE = "set_made"
+ATTR_RECEIPT_ID = "receipt_id"
+ATTR_TRANSACTION_ID = "transaction_id"
+ATTR_MADE = "made"
+
 
 def scan_interval(options: dict) -> timedelta:
     """The polling interval from the entry options, clamped to the allowed range."""

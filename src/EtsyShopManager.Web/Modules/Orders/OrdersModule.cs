@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using EtsyShopManager.Core.Domain;
 using EtsyShopManager.Core.Events;
 using EtsyShopManager.Core.Jobs;
@@ -64,6 +65,19 @@ public sealed class OrdersModule : IModule
         });
         ha.MapGet("/shops/{shopId:long}/open-orders", async (long shopId, OrderQueries q, CancellationToken ct) =>
             await q.HaOpenOrdersAsync(shopId, ct) is { } payload ? Results.Json(payload) : Results.NotFound());
+
+        // The card's Made checkboxes: units made of one order item, as on the Orders page (kept in the app, never sent
+        // to Etsy). The only write in this API.
+        ha.MapPost("/orders/{receiptId:long}/items/{transactionId:long}/made",
+            async (long receiptId, long transactionId, HaMadeRequest body, OrderMadeService made, CancellationToken ct) =>
+                await made.SetMadeAsync(receiptId, transactionId, body.Made, ct) is { } saved
+                    ? Results.Json(new JsonObject
+                    {
+                        ["receipt_id"] = receiptId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        ["transaction_id"] = transactionId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        ["made_quantity"] = saved,
+                    })
+                    : Results.NotFound());
 
         // The HA card (homeassistant/www/etsy-orders-card.js, embedded at build time). The Orders page loads it for
         // the coloring engine it shares with the card. Public: it is the same file HA serves.
@@ -233,3 +247,6 @@ public sealed class GiftBuyerNamesOnShopConnected(IJobQueue queue) : IDomainEven
 {
     public Task HandleAsync(ShopConnected e, CancellationToken ct) => queue.EnqueueAsync(GiftBuyerNamesJob.Request("shop-connected"), ct);
 }
+
+/// <summary>Body of the Made call from Home Assistant: <c>{"made": 2}</c>, the units made of the item.</summary>
+public sealed record HaMadeRequest(int Made);

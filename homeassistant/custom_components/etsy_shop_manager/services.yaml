@@ -1,0 +1,20 @@
+set_made:
+  fields:
+    receipt_id:
+      required: true
+      example: "3001"
+      selector:
+        text:
+    transaction_id:
+      required: true
+      example: "9001"
+      selector:
+        text:
+    made:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 999
+          mode: box

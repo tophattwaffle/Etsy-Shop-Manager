@@ -68,6 +68,26 @@ public sealed class OrderMadeService(IDbContextFactory<AppDbContext> dbFactory)
         foreach (var row in await db.OrderItems.Where(i => ids.Contains(i.Id)).ToListAsync(ct))
             row.MadeQuantity = byId[row.Id];
         await db.SaveChangesAsync(ct);
+        Notify(source);
+    }
+
+    /// <summary>
+    /// Sets how many units of one order item are made, found by Etsy's receipt and transaction ids (the Home Assistant
+    /// card's Made checkboxes). Returns the saved count (capped to the quantity), or null when there is no such item.
+    /// </summary>
+    public async Task<int?> SetMadeAsync(long etsyReceiptId, long etsyTransactionId, int made, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var item = await db.OrderItems.FirstOrDefaultAsync(i => i.EtsyTransactionId == etsyTransactionId && i.Order.EtsyReceiptId == etsyReceiptId, ct);
+        if (item is null) return null;
+        item.MadeQuantity = Math.Clamp(made, 0, item.UnitsToMake);
+        await db.SaveChangesAsync(ct);
+        Notify(null);
+        return item.MadeQuantity;
+    }
+
+    private void Notify(object? source)
+    {
         // A page that went away mid-call must not fail the save for the page that made it.
         foreach (var handler in Changed?.GetInvocationList().Cast<Action<object?>>() ?? [])
         {

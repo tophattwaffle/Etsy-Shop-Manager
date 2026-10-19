@@ -148,7 +148,7 @@ public class OrderMadeTests
     }
 
     [Fact]
-    public async Task The_Home_Assistant_payload_still_counts_every_item()
+    public async Task The_Home_Assistant_payload_carries_made_units_and_still_counts_every_item()
     {
         var (shop, made, queries) = await PolledAsync(Receipt(1, quantity: 2));
         using var _ = shop;
@@ -157,7 +157,28 @@ public class OrderMadeTests
         var payload = HaPayloadBuilder.OpenOrders(await queries.GetOpenOrdersAsync(null), TimeZoneInfo.Utc);
 
         Assert.Equal(2, (int)payload["total_items_needed"]!);
-        Assert.DoesNotContain("made", payload.ToJsonString());
+        var item = payload["open_orders"]![0]!["items"]![0]!;
+        Assert.Equal(("10", 2), ((string?)item["transaction_id"], (int)item["made_quantity"]!));
+    }
+
+    [Fact]
+    public async Task The_card_marks_an_item_by_receipt_and_transaction_and_open_pages_hear_it()
+    {
+        var (shop, made, queries) = await PolledAsync(Receipt(1, quantity: 2), Receipt(2));
+        using var _ = shop;
+        var heard = 0;
+        made.Changed += _ => heard++;
+        shop.Api.Requests.Clear();
+
+        Assert.Equal(2, await made.SetMadeAsync(1, 10, 5)); // capped to the quantity
+        Assert.Equal(0, await made.SetMadeAsync(2, 20, -1));
+        Assert.Null(await made.SetMadeAsync(1, 20, 1)); // transaction 20 belongs to receipt 2
+        Assert.Null(await made.SetMadeAsync(9, 90, 1));
+
+        var open = await queries.GetOpenOrdersAsync(null);
+        Assert.Equal((2, 0), (Item(open, 1).MadeQuantity, Item(open, 2).MadeQuantity));
+        Assert.Equal(2, heard);
+        Assert.Empty(shop.Api.Requests); // nothing goes to Etsy
     }
 
     private static OrderItem Item(IEnumerable<Order> orders, long receiptId) =>
