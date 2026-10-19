@@ -22,7 +22,7 @@ public class NavigationTests
     [Fact]
     public void Top_level_sidebar_has_one_Templates_entry_and_admin_pages_sit_under_Settings()
     {
-        Assert.Equal(["Shops", "Orders", "Packing slips", "Listings", "Templates", "Lookups"],
+        Assert.Equal(["Dashboard", "Shops", "Orders", "Packing slips", "Listings", "Templates", "Lookups"],
             Registry.NavItems.Where(i => i.Group is null).Select(i => i.Title));
         Assert.Equal(["General", "Jobs", "Users", "Audit log", "API keys", "Etsy writes", "Order colors", "Photo order test"],
             Registry.NavItems.Where(i => i.Group == NavGroups.Settings).Select(i => i.Title));

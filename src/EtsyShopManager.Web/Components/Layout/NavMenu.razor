@@ -1,44 +1,133 @@
+@using System.Security.Claims
+@using EtsyShopManager.Web.Modules.Navigation
 @inject ModuleRegistry Modules
 @inject NavigationManager Nav
+@inject SidebarOrderService Orders
 
+@* Each user can put the sidebar in their own order: Reorder turns the links into rows that can be dragged or moved with
+   the arrows (pages and groups among their neighbours, a group's pages within it). Every move is saved at once, per
+   user, so the order follows them to other devices. *@
 <AuthorizeView>
     <Authorized>
-        <MudNavMenu Class="esm-nav">
-            <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
-            @{ var visible = Modules.NavItems.Where(i => CanSee(i, context.User)).ToList(); var shownGroups = new HashSet<string>(); }
-            @foreach (var item in visible)
-            {
-                if (item.Group is null)
-                {
-                    @Link(item)
-                }
-                else if (shownGroups.Add(item.Group))
-                {
-                    // A group sits where its first item would, and starts open while one of its pages is showing.
-                    var group = item.Group;
-                    var children = visible.Where(i => i.Group == group).ToList();
-                    <MudNavGroup Title="@group" Icon="@GroupIcon(group)" Expanded="@IsOpen(group, children)"
-                                 ExpandedChanged="@(open => _open[group] = open)">
-                        @foreach (var child in children)
+        @{ var entries = Entries(context.User); }
+        @if (_editing)
+        {
+            <div class="esm-nav esm-nav-edit">
+                <p class="esm-nav-edit-hint small muted">Drag a page or group, or use the arrows. Changes are saved as you go.</p>
+                <div role="list" aria-label="Sidebar order">
+                    @foreach (var entry in entries)
+                    {
+                        @EditRow(entries, entry, entries, false)
+                        @foreach (var child in entry.Children)
                         {
-                            @Link(child)
+                            @EditRow(entries, child, entry.Children, true)
                         }
-                    </MudNavGroup>
+                    }
+                </div>
+                <div class="esm-nav-edit-actions">
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ResetAsync" Disabled="@(_saved is null)">Reset to default</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => _editing = false">Done</MudButton>
+                </div>
+            </div>
+        }
+        else
+        {
+            <MudNavMenu Class="esm-nav">
+                @foreach (var entry in entries)
+                {
+                    if (entry.Item is { } item)
+                    {
+                        @Link(item)
+                    }
+                    else
+                    {
+                        // A group starts open while one of its pages is showing.
+                        var group = entry.Group!;
+                        <MudNavGroup Title="@group" Icon="@GroupIcon(group)" Expanded="@IsOpen(group, entry.Children)"
+                                     ExpandedChanged="@(open => _open[group] = open)">
+                            @foreach (var child in entry.Children)
+                            {
+                                @Link(child.Item!)
+                            }
+                        </MudNavGroup>
+                    }
                 }
-            }
-        </MudNavMenu>
+            </MudNavMenu>
+            <div class="esm-nav-foot">
+                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.SwapVert" Class="esm-nav-reorder"
+                           OnClick="() => _editing = true">Reorder</MudButton>
+            </div>
+        }
     </Authorized>
 </AuthorizeView>
 
 @code {
-    private readonly Dictionary<string, bool> _open = [];
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
-    private static bool CanSee(NavItem item, System.Security.Claims.ClaimsPrincipal user) =>
+    private readonly Dictionary<string, bool> _open = [];
+    private string _userId = "";
+    private List<string>? _saved;
+    private bool _editing;
+    private string? _dragKey;
+    private string? _overKey;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState).User;
+        _userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.Identity?.Name ?? "";
+        if (_userId.Length > 0) _saved = await Orders.GetAsync(_userId);
+    }
+
+    private List<SidebarEntry> Entries(ClaimsPrincipal user) =>
+        SidebarLayout.Build(Modules.NavItems.Where(i => CanSee(i, user)), _saved);
+
+    private static bool CanSee(NavItem item, ClaimsPrincipal user) =>
         item.Roles is null || item.Roles.Split(',').Any(r => user.IsInRole(r.Trim()));
 
     private static RenderFragment Link(NavItem item) =>
         @<MudNavLink Href="@item.Href" Icon="@item.Icon"
                      Match="@(item.MatchAll ? NavLinkMatch.All : NavLinkMatch.Prefix)">@item.Title</MudNavLink>;
+
+    private RenderFragment EditRow(List<SidebarEntry> all, SidebarEntry entry, IReadOnlyList<SidebarEntry> siblings, bool child)
+    {
+        var index = siblings.ToList().FindIndex(e => e.Key == entry.Key);
+        var target = _overKey == entry.Key && _dragKey is { } drag && drag != entry.Key
+                     && SidebarLayout.ParentOf(all, drag) == SidebarLayout.ParentOf(all, entry.Key);
+        var css = $"esm-nav-row{(child ? " is-child" : "")}{(entry.Group is null ? "" : " is-group")}" +
+                  $"{(_dragKey == entry.Key ? " is-dragging" : "")}{(target ? " is-drop-target" : "")}";
+        return @<div @key="entry.Key" class="@css" role="listitem" draggable="true"
+                     @ondragstart="() => _dragKey = entry.Key" @ondragend="() => { _dragKey = null; _overKey = null; }"
+                     @ondragenter="() => _overKey = entry.Key" @ondragover:preventDefault="true" @ondrop="() => DropAsync(all, entry.Key)">
+            <MudIcon Icon="@Icons.Material.Filled.DragIndicator" Size="Size.Small" Class="esm-nav-grip" aria-hidden="true" />
+            <MudIcon Icon="@(entry.Item?.Icon ?? GroupIcon(entry.Group!))" Size="Size.Small" aria-hidden="true" />
+            <span class="esm-nav-row-title" title="@entry.Title">@entry.Title</span>
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Disabled="@(index == 0)"
+                           aria-label="@($"Move {entry.Title} up")" title="Move up" OnClick="() => SaveAsync(SidebarLayout.MoveBy(all, entry.Key, -1))" />
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Disabled="@(index == siblings.Count - 1)"
+                           aria-label="@($"Move {entry.Title} down")" title="Move down" OnClick="() => SaveAsync(SidebarLayout.MoveBy(all, entry.Key, 1))" />
+        </div>;
+    }
+
+    // Dropping on a neighbour puts the dragged entry in its place.
+    private async Task DropAsync(List<SidebarEntry> all, string target)
+    {
+        var drag = _dragKey;
+        _dragKey = null;
+        _overKey = null;
+        if (drag is not null && drag != target) await SaveAsync(SidebarLayout.MoveTo(all, drag, target));
+    }
+
+    private async Task SaveAsync(List<SidebarEntry> entries)
+    {
+        _saved = SidebarLayout.Keys(entries);
+        await Orders.SaveAsync(_userId, _saved);
+    }
+
+    private async Task ResetAsync()
+    {
+        _saved = null;
+        await Orders.ResetAsync(_userId);
+    }
 
     private static string GroupIcon(string group) => group switch
     {
@@ -46,10 +135,10 @@
         _ => Icons.Material.Filled.Folder,
     };
 
-    private bool IsOpen(string group, List<NavItem> children)
+    private bool IsOpen(string group, IReadOnlyList<SidebarEntry> children)
     {
         if (_open.TryGetValue(group, out var open)) return open;
         var path = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
-        return children.Any(c => path == c.Href || path.StartsWith(c.Href + "/", StringComparison.OrdinalIgnoreCase));
+        return children.Any(c => path == c.Item!.Href || path.StartsWith(c.Item!.Href + "/", StringComparison.OrdinalIgnoreCase));
     }
 }

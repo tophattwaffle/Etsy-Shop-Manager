@@ -111,7 +111,8 @@ var modules = builder.AddModules(
     new EtsyShopManager.Web.Modules.Stock.EditorModule(),
     new EtsyShopManager.Web.Modules.Templates.TemplatesModule(),
     new JobsModule(),
-    new AdminModule());
+    new AdminModule(),
+    new EtsyShopManager.Web.Modules.Navigation.NavigationModule());
 
 var app = builder.Build();
 
