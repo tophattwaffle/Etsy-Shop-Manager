@@ -144,6 +144,9 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .mud-table-head .mud-table-cell, .mud-simple-table thead th { font-weight: 600; color: var(--esm-muted); }
 .mud-alert { border-radius: var(--esm-radius); }
 .mud-chip { font-weight: 600; }
+/* Multi-line text boxes (a MudTextField with Lines) can be made taller or shorter by dragging their bottom-right corner;
+   MudBlazor turns that off. Single-line inputs are not textareas, so they stay as they are. */
+.mud-input > textarea.mud-input-root { resize: vertical; min-height: 1.5em; }
 /* Links are ink like the text around them, so they are always underlined (as on Etsy). */
 .mud-link, .esm-content a:not([class]) { text-decoration: underline; text-underline-offset: 2px; }
 

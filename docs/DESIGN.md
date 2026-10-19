@@ -60,6 +60,10 @@ usually with `SavedValues<T>` (a record of its fields, compared by value), so ty
 it. Text fields use `Immediate="true"` so Save lights up while typing. Something new that has never been saved passes
 `New`, so Save works before any change. Dialogs keep their own Save and Cancel (Cancel closes them). *(checked)*
 
+**Text boxes.** Longer text (descriptions, notes, addresses, templates, slip layouts) uses a `MudTextField` with `Lines`,
+sized for typical content. Every multi-line box can be dragged taller or shorter by its bottom-right corner, through the
+shared style in `app.css`; single-line inputs don't resize. Never turn resizing off for one box. *(checked)*
+
 **Status.** Prefer a small dot in the status colour next to plain text, or the `lp-badge` pill used on the listing cards.
 MudChips with `Color.Success`/`Error` are acceptable in tables. Never put status in colour alone: the text says it too.
 Ship-by times use the `esm-due` pill (`OrderDue.For` sets its text and hue), which copies the Home Assistant card: "2d 5h"

@@ -141,6 +141,18 @@ public partial class DesignRulesTests
     }
 
     /// <summary>
+    /// Every multi-line text box can be dragged taller or shorter (MudBlazor turns resizing off), and nothing in app.css
+    /// turns it back off for a single box.
+    /// </summary>
+    [Fact]
+    public void Multi_line_text_boxes_resize_vertically()
+    {
+        var css = File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.css"));
+        Assert.Contains(".mud-input > textarea.mud-input-root { resize: vertical;", css);
+        Assert.DoesNotContain("resize: none", css);
+    }
+
+    /// <summary>
     /// Data tables sort by clicking a column header: every labelled header cell is a <c>&lt;SortHeader&gt;</c> (or a
     /// <c>MudTableSortLabel</c> in a MudTable). Header cells without a label (checkboxes, photos, actions) are fine, and an
     /// editing grid whose rows must keep their order opts out with <c>&lt;thead class="esm-fixed-order"&gt;</c>.
