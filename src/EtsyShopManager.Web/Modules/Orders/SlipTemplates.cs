@@ -31,7 +31,11 @@ public sealed record SlipTotal(string Label, string Amount);
 public sealed record SlipOrder(long ReceiptId, string OrderDate, string? ShipBy, string? BuyerName, string? ShipToName,
     IReadOnlyList<string> AddressLines, string? PaymentMethod, string? ShippingMethod, string? NoteFromBuyer, bool IsGift,
     string? GiftMessage, string? GiftFrom, int ItemCount, IReadOnlyList<SlipTotal> Totals, string OrderTotal, string? PhotoUrl,
-    bool AddressChanged, string? EtsyShipToName, IReadOnlyList<string> EtsyAddressLines);
+    bool AddressChanged, string? EtsyShipToName, IReadOnlyList<string> EtsyAddressLines)
+{
+    /// <summary>The buyer's email, under Buyer as on Etsy's slip; nil when Etsy doesn't share it (see <see cref="OrderPrintService.BuyerEmail"/>).</summary>
+    public string? BuyerEmail { get; init; }
+}
 
 /// <summary>One item as a slip layout sees it (<c>item.title</c>, <c>item.price</c> as "2 x $12.99", …).</summary>
 public sealed record SlipItem(string Title, IReadOnlyList<string> Variations, string? Personalization, int Quantity, string Price,
@@ -63,7 +67,7 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
                 OrderPrintService.GiftSender(order),
                 items.Sum(i => Math.Max(1, i.Quantity)), [.. details.Totals.Select(t => new SlipTotal(t.Label, t.Amount))],
                 details.OrderTotal, items.Select(i => i.ImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)),
-                order.AddressOverride is not null, etsyAddress.Name, etsyAddress.Lines),
+                order.AddressOverride is not null, etsyAddress.Name, etsyAddress.Lines) { BuyerEmail = OrderPrintService.BuyerEmail(order) },
             [.. items.Select(i =>
             {
                 var (variations, personalization) = OrderPrintService.Split(i);
@@ -92,7 +96,7 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
             ["1 Example Street", "Apt 2", "Springfield, IL 62701", "United States"], "Paid via Etsy Payments", "USPS Ground Advantage",
             kind == SlipKind.Gift ? null : "Could you wrap it? Thank you!", kind == SlipKind.Gift,
             kind == SlipKind.Gift ? "Happy birthday! Love you lots." : null, kind == SlipKind.Gift ? "Alex" : null, 3,
-            [new("Item total", "$37.97"), new("Shipping total", "$5.00")], "$42.97", null, false, null, []),
+            [new("Item total", "$37.97"), new("Shipping total", "$5.00")], "$42.97", null, false, null, []) { BuyerEmail = "alex.sample@example.com" },
         [
             new("Sample item | desk decor | gift idea", ["Color: Blue", "Size: Large"], "Sam", 2, "2 x $12.99", null),
             new("Another sample item", ["Color: Yellow"], null, 1, "1 x $11.99", null),
