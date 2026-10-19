@@ -80,6 +80,9 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>Buyers' first names for getUser (a buyer not listed is a 404, a null name comes back without one).</summary>
     public Dictionary<long, string?> BuyerFirstNames { get; } = [];
 
+    /// <summary>Buyers' last names for getUser (none when not listed).</summary>
+    public Dictionary<long, string?> BuyerLastNames { get; } = [];
+
     /// <summary>Runs after each receipts page is served (to change receipts in the middle of a poll).</summary>
     public Action<int>? AfterReceiptsPage { get; set; }
 
@@ -307,7 +310,7 @@ internal sealed class FakeEtsyShop : IDisposable
         }
         if (path.StartsWith("/v3/application/users/") && long.TryParse(path["/v3/application/users/".Length..], out var userId))
             return BuyerFirstNames.TryGetValue(userId, out var firstName)
-                ? Json(new JsonObject { ["user_id"] = userId, ["first_name"] = firstName })
+                ? Json(new JsonObject { ["user_id"] = userId, ["first_name"] = firstName, ["last_name"] = BuyerLastNames.GetValueOrDefault(userId) })
                 : new HttpResponseMessage(HttpStatusCode.NotFound);
         if (path == "/v3/application/listings/batch")
         {

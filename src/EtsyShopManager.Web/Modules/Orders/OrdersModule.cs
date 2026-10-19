@@ -189,8 +189,9 @@ public sealed class PollOrdersOnShopConnected(OrderPollQueue queue) : IDomainEve
 }
 
 /// <summary>
-/// Reads the buyer's first name for gift orders stored without one, so their gift slips print "- Kate" like Etsy's
-/// (getUser, GET only). Queued at startup by <see cref="GiftBuyerNamesStartup"/> and whenever a shop is (re)connected,
+/// Reads buyers' names from their Etsy profiles for orders stored without them (getUser, GET only): the first name for
+/// gift orders, so their gift slips print "- Kate", and the full name for open orders, printed under Buyer like Etsy's
+/// packing slip. Queued at startup by <see cref="GiftBuyerNamesStartup"/> and whenever a shop is (re)connected,
 /// which is how a shop's token gets the scope this needs. Orders that already have a name are left alone, so running it
 /// again only costs calls for buyers Etsy didn't name before.
 /// </summary>
@@ -198,7 +199,7 @@ public sealed class GiftBuyerNamesJob(IDbContextFactory<AppDbContext> dbFactory,
 {
     public const string Type = "etsy.orders.gift-buyer-names";
     public string JobType => Type;
-    public string DisplayName => "Read buyer names for gift slips";
+    public string DisplayName => "Read buyer names for slips";
 
     public static JobRequest Request(string createdBy) => new() { JobType = Type, DedupeKey = Type, CreatedBy = createdBy };
 
@@ -218,12 +219,12 @@ public sealed class GiftBuyerNamesJob(IDbContextFactory<AppDbContext> dbFactory,
             named += result.Named;
             if (!result.CanRead && result.Orders > 0) needReconnect.Add(name);
         }
-        context.Result = (orders == 0 ? "every gift order has a buyer name" : $"{named} of {orders} gift order(s) named")
+        context.Result = (orders == 0 ? "every open and gift order has a buyer name" : $"{named} of {orders} order(s) named")
             + (needReconnect.Count == 0 ? "" : $"; reconnect {string.Join(" and ", needReconnect)} to allow buyer names");
     }
 }
 
-/// <summary>Queues <see cref="GiftBuyerNamesJob"/> at startup when gift orders lack a buyer name.</summary>
+/// <summary>Queues <see cref="GiftBuyerNamesJob"/> at startup when open or gift orders lack a buyer name.</summary>
 public sealed class GiftBuyerNamesStartup(IDbContextFactory<AppDbContext> dbFactory, IJobQueue queue,
     ILogger<GiftBuyerNamesStartup> logger) : IHostedService
 {
@@ -232,12 +233,15 @@ public sealed class GiftBuyerNamesStartup(IDbContextFactory<AppDbContext> dbFact
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
-            if (await db.Orders.AnyAsync(o => o.IsGift && o.GiftFromName == null && o.BuyerUserId > 0, ct))
+            var candidates = await db.Orders.Where(o => o.BuyerUserId > 0
+                    && (o.IsGift && o.GiftFromName == null || o.IsPaid && !o.IsShipped && o.BuyerProfileName == null))
+                .ToListAsync(ct);
+            if (candidates.Any(OrderPoller.NeedsBuyerName))
                 await queue.EnqueueAsync(GiftBuyerNamesJob.Request("system"), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Could not queue reading buyer names for gift slips; it is tried again at the next start");
+            logger.LogError(ex, "Could not queue reading buyer names for slips; it is tried again at the next start");
         }
     }
 

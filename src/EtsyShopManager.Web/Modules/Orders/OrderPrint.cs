@@ -98,9 +98,75 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         var locations = await GetLocationsAsync(ids, ct);
         var stars = await GetStarSellersAsync(ids, ct);
         var giftMessages = await GetDefaultGiftMessagesAsync(ids, ct);
-        return ids.ToDictionary(id => id,
-            id => new SlipModel.ShopSettings(notes.GetValueOrDefault(id), locations.GetValueOrDefault(id), stars.Contains(id),
-                giftMessages[id]));
+        var from = await GetFromAddressesAsync(ids, ct);
+        return ids.ToDictionary(id => id, id =>
+        {
+            var fromLines = FromLines(from.GetValueOrDefault(id));
+            // The location line under the shop's name is the ships-from address's city and state; a location line typed
+            // before the address existed is used until an address is set.
+            return new SlipModel.ShopSettings(notes.GetValueOrDefault(id), CityState(fromLines) ?? locations.GetValueOrDefault(id),
+                stars.Contains(id), giftMessages[id], fromLines);
+        });
+    }
+
+    public const int MaxFromAddressLength = 300;
+
+    /// <summary>The shop's ships-from address (Packing slips page), printed under From on its packing slips like Etsy's.</summary>
+    public static string FromAddressKey(int shopId) => $"Shops.FromAddress.{shopId}";
+
+    public Task<Dictionary<int, string>> GetFromAddressesAsync(IEnumerable<int> shopIds, CancellationToken ct = default) =>
+        GetPerShopAsync(shopIds, FromAddressKey, ct);
+
+    /// <summary>
+    /// Sets a shop's ships-from address (empty for none). Its city and state are the shop's location line from then on, so
+    /// a location line typed before the address existed is cleared.
+    /// </summary>
+    public async Task<string?> SetFromAddressAsync(int shopId, string? text, string? user, CancellationToken ct = default)
+    {
+        var lines = FromLines(text);
+        var value = lines.Count == 0 ? null : string.Join("\n", lines);
+        if (value?.Length > MaxFromAddressLength) return $"Keep the ships-from address to {MaxFromAddressLength} characters.";
+        await settings.SetAsync(FromAddressKey(shopId), value, updatedBy: user, ct: ct);
+        await settings.SetAsync(LocationKey(shopId), null, updatedBy: user, ct: ct); // the location line comes from the address now
+        await audit.WriteAsync("shop.from-address", nameof(Shop), shopId.ToString(), value is null ? "cleared" : "set", user, ct);
+        return null;
+    }
+
+    /// <summary>An address's lines, trimmed, without blank ones.</summary>
+    public static List<string> FromLines(string? text) =>
+        [.. (text ?? "").Replace("\r", "").Split('\n').Select(l => string.Join(' ', l.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
+            .Where(l => l.Length > 0)];
+
+    private static readonly Dictionary<string, string> UsStates = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["AL"] = "Alabama", ["AK"] = "Alaska", ["AZ"] = "Arizona", ["AR"] = "Arkansas", ["CA"] = "California", ["CO"] = "Colorado",
+        ["CT"] = "Connecticut", ["DE"] = "Delaware", ["DC"] = "District of Columbia", ["FL"] = "Florida", ["GA"] = "Georgia",
+        ["HI"] = "Hawaii", ["ID"] = "Idaho", ["IL"] = "Illinois", ["IN"] = "Indiana", ["IA"] = "Iowa", ["KS"] = "Kansas",
+        ["KY"] = "Kentucky", ["LA"] = "Louisiana", ["ME"] = "Maine", ["MD"] = "Maryland", ["MA"] = "Massachusetts",
+        ["MI"] = "Michigan", ["MN"] = "Minnesota", ["MS"] = "Mississippi", ["MO"] = "Missouri", ["MT"] = "Montana",
+        ["NE"] = "Nebraska", ["NV"] = "Nevada", ["NH"] = "New Hampshire", ["NJ"] = "New Jersey", ["NM"] = "New Mexico",
+        ["NY"] = "New York", ["NC"] = "North Carolina", ["ND"] = "North Dakota", ["OH"] = "Ohio", ["OK"] = "Oklahoma",
+        ["OR"] = "Oregon", ["PA"] = "Pennsylvania", ["RI"] = "Rhode Island", ["SC"] = "South Carolina", ["SD"] = "South Dakota",
+        ["TN"] = "Tennessee", ["TX"] = "Texas", ["UT"] = "Utah", ["VT"] = "Vermont", ["VA"] = "Virginia", ["WA"] = "Washington",
+        ["WV"] = "West Virginia", ["WI"] = "Wisconsin", ["WY"] = "Wyoming", ["PR"] = "Puerto Rico",
+    };
+
+    /// <summary>
+    /// "Lombard, Illinois" from an address with a "LOMBARD, IL 60148-2600" line, as Etsy's gift slip prints the shop's
+    /// location: the city in title case and the state written out (a state that isn't a US code stays as typed). Null when
+    /// no line has a city and state.
+    /// </summary>
+    public static string? CityState(IReadOnlyList<string> lines)
+    {
+        foreach (var line in lines.Reverse())
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(line, @"^(?<city>[^,]+),\s*(?<state>[A-Za-z .]+?)(\s+[A-Za-z0-9-]*\d[A-Za-z0-9 -]*)?$");
+            if (!m.Success) continue;
+            var city = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(m.Groups["city"].Value.Trim().ToLowerInvariant());
+            var state = m.Groups["state"].Value.Trim();
+            return $"{city}, {(UsStates.TryGetValue(state, out var name) ? name : state)}";
+        }
+        return null;
     }
 
     public const string DefaultGiftMessageText = "Enjoy your gift from Etsy";
@@ -191,11 +257,6 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     private static string? ShippingMethod(JsonObject? receipt) => (receipt?["transactions"] as JsonArray ?? [])
         .Select(t => Text(t?["shipping_upgrade"]) ?? Text(t?["shipping_method"])).FirstOrDefault(s => s is not null);
 
-    /// <summary>
-    /// The buyer's email from the receipt (Etsy's buyer_email), printed under Buyer as on Etsy's slip. Null when Etsy didn't
-    /// send it: Etsy shares buyers' emails only with apps it has approved for that, case by case.
-    /// </summary>
-    public static string? BuyerEmail(Order order) => Text(Receipt(order)?["buyer_email"]);
 
     /// <summary>The destination country's ISO code from the receipt (upper case; null when missing).</summary>
     public static string? CountryIso(Order order) => Text(Receipt(order)?["country_iso"])?.ToUpperInvariant();

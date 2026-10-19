@@ -132,6 +132,42 @@ public class OrderPrintTests
         Assert.Empty(await print.GetNotesAsync([1, 2])); // kept apart from the packing slip note
     }
 
+    [Theory]
+    [InlineData("Sample Shop\n1 Example Street\nPmb 120\nSPRINGFIELD, IL 62701-1234\nUnited States", "Springfield, Illinois")]
+    [InlineData("Sample Shop\n9 Test Road, Unit 4\nSan Luis Obispo, CA 93401", "San Luis Obispo, California")]
+    [InlineData("Sample Shop\n12 Maple Ave\nToronto, ON M5V 2T6\nCanada", "Toronto, ON")]
+    [InlineData("Sample Shop\n1 Example Street", null)]
+    [InlineData("", null)]
+    public void The_gift_slip_location_is_the_ships_from_addresss_city_and_state(string address, string? expected) =>
+        Assert.Equal(expected, OrderPrintService.CityState(OrderPrintService.FromLines(address)));
+
+    [Fact]
+    public async Task The_ships_from_address_prints_under_From_and_gives_the_location_line()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        var settings = new InMemorySettings();
+        var print = new OrderPrintService(db, settings, new NullAuditLog());
+        await print.SetLocationAsync(1, "Old Town, Somewhere", "tophattwaffle"); // typed before the address existed
+
+        Assert.Null(await print.SetFromAddressAsync(1, "  Sample   Shop \r\n1 Example Street\n\nSPRINGFIELD, IL 62701\nUnited States  ", "tophattwaffle"));
+        Assert.Equal("Sample Shop\n1 Example Street\nSPRINGFIELD, IL 62701\nUnited States", (await print.GetFromAddressesAsync([1]))[1]);
+        Assert.Empty(await print.GetLocationsAsync([1])); // replaced by the address's city and state
+        Assert.Equal("Keep the ships-from address to 300 characters.", await print.SetFromAddressAsync(1, new string('x', 301), "tophattwaffle"));
+
+        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.Contains("<div class=\"slip-label\">From</div><div>Sample Shop</div><div>1 Example Street</div><div>SPRINGFIELD, IL 62701</div><div>United States</div>", slips);
+        var gift = slips[slips.IndexOf("<section class=\"gift-slip\"", StringComparison.Ordinal)..];
+        Assert.Contains("<div>Springfield, Illinois</div>", gift);
+        Assert.DoesNotContain("Old Town", slips);
+
+        // No address: no From on the slip, and no location line.
+        Assert.Null(await print.SetFromAddressAsync(1, " ", "tophattwaffle"));
+        slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1,2");
+        Assert.DoesNotContain("slip-label\">From<", slips);
+        Assert.DoesNotContain("Springfield, Illinois", slips);
+    }
+
     [Fact]
     public async Task Completed_and_shipped_orders_still_print_from_history()
     {
@@ -367,25 +403,21 @@ public class OrderPrintTests
     }
 
     [Fact]
-    public async Task The_buyers_email_prints_under_buyer_when_Etsy_sends_it()
+    public async Task Buyer_shows_the_name_on_the_buyers_Etsy_profile_like_Etsys_slip()
     {
         using var db = new TestDb();
         await SeedAsync(db, firstIsGift: false);
         await using (var ctx = db.CreateDbContext())
-        {
-            var order = await ctx.Orders.SingleAsync(o => o.Id == 2);
-            order.RawJson = order.RawJson.Replace("{\"name\":\"Other Sample\",", "{\"name\":\"Other Sample\",\"buyer_email\":\"other.sample@example.com\",");
-            await ctx.SaveChangesAsync();
-        }
+            await ctx.Orders.Where(o => o.Id == 2).ExecuteUpdateAsync(s => s.SetProperty(o => o.BuyerProfileName, "Pat Sample"));
 
         var slips = await RenderAsync<PrintPackingSlips>(db, new InMemorySettings(), "orders/print/slips?ids=1,2");
 
-        var buyer = slips[slips.IndexOf("<div class=\"slip-label\">Buyer</div>", StringComparison.Ordinal)..];
-        Assert.StartsWith("<div class=\"slip-label\">Buyer</div><div>Other Sample</div><div>other.sample@example.com</div>", buyer);
-        // Order 1's receipt has no buyer_email (Etsy only shares it with apps it approved): no empty line for it.
-        Assert.Equal(1, CountOf(slips, "@example.com"));
+        // Order 2 (printed first): the profile name under Buyer, the receipt's name under Ship to.
+        var buyers = slips.Split("<div class=\"slip-label\">Buyer</div>")[1..].Select(s => s[..s.IndexOf("</div>", StringComparison.Ordinal)].Trim()).ToList();
+        Assert.Equal(["<div>Pat Sample", "<div>Sample Buyer"], buyers); // order 1 has no profile name yet: the receipt's name
+        Assert.Contains("<div class=\"slip-label\">Ship to</div><div>Other Sample</div>", slips);
+        Assert.DoesNotContain("buyer_email", SlipLayoutService.BuiltIn(SlipKind.Packing).Html); // Etsy doesn't share emails
     }
-
     [Fact]
     public async Task Apostrophes_print_as_apostrophes_on_gift_slips()
     {

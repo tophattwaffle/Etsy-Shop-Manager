@@ -51,6 +51,12 @@
             </div>
             {%- endif %}
             <hr class="slip-rule-short" />
+            {%- if shop.from_lines.size > 0 %}
+            <div class="slip-field">
+                <div class="slip-label">From</div>
+                {%- for line in shop.from_lines %}<div>{{ line }}</div>{% endfor %}
+            </div>
+            {%- endif %}
             <div class="slip-field">
                 <div class="slip-label">Order</div>
                 <div>#{{ order.receipt_id }}</div>
@@ -59,11 +65,10 @@
                 <div class="slip-label">Order date</div>
                 <div>{{ order.order_date }}</div>
             </div>
-            {%- if order.buyer_name or order.buyer_email %}
+            {%- if order.buyer_name %}
             <div class="slip-field">
                 <div class="slip-label">Buyer</div>
-                {%- if order.buyer_name %}<div>{{ order.buyer_name }}</div>{% endif %}
-                {%- if order.buyer_email %}<div>{{ order.buyer_email }}</div>{% endif %}
+                <div>{{ order.buyer_name }}</div>
             </div>
             {%- endif %}
             {%- if order.payment_method %}

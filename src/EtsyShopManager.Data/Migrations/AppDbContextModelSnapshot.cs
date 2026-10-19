@@ -847,6 +847,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<string>("BuyerName")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("BuyerProfileName")
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("BuyerUserId")
                         .HasColumnType("INTEGER");
 

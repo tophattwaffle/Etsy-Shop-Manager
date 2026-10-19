@@ -15,7 +15,11 @@ namespace EtsyShopManager.Web.Modules.Orders;
 /// <param name="Note">The shop's packing slip note ("A note from the shop").</param>
 /// <param name="QrCode">A QR code to the shop's Etsy page, as SVG markup: print it with <c>{{ shop.qr_code | raw }}</c>.</param>
 public sealed record SlipShop(string Name, string? Title, string Address, string? IconUrl, string? Location, bool StarSeller,
-    int? Sales, string? Note, string QrCode);
+    int? Sales, string? Note, string QrCode)
+{
+    /// <summary>The shop's ships-from address, one line each (<c>shop.from_lines</c>), printed under From as on Etsy's slip.</summary>
+    public IReadOnlyList<string> FromLines { get; init; } = [];
+}
 
 /// <summary>One line of a slip's totals ("Item total", "$51.96").</summary>
 public sealed record SlipTotal(string Label, string Amount);
@@ -31,11 +35,7 @@ public sealed record SlipTotal(string Label, string Amount);
 public sealed record SlipOrder(long ReceiptId, string OrderDate, string? ShipBy, string? BuyerName, string? ShipToName,
     IReadOnlyList<string> AddressLines, string? PaymentMethod, string? ShippingMethod, string? NoteFromBuyer, bool IsGift,
     string? GiftMessage, string? GiftFrom, int ItemCount, IReadOnlyList<SlipTotal> Totals, string OrderTotal, string? PhotoUrl,
-    bool AddressChanged, string? EtsyShipToName, IReadOnlyList<string> EtsyAddressLines)
-{
-    /// <summary>The buyer's email, under Buyer as on Etsy's slip; nil when Etsy doesn't share it (see <see cref="OrderPrintService.BuyerEmail"/>).</summary>
-    public string? BuyerEmail { get; init; }
-}
+    bool AddressChanged, string? EtsyShipToName, IReadOnlyList<string> EtsyAddressLines);
 
 /// <summary>One item as a slip layout sees it (<c>item.title</c>, <c>item.price</c> as "2 x $12.99", …).</summary>
 public sealed record SlipItem(string Title, IReadOnlyList<string> Variations, string? Personalization, int Quantity, string Price,
@@ -46,7 +46,9 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
 {
     /// <summary>A shop's own slip settings (Packing slips page) that go on its slips.</summary>
     /// <param name="DefaultGiftMessage">Printed as the gift message when the buyer wrote none (Packing slips page).</param>
-    public sealed record ShopSettings(string? Note, string? Location, bool StarSeller, string? DefaultGiftMessage = null);
+    /// <param name="FromLines">The ships-from address, one line each (Packing slips page).</param>
+    public sealed record ShopSettings(string? Note, string? Location, bool StarSeller, string? DefaultGiftMessage = null,
+        IReadOnlyList<string>? FromLines = null);
 
     /// <summary>The model for one stored order.</summary>
     public static SlipModel For(Order order, ShopSettings shop)
@@ -62,12 +64,12 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
             ShopOf(order.Shop, shop),
             new SlipOrder(order.EtsyReceiptId, ListingFormat.Local(order.EtsyCreatedAtUtc, "MMM d, yyyy"),
                 order.ShipByUtc is null ? null : ListingFormat.Local(order.ShipByUtc, "MMM d, yyyy"),
-                Blank(order.BuyerName), address.Name, address.Lines, details.PaymentMethod, details.ShippingMethod,
+                Blank(order.BuyerProfileName) ?? Blank(order.BuyerName), address.Name, address.Lines, details.PaymentMethod, details.ShippingMethod,
                 Blank(order.MessageFromBuyer), order.IsGift, Blank(message) ?? (order.IsGift ? Blank(shop.DefaultGiftMessage) : null),
                 OrderPrintService.GiftSender(order),
                 items.Sum(i => Math.Max(1, i.Quantity)), [.. details.Totals.Select(t => new SlipTotal(t.Label, t.Amount))],
                 details.OrderTotal, items.Select(i => i.ImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)),
-                order.AddressOverride is not null, etsyAddress.Name, etsyAddress.Lines) { BuyerEmail = OrderPrintService.BuyerEmail(order) },
+                order.AddressOverride is not null, etsyAddress.Name, etsyAddress.Lines),
             [.. items.Select(i =>
             {
                 var (variations, personalization) = OrderPrintService.Split(i);
@@ -96,7 +98,7 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
             ["1 Example Street", "Apt 2", "Springfield, IL 62701", "United States"], "Paid via Etsy Payments", "USPS Ground Advantage",
             kind == SlipKind.Gift ? null : "Could you wrap it? Thank you!", kind == SlipKind.Gift,
             kind == SlipKind.Gift ? "Happy birthday! Love you lots." : null, kind == SlipKind.Gift ? "Alex" : null, 3,
-            [new("Item total", "$37.97"), new("Shipping total", "$5.00")], "$42.97", null, false, null, []) { BuyerEmail = "alex.sample@example.com" },
+            [new("Item total", "$37.97"), new("Shipping total", "$5.00")], "$42.97", null, false, null, []),
         [
             new("Sample item | desk decor | gift idea", ["Color: Blue", "Size: Large"], "Sam", 2, "2 x $12.99", null),
             new("Another sample item", ["Color: Yellow"], null, 1, "1 x $11.99", null),
@@ -106,7 +108,7 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
         shop.Name, Blank(shop.Title), OrderPrintService.ShopAddress(shop),
         shop.IconUrl is { Length: > 0 } ? ShopIconCache.UrlFor(shop.Id) : null,
         Blank(settings.Location), settings.StarSeller, shop.TransactionSoldCount is > 0 ? shop.TransactionSoldCount : null,
-        Blank(settings.Note), OrderPrintService.ShopQrSvg(shop));
+        Blank(settings.Note), OrderPrintService.ShopQrSvg(shop)) { FromLines = settings.FromLines ?? [] };
 
     // Liquid treats "" as true, so missing text is nil and {% if order.ship_by %} works as it reads.
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
@@ -363,7 +365,8 @@ public sealed class SlipLayoutService(IDbContextFactory<AppDbContext> dbFactory,
             shop = await db.Shops.AsNoTracking().Where(s => shopId == null || s.Id == shopId).OrderBy(s => s.Name).FirstOrDefaultAsync(ct);
         shop ??= new Shop { Name = "SampleShop", Title = "Little things, made well", TransactionSoldCount = 1234 };
         var settings = shop.Id == 0
-            ? new SlipModel.ShopSettings("Thanks for your order!", "Springfield, Illinois", true, OrderPrintService.DefaultGiftMessageText)
+            ? new SlipModel.ShopSettings("Thanks for your order!", "Springfield, Illinois", true, OrderPrintService.DefaultGiftMessageText,
+                ["SampleShop", "1 Maker Lane", "SPRINGFIELD, IL 62701", "United States"])
             : (await print.GetShopSettingsAsync([shop.Id], ct))[shop.Id];
 
         // A gift slip is half a sheet: show a whole sheet with two made-up gift orders, as they print.
