@@ -42,7 +42,7 @@
         else
         {
             @* Always one row: full labels when the row has room for them, otherwise short labels and icons with tooltips. *@
-            <div class="lp-toolbar esm-order-actions">
+            <div class="lp-toolbar esm-order-actions @(Picked.Count > 0 ? "has-selection" : "")">
                 @if (_openFilter.IsFiltered)
                 {
                     <span class="muted small">@_shown.Count of @_open.Count</span>
@@ -154,7 +154,7 @@
                               Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
                               Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="lp-search" aria-label="Search order history" />
             </div>
-            <div class="lp-toolbar esm-order-actions">
+            <div class="lp-toolbar esm-order-actions @(_historyPicked.Count > 0 ? "has-selection" : "")">
                 <span class="esm-act-wide">
                     <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => PickHistoryPage(!AllHistoryRowsPicked)" Disabled="@(_historyRows.Count == 0)">
                         @(AllHistoryRowsPicked ? "Unselect this page" : "Select this page")
