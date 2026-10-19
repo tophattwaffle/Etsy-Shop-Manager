@@ -8,10 +8,11 @@
 @inject OrderColorService Colors
 @inject IJobEvents JobEvents
 @inject OrderMadeService MadeItems
+@inject ISnackbar Snackbar
 @inject IJSRuntime Js
 
-@* What is still to be made for the open orders: identical items (same listing, variations and personalization) added up,
-   less what is marked made, soonest ship-by first. The same list as Orders → To make (where items are marked made). *@
+@* What has to be made for the open orders: identical items (same listing, variations and personalization) added up,
+   soonest ship-by first, each with its Made checkbox. The same list and marks as Orders → To make. *@
 @if (_rows is null)
 {
     <MudProgressLinear Indeterminate="true" />
@@ -22,15 +23,18 @@ else if (_rows.Count == 0)
 }
 else
 {
+    var left = _rows.Sum(r => r.Left);
     <div class="esm-orders esm-dash-list">
-        <div class="small muted">@_total item@(_total == 1 ? "" : "s") left to make for the open orders</div>
+        <div class="small muted">@(left == 0 ? "Everything is made for the open orders" : $"{left} item{(left == 1 ? "" : "s")} left to make for the open orders")</div>
         @foreach (var make in _rows)
         {
             var row = make.Row;
-            <div class="esm-dash-make">
-                <span class="esm-dash-qty">×@make.Left</span>
+            <div class="esm-dash-make @(make.IsMade ? "is-made" : "")">
+                <MadeToggle Made="@make.Made" Quantity="@make.Quantity" Labelled="false" ReadOnly="@(!_canMark)"
+                            What="@OrderDue.ShortTitle((string?)row["title"])" MadeChanged="@(m => SetMadeAsync(make.Items, m))" />
+                <span class="esm-dash-qty">×@make.Quantity</span>
                 <div class="esm-grow">
-                    <div>@OrderDue.ShortTitle((string?)row["title"])</div>
+                    <div class="esm-made-text">@OrderDue.ShortTitle((string?)row["title"])</div>
                     <div class="order-vars">
                         @foreach (var v in row["variations"]?.AsArray().Select(n => n!.AsObject()) ?? [])
                         {
@@ -44,24 +48,31 @@ else
                     {
                         <ColorBox Text="@note" Kind="@ColorBox.Note" Seed="@($"make|{note}")" />
                     }
+                    @* Under the item rather than beside it, so the Made checkbox leaves the item room in a narrow module. *@
+                    @if (row["ship_by_ts"] is { } ts)
+                    {
+                        <span class="small muted esm-dash-shipby">Ship by @ListingFormat.Local(DateTime.UnixEpoch.AddSeconds((long)ts), "ddd MMM d")</span>
+                    }
                 </div>
-                @if (row["ship_by_ts"] is { } ts)
-                {
-                    <span class="small muted esm-dash-shipby">Ship by @ListingFormat.Local(DateTime.UnixEpoch.AddSeconds((long)ts), "ddd MMM d")</span>
-                }
             </div>
         }
     </div>
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
     private List<ToMakeRow>? _rows;
-    private int _total;
     private JsonObject? _colorConfig;
     private IDisposable? _live;
 
+    // Admins and Editors mark items made; Viewers see what is made.
+    private bool _canMark;
+
     protected override async Task OnInitializedAsync()
     {
+        var user = (await AuthState).User;
+        _canMark = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
         _colorConfig = (await Colors.GetAsync()).ToCardJson();
         await LoadAsync();
         _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,
@@ -72,11 +83,29 @@ else
     private async Task LoadAsync()
     {
         var rows = ToMakeList.Build(await Queries.GetOpenOrdersAsync(null), TimeZoneInfo.Local);
-        _rows = rows.Where(r => !r.IsMade).OrderBy(r => (long?)r.Row["ship_by_ts"] ?? long.MaxValue).ToList();
-        _total = _rows.Sum(r => r.Left);
+        _rows = rows.OrderBy(r => (long?)r.Row["ship_by_ts"] ?? long.MaxValue).ToList();
     }
 
-    private void OnMade(object? _) => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+    private async Task SetMadeAsync(IReadOnlyList<OrderItem> items, int made)
+    {
+        if (!_canMark) return;
+        try
+        {
+            await MadeItems.SetMadeAsync(items, made, source: this);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Couldn't save what's made: {ex.Message}", Severity.Error);
+            await LoadAsync();
+        }
+    }
+
+    // Marked in another module, page or browser (this tile's own marks are already shown).
+    private void OnMade(object? source)
+    {
+        if (ReferenceEquals(source, this)) return;
+        _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender) => await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
 

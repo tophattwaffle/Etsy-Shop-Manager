@@ -582,6 +582,16 @@ a.lp-status-error:hover { text-decoration: underline; }
     color: inherit; text-decoration: none;
 }
 .esm-dash-order:hover { background: var(--esm-hover); }
+/* The head is the order's link, stretched over the whole card; the Made checkboxes sit above it. */
+.esm-dash-order { position: relative; }
+.esm-dash-order-link { color: inherit; text-decoration: none; }
+.esm-dash-order-link::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+.esm-dash-order .esm-made { position: relative; z-index: 2; margin-left: auto; align-items: flex-end; }
+.esm-dash-order-item { display: flex; align-items: flex-start; gap: 8px; }
+.esm-dash-order-item > .esm-grow { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.esm-dash-make > .esm-grow { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.esm-dash-order-item.is-made > .esm-grow, .esm-dash-make.is-made > :not(.esm-made) { opacity: 0.55; }
+.esm-dash-order-item.is-made .esm-made-text, .esm-dash-make.is-made .esm-made-text { text-decoration: line-through; }
 .esm-dash-order.urgent { background: color-mix(in srgb, var(--esm-error) 14%, transparent); }
 .esm-dash-order-head { display: flex; align-items: center; gap: 8px; }
 .esm-dash-order-head .esm-grow { display: flex; flex-direction: column; }
