@@ -138,7 +138,7 @@ the To make rows through `OrderMadeService`; `ToMakeList` ties each To make row 
 first) so both views mark the same items. The HA payload doesn't carry it.
 Packing slips (the Packing slips section) are Liquid templates rendered with Fluid (`SlipTemplates.cs`): the built-in
 packing and gift layouts are embedded from `Modules/Orders/Slips`, Admins save copies as `SlipLayout` rows, and each shop
-picks one per kind. A layout's CSS is nested under `.slip-layout-{key}` so it only reaches its own slips; values are
+picks one per kind. A gift slip is half a sheet and `SlipSheets` prints two per sheet (a gift with a changed address gets a sheet of its own, the note in the cut-away top half). A layout's CSS is nested under `.slip-layout-{key}` so it only reaches its own slips; values are
 HTML-encoded unless a template uses `| raw`. Change the built-in look in those files, not in Razor.
 
 ### Hosting details

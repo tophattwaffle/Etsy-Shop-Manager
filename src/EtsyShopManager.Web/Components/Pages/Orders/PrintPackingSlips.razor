@@ -7,12 +7,13 @@
 @inject OrderPrintService Print
 @inject SlipLayoutService Layouts
 
-@* Static SSR printout: one slip per selected order, each on its own page. Each shop prints its own layouts (Packing slips
-   page): the packing slip for ordinary orders and the gift slip (no prices) for gift orders, the built-in ones like
-   Etsy's unless the shop was given others. Read-only: nothing is marked shipped. *@
+@* Static SSR printout: one slip per selected order. Each shop prints its own layouts (Packing slips page): the packing
+   slip for ordinary orders, one per sheet, and the gift slip (no prices, half a sheet) for gift orders, two per sheet
+   (SlipSheets). The built-in layouts look like Etsy's unless the shop was given others. Read-only: nothing is marked
+   shipped. *@
 <PageTitle>Packing slips · Etsy Shop Manager</PageTitle>
 
-@if (_slips.Count == 0)
+@if (_sheets.Count == 0)
 {
     <p class="print-empty">No orders selected. Choose orders on the Orders page, then print packing slips.</p>
 }
@@ -21,17 +22,14 @@ else
     <div class="print-sheet">
         @* Each layout's CSS reaches only its own slips (nested under .slip-layout-{key}). *@
         <style>@((MarkupString)_css)</style>
-        @foreach (var (key, html) in _slips)
-        {
-            <div class="slip-page slip-layout-@key">@((MarkupString)html)</div>
-        }
+        @((MarkupString)SlipSheets.Html(_sheets))
     </div>
 }
 
 @code {
     [SupplyParameterFromQuery] private string? Ids { get; set; }
 
-    private readonly List<(string Key, string Html)> _slips = [];
+    private List<List<PrintedSlip>> _sheets = [];
     private string _css = "";
 
     protected override async Task OnInitializedAsync()
@@ -42,13 +40,18 @@ else
         var layouts = await Layouts.ResolveAsync(shopIds);
 
         var used = new Dictionary<string, SlipLayout>();
+        var slips = new List<PrintedSlip>();
         foreach (var o in orders)
         {
-            var layout = layouts[(o.ShopId, o.IsGift ? SlipKind.Gift : SlipKind.Packing)];
+            var kind = o.IsGift ? SlipKind.Gift : SlipKind.Packing;
+            var layout = layouts[(o.ShopId, kind)];
             var key = SlipLayoutService.ScopeKey(layout);
             used.TryAdd(key, layout);
-            _slips.Add((key, await SlipRenderer.RenderAsync(layout.Html, SlipModel.For(o, shops[o.ShopId]))));
+            var model = SlipModel.For(o, shops[o.ShopId]);
+            // A gift with a changed address uses its sheet's top half for the note to change the label.
+            slips.Add(new PrintedSlip(kind, key, await SlipRenderer.RenderAsync(layout.Html, model), OwnSheet: model.Order.AddressChanged));
         }
+        _sheets = SlipSheets.Arrange(slips);
         _css = string.Join("\n", used.Select(u => SlipRenderer.ScopedCss(u.Key, u.Value.Css)));
     }
 }

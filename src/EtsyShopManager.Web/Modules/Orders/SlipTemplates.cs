@@ -72,8 +72,18 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
 
     /// <summary>
     /// A made-up order for previewing a layout (no buyer's data), with the shop's real name, icon and slip settings.
+    /// <paramref name="second"/> gives a different one, for the other half of a gift slip sheet.
     /// </summary>
-    public static SlipModel Sample(Shop shop, ShopSettings settings, SlipKind kind) => new(
+    public static SlipModel Sample(Shop shop, ShopSettings settings, SlipKind kind, bool second = false) => second
+        ? new(
+            ShopOf(shop, settings),
+            new SlipOrder(1234567891, "Oct 17, 2026", "Oct 21, 2026", "Casey Example", kind == SlipKind.Gift ? "Jordan Example" : "Casey Example",
+                ["22 Sample Avenue", "Riverside, CA 92501", "United States"], "Paid via Etsy Payments", "USPS Ground Advantage",
+                null, kind == SlipKind.Gift, kind == SlipKind.Gift ? "Congratulations on the new job! So proud of you." : null,
+                kind == SlipKind.Gift ? "Casey" : null, 1, [new("Item total", "$18.50"), new("Shipping total", "$4.50")], "$23.00", null,
+                false, null, []),
+            [new("Sample mug | personalized gift", ["Color: White"], "Jordan", 1, "1 x $18.50", null)])
+        : new(
         ShopOf(shop, settings),
         new SlipOrder(1234567890, "Oct 16, 2026", "Oct 20, 2026", "Alex Sample", kind == SlipKind.Gift ? "Sam Sample" : "Alex Sample",
             ["1 Example Street", "Apt 2", "Springfield, IL 62701", "United States"], "Paid via Etsy Payments", "USPS Ground Advantage",
@@ -93,6 +103,56 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
 
     // Liquid treats "" as true, so missing text is nil and {% if order.ship_by %} works as it reads.
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+}
+
+/// <summary>One printed slip: its layout's scope key (<see cref="SlipLayoutService.ScopeKey"/>) and its HTML.</summary>
+/// <param name="OwnSheet">A gift slip that needs its sheet's top half for itself (a changed address, which is cut away).</param>
+public sealed record PrintedSlip(SlipKind Kind, string Key, string Html, bool OwnSheet = false);
+
+/// <summary>
+/// Puts slips on sheets of paper: a packing slip fills a sheet; a gift slip is half a sheet, so gift slips go two to a
+/// sheet (10 orders with 2 gifts print on 9 sheets). The second gift joins the first one's sheet wherever it comes in the
+/// order, so sheets keep the orders' order otherwise. A gift that needs a sheet of its own (<see cref="PrintedSlip.OwnSheet"/>)
+/// isn't paired.
+/// </summary>
+public static class SlipSheets
+{
+    public static List<List<PrintedSlip>> Arrange(IEnumerable<PrintedSlip> slips)
+    {
+        var sheets = new List<List<PrintedSlip>>();
+        List<PrintedSlip>? halfFull = null;
+        foreach (var slip in slips)
+        {
+            if (slip.Kind != SlipKind.Gift || slip.OwnSheet)
+            {
+                sheets.Add([slip]);
+                continue;
+            }
+            if (halfFull is not null)
+            {
+                halfFull.Add(slip);
+                halfFull = null;
+                continue;
+            }
+            halfFull = [slip];
+            sheets.Add(halfFull);
+        }
+        return sheets;
+    }
+
+    /// <summary>The sheets as HTML: each a .slip-sheet (gift sheets also .slip-sheet-gift) holding its slips' .slip-page.</summary>
+    public static string Html(IEnumerable<List<PrintedSlip>> sheets)
+    {
+        var html = new System.Text.StringBuilder();
+        foreach (var sheet in sheets)
+        {
+            html.Append(sheet[0].Kind == SlipKind.Gift ? "<div class=\"slip-sheet slip-sheet-gift\">" : "<div class=\"slip-sheet\">");
+            foreach (var slip in sheet)
+                html.Append("<div class=\"slip-page slip-layout-").Append(slip.Key).Append("\">").Append(slip.Html).Append("</div>");
+            html.Append("</div>");
+        }
+        return html.ToString();
+    }
 }
 
 /// <summary>
@@ -299,13 +359,20 @@ public sealed class SlipLayoutService(IDbContextFactory<AppDbContext> dbFactory,
             ? new SlipModel.ShopSettings("Thanks for your order!", "Springfield, Illinois", true)
             : (await print.GetShopSettingsAsync([shop.Id], ct))[shop.Id];
 
-        var body = await SlipRenderer.RenderAsync(html, SlipModel.Sample(shop, settings, kind), cache: false);
+        // A gift slip is half a sheet: show a whole sheet with two made-up gift orders, as they print.
+        var slips = new List<PrintedSlip>
+        {
+            new(kind, "preview", await SlipRenderer.RenderAsync(html, SlipModel.Sample(shop, settings, kind), cache: false)),
+        };
+        if (kind == SlipKind.Gift)
+            slips.Add(new(kind, "preview", await SlipRenderer.RenderAsync(html, SlipModel.Sample(shop, settings, kind, second: true), cache: false)));
+        var body = SlipSheets.Html(SlipSheets.Arrange(slips));
         var encoder = HtmlEncoder.Default;
         return $$"""
             <!doctype html><html><head><meta charset="utf-8"><base href="{{encoder.Encode(baseUri)}}">
             <link rel="stylesheet" href="print.css"><style>{{SlipRenderer.ScopedCss("preview", css)}}</style>
             <style>.print-sheet { zoom: 0.62; }</style></head>
-            <body><div class="print-sheet"><div class="slip-page slip-layout-preview">{{body}}</div></div></body></html>
+            <body><div class="print-sheet">{{body}}</div></body></html>
             """;
     }
 }

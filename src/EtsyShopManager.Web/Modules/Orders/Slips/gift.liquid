@@ -1,14 +1,16 @@
 {%- comment -%}
-  The built-in gift slip, laid out like Etsy's (letter page, sizes in points from Etsy's PDF): the top half is left blank
-  for a shipping label, then a cut line; below it, the order on the left (no prices) and, past a fold line, the gift side:
-  "A gift for you" with gold sparkles, the item photo, the gift message and who it's from, and a QR code to the shop.
-  Etsy's own logo and slogans aren't used, and the shop's name stays on the left so the gift doesn't read as the shop's.
+  The built-in gift slip, laid out like Etsy's (sizes in points from Etsy's PDF). A gift slip is half a letter page
+  (8.5 x 5.5 in) and two print on one sheet, cut apart in the middle: the order on the left (no prices) and, past a fold
+  line, the gift side: "A gift for you" with gold sparkles, the item photo, the gift message and who it's from, and a QR
+  code to the shop. Etsy's own logo and slogans aren't used, and the shop's name stays on the left so the gift doesn't
+  read as the shop's.
 {%- endcomment -%}
-<section class="gift-slip">
-    <div class="gift-cut" aria-hidden="true"></div>
-    <div class="gift-fold" aria-hidden="true"></div>
-    {%- if order.address_changed %}
-    {%- comment %} In the label half, which is cut away, so the gift's recipient never sees it. {% endcomment %}
+{%- if order.address_changed %}
+{%- comment %}
+  A changed address gets a sheet of its own: this box fills the top half, which is cut away, so the gift's recipient
+  never sees it.
+{% endcomment %}
+<div class="gift-label-half">
     <div class="slip-changed gift-changed">
         <div class="slip-changed-flag">&#9888; Address changed</div>
         <div class="slip-changed-body">
@@ -22,7 +24,10 @@
             </div>
         </div>
     </div>
-    {%- endif %}
+</div>
+{%- endif -%}
+<section class="gift-slip">
+    <div class="gift-fold" aria-hidden="true"></div>
 
     <div class="gift-left">
         <div class="gift-shop">

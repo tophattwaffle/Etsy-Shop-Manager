@@ -333,6 +333,61 @@ public class OrderPrintTests
                      "- Alex", "Shipped to: Sam Sample", ".slip-layout-preview {" })
             Assert.Contains(text, page);
         Assert.DoesNotContain("Sample Buyer", page); // no real buyer's data
+        // A gift slip is half a sheet, so the preview shows the whole sheet: two made-up gift orders.
+        Assert.Equal(1, CountOf(page, "<div class=\"slip-sheet slip-sheet-gift\">"));
+        Assert.Equal(2, CountOf(page, "<section class=\"gift-slip\">"));
+        foreach (var text in new[] { "- Casey", "Shipped to: Jordan Example", "Congratulations on the new job!" })
+            Assert.Contains(text, page);
+
+        var packing = SlipLayoutService.BuiltIn(SlipKind.Packing);
+        page = await Layouts(db, settings).PreviewAsync(SlipKind.Packing, packing.Html, packing.Css, 1, "https://esm.test/", print);
+        Assert.Equal(1, CountOf(page, "<section class=\"slip\">"));
+    }
+
+    private static PrintedSlip Slip(SlipKind kind, string name, bool ownSheet = false) => new(kind, "k", name, ownSheet);
+
+    [Fact]
+    public void Gift_slips_print_two_to_a_sheet_and_the_rest_keep_their_order()
+    {
+        // 10 orders, 2 of them gifts: the second gift joins the first one's sheet, so the job is 9 sheets.
+        var slips = Enumerable.Range(1, 10).Select(i => Slip(i is 3 or 8 ? SlipKind.Gift : SlipKind.Packing, $"#{i}")).ToList();
+        var sheets = SlipSheets.Arrange(slips);
+        Assert.Equal(9, sheets.Count);
+        Assert.Equal(["#1", "#2", "#3 #8", "#4", "#5", "#6", "#7", "#9", "#10"], sheets.Select(s => string.Join(" ", s.Select(x => x.Html))));
+
+        // Three gifts: a full sheet and a half one. A gift with a changed address keeps a sheet of its own (its top half
+        // holds the note to change the label), and the gifts around it still pair up.
+        sheets = SlipSheets.Arrange([Slip(SlipKind.Gift, "a"), Slip(SlipKind.Gift, "b", ownSheet: true), Slip(SlipKind.Gift, "c"),
+            Slip(SlipKind.Gift, "d"), Slip(SlipKind.Packing, "e")]);
+        Assert.Equal(["a c", "b", "d", "e"], sheets.Select(s => string.Join(" ", s.Select(x => x.Html))));
+
+        Assert.Equal("<div class=\"slip-sheet slip-sheet-gift\"><div class=\"slip-page slip-layout-k\">a</div><div class=\"slip-page slip-layout-k\">c</div></div>"
+                     + "<div class=\"slip-sheet\"><div class=\"slip-page slip-layout-k\">e</div></div>",
+            SlipSheets.Html([sheets[0], sheets[3]]));
+    }
+
+    [Fact]
+    public async Task A_printout_with_two_gift_orders_puts_both_on_one_sheet()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        await using (var ctx = db.CreateDbContext())
+        {
+            var gift = await ctx.Orders.AsNoTracking().Include(o => o.Items).SingleAsync(o => o.Id == 1);
+            gift.Id = 3;
+            gift.EtsyReceiptId = 1003;
+            foreach (var item in gift.Items) { item.Id = 0; item.OrderId = 0; item.EtsyTransactionId += 100; }
+            ctx.Orders.Add(gift);
+            await ctx.SaveChangesAsync();
+        }
+
+        var slips = await RenderAsync<PrintPackingSlips>(db, new InMemorySettings(), "orders/print/slips?ids=1,2,3");
+
+        Assert.Equal(2, CountOf(slips, "<div class=\"slip-sheet")); // 3 orders, 2 sheets of paper
+        var giftSheet = slips[slips.IndexOf("<div class=\"slip-sheet slip-sheet-gift\">", StringComparison.Ordinal)..];
+        Assert.Equal(2, CountOf(giftSheet, "<section class=\"gift-slip\">"));
+        Assert.Contains("Order #1001", giftSheet);
+        Assert.Contains("Order #1003", giftSheet);
     }
 
     [Fact]
