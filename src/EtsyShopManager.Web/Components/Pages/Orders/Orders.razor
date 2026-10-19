@@ -49,7 +49,7 @@
                 }
                 <span class="esm-act-wide">
                     <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllOpen" Disabled="@(_shown.Count == 0)">
-                        @(_openFilter.IsFiltered ? "Select all shown" : "Select all unshipped")
+                        @(_openFilter.IsFiltered ? "Select all shown" : "Select all")
                     </MudButton>
                 </span>
                 <span class="esm-act-narrow">
@@ -533,18 +533,18 @@
         }
         <span class="esm-act-wide">
             <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
-                       Disabled="@(selected == 0)" Href="@link("pick")" Target="_blank">Print pick list</MudButton>
+                       Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("pick")))">Print pick list</MudButton>
             <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
-                       Disabled="@(selected == 0)" Href="@link("slips")" Target="_blank">Print packing slips</MudButton>
+                       Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("slips")))">Print packing slips</MudButton>
         </span>
         <span class="esm-act-narrow">
             <MudTooltip Text="Print pick list">
                 <MudIconButton Icon="@Icons.Material.Filled.Checklist" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
-                               Href="@link("pick")" Target="_blank" aria-label="Print pick list" />
+                               OnClick="@(() => PrintAsync(link("pick")))" aria-label="Print pick list" />
             </MudTooltip>
             <MudTooltip Text="Print packing slips">
                 <MudIconButton Icon="@Icons.Material.Filled.Print" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
-                               Href="@link("slips")" Target="_blank" aria-label="Print packing slips" />
+                               OnClick="@(() => PrintAsync(link("slips")))" aria-label="Print packing slips" />
             </MudTooltip>
         </span>
     };
@@ -745,6 +745,10 @@
     }
 
     private void SelectAllOpen() => _picked.UnionWith(_shown.Select(o => o.Id));
+
+    // Prints a printout page without leaving this one: it loads in a hidden frame and opens the browser's print dialog
+    // (esm.printPage). The page itself still works on its own, with its Print button.
+    private async Task PrintAsync(string url) => await Js.InvokeVoidAsync("esm.printPage", url);
 
     private string PrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", Picked)}";
 

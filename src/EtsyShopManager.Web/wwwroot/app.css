@@ -252,6 +252,9 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
    print buttons) about 520px; with one (plus "123 selected" and Clear) about 660px. */
 .lp-toolbar.esm-order-actions { flex-wrap: nowrap; gap: 4px; white-space: nowrap; container-type: inline-size; }
 .lp-toolbar.esm-order-actions .mud-icon-button.mud-icon-button-size-small { padding: 5px; margin: 0; }
+/* The hidden frame a printout loads in to print without leaving the page (esm.printPage): not display:none, so it
+   lays out and prints. */
+.esm-print-frame { position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; }
 .esm-act-wide { display: none; }
 .esm-act-wide, .esm-act-narrow { align-items: center; gap: 4px; }
 .esm-act-narrow { display: inline-flex; }

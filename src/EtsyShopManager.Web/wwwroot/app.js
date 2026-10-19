@@ -151,6 +151,30 @@ window.esm = {
         try { localStorage.setItem("esm." + key, value); } catch { }
     },
 
+    // Opens the print dialog for a same-origin printout page (pick list, packing slips) without leaving this page: the
+    // page loads in a hidden frame and, once its images and fonts are in, the frame prints itself. The previous frame
+    // is removed first.
+    printPage: function (url) {
+        document.querySelectorAll("iframe.esm-print-frame").forEach(f => f.remove());
+        const frame = document.createElement("iframe");
+        frame.className = "esm-print-frame";
+        frame.setAttribute("aria-hidden", "true");
+        frame.tabIndex = -1;
+        frame.onload = async () => {
+            const win = frame.contentWindow;
+            const doc = win.document;
+            try {
+                await Promise.all([...doc.images].map(img => img.complete ? null
+                    : new Promise(done => { img.onload = img.onerror = done; })));
+                if (doc.fonts) await doc.fonts.ready;
+            } catch { }
+            win.focus();
+            win.print();
+        };
+        frame.src = url;
+        document.body.appendChild(frame);
+    },
+
     // The dominant colour of a same-origin image, as "#rrggbb", or null. Used to give each shop an accent colour
     // from its profile image. Near-white/near-black background pixels are skipped and the most common hue wins
     // (weighted towards saturated pixels); the result is clamped to a mid lightness so it reads on light and dark.
