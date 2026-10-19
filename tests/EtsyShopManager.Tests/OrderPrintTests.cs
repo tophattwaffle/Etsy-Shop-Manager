@@ -336,7 +336,7 @@ public class OrderPrintTests
         // A gift slip is half a sheet, so the preview shows the whole sheet: two made-up gift orders.
         Assert.Equal(1, CountOf(page, "<div class=\"slip-sheet slip-sheet-gift\">"));
         Assert.Equal(2, CountOf(page, "<section class=\"gift-slip\">"));
-        foreach (var text in new[] { "- Casey", "Shipped to: Jordan Example", "Congratulations on the new job!" })
+        foreach (var text in new[] { "- Casey", "Shipped to: Jordan Example", "Enjoy your gift from Etsy" }) // the second buyer wrote no message
             Assert.Contains(text, page);
 
         var packing = SlipLayoutService.BuiltIn(SlipKind.Packing);
@@ -364,6 +364,33 @@ public class OrderPrintTests
         Assert.Equal("<div class=\"slip-sheet slip-sheet-gift\"><div class=\"slip-page slip-layout-k\">a</div><div class=\"slip-page slip-layout-k\">c</div></div>"
                      + "<div class=\"slip-sheet\"><div class=\"slip-page slip-layout-k\">e</div></div>",
             SlipSheets.Html([sheets[0], sheets[3]]));
+    }
+
+    [Fact]
+    public async Task A_gift_without_a_message_prints_the_default_one_which_can_be_changed()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, firstIsGift: true);
+        await using (var ctx = db.CreateDbContext())
+            await ctx.Orders.Where(o => o.Id == 1).ExecuteUpdateAsync(s => s.SetProperty(o => o.GiftMessage, (string?)null));
+        var settings = new InMemorySettings();
+        var print = new OrderPrintService(db, settings, new NullAuditLog());
+
+        Assert.Contains("<div class=\"gift-message\">Enjoy your gift from Etsy</div>", await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1"));
+
+        Assert.Null(await print.SetDefaultGiftMessageAsync("  Enjoy, from all of us  ", "tophattwaffle"));
+        Assert.Equal("Enjoy, from all of us", await print.GetDefaultGiftMessageAsync());
+        Assert.Contains("<div class=\"gift-message\">Enjoy, from all of us</div>", await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1"));
+        Assert.Equal("Keep the gift message to 200 characters.", await print.SetDefaultGiftMessageAsync(new string('x', 201), "tophattwaffle"));
+
+        // The buyer's own message always wins, and an emptied setting goes back to Etsy's wording.
+        await using (var ctx = db.CreateDbContext())
+            await ctx.Orders.Where(o => o.Id == 1).ExecuteUpdateAsync(s => s.SetProperty(o => o.GiftMessage, "Happy birthday!"));
+        var slips = await RenderAsync<PrintPackingSlips>(db, settings, "orders/print/slips?ids=1");
+        Assert.Contains("<div class=\"gift-message\">Happy birthday!</div>", slips);
+        Assert.DoesNotContain("Enjoy, from all of us", slips);
+        Assert.Null(await print.SetDefaultGiftMessageAsync(" ", "tophattwaffle"));
+        Assert.Equal("Enjoy your gift from Etsy", await print.GetDefaultGiftMessageAsync());
     }
 
     [Fact]

@@ -6,6 +6,7 @@
 @using EtsyShopManager.Web.Modules.Shops
 @inject ShopService Shops
 @inject SlipLayoutService Layouts
+@inject OrderPrintService Print
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 
@@ -85,6 +86,20 @@ else
     <ShopSlipPanel />
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" GutterBottom="true">Gift message</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            Printed on a gift slip when the buyer didn't write a gift message. Leave it empty to go back to
+            "@OrderPrintService.DefaultGiftMessageText".
+        </MudText>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+            <MudTextField T="string" @bind-Value="_giftMessage" Label="Message when the buyer wrote none" Variant="Variant.Outlined"
+                          Margin="Margin.Dense" MaxLength="@OrderPrintService.MaxGiftMessageLength" Class="esm-grow"
+                          Placeholder="@OrderPrintService.DefaultGiftMessageText" />
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="SaveGiftMessageAsync">Save</MudButton>
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" GutterBottom="true">Layouts (@(_layouts.Count + 2))</MudText>
         <MudText Typo="Typo.body2" Class="muted mb-3">
             A layout is an HTML template with placeholders such as <code>{{ order.receipt_id }}</code>, and the CSS that styles
@@ -136,6 +151,7 @@ else
     private bool _isAdmin;
     private List<SlipLayout> _layouts = [];
     private Dictionary<(int ShopId, SlipKind Kind), int> _assigned = [];
+    private string? _giftMessage;
 
     private IEnumerable<SlipLayout> Rows =>
         [SlipLayoutService.BuiltIn(SlipKind.Packing), SlipLayoutService.BuiltIn(SlipKind.Gift), .. _layouts];
@@ -169,6 +185,14 @@ else
         _shops = await Shops.ListAsync(includeInactive: false);
         _layouts = await Layouts.ListAsync();
         _assigned = await Layouts.GetAssignmentsAsync(_shops.Select(s => s.Id));
+        _giftMessage = await Print.GetDefaultGiftMessageAsync();
+    }
+
+    private async Task SaveGiftMessageAsync()
+    {
+        var error = await Print.SetDefaultGiftMessageAsync(_giftMessage, (await AuthState).User.Identity?.Name);
+        if (error is null) _giftMessage = await Print.GetDefaultGiftMessageAsync();
+        Snackbar.Add(error ?? "Saved the gift message", error is null ? Severity.Success : Severity.Warning);
     }
 
     private string LayoutName(int shopId, SlipKind kind) =>
