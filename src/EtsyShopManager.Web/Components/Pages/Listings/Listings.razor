@@ -34,6 +34,11 @@
                     </MudButton>
                 </AuthorizeView>
             }
+            <AuthorizeView Roles="@Roles.Admin" Context="auth">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="listings/new" StartIcon="@Icons.Material.Filled.Add">
+                    New listing
+                </MudButton>
+            </AuthorizeView>
         </Actions>
     </PageHeader>
 

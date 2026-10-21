@@ -11,6 +11,7 @@ using EtsyShopManager.Web.Infrastructure.Jobs;
 using EtsyShopManager.Web.Modules;
 using EtsyShopManager.Web.Modules.Listings;
 using EtsyShopManager.Web.Modules.Orders;
+using EtsyShopManager.Web.Modules.Shops;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -98,6 +99,8 @@ builder.Services.AddJobInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IEtsyCredentialsProvider, EtsyCredentialsProvider>();
 builder.Services.AddSingleton<IEtsyTokenStore, ShopTokenStore>();
 builder.Services.AddSingleton<IEtsyWriteJournal, EtsyWriteJournal>();
+builder.Services.AddSingleton<ShopDefaultsService>();
+builder.Services.AddSingleton<ListingCreationService>();
 builder.Services.AddEtsy(builder.Configuration);
 if (builder.Environment.IsStaging())
     builder.Services.AddStagingEtsyLockout(); // the staging copy never reaches Etsy (docs/STAGING.md)

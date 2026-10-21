@@ -9,6 +9,7 @@ using EtsyShopManager.Data;
 using EtsyShopManager.Etsy;
 using EtsyShopManager.Etsy.Models;
 using EtsyShopManager.Web.Modules.Listings;
+using EtsyShopManager.Web.Modules.Shops;
 using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Modules.Editor;
@@ -33,8 +34,10 @@ public sealed record ClonePayload(int CloneId);
 /// order with alt text. Nothing is activated; Etsy charges its listing fee only when the draft is published.
 /// </summary>
 public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, ImageStore images, IJobQueue jobs, ISettingsStore settings,
-    IAuditLog audit, TimeProvider time)
+    IAuditLog audit, TimeProvider time, ShopDefaultsService? defaultsService = null)
 {
+    private readonly ShopDefaultsService _defaults = defaultsService ?? new ShopDefaultsService(settings, audit);
+
     public static string LastChoiceKey(int shopId) => $"Clone.LastChoice.{shopId}";
 
     /// <summary>What the clone dialog starts with for a target shop.</summary>
@@ -46,10 +49,17 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
         if (source.ShopId == targetShopId)
             return new CloneSettings(targetShopId, Title(local), (long?)local["shipping_profile_id"], ListingReadiness(source, local),
                 (long?)local["return_policy_id"], (long?)local["shop_section_id"]);
+
+        var defaults = await _defaults.GetAsync(targetShopId, ct);
         var last = await settings.GetAsync(LastChoiceKey(targetShopId), ct) is { } json
             ? JsonSerializer.Deserialize<CloneSettings>(json) : null;
-        return new CloneSettings(targetShopId, Title(local), last?.ShippingProfileId, last?.ReadinessStateId, last?.ReturnPolicyId,
-            last?.ShopSectionId);
+        return new CloneSettings(
+            targetShopId,
+            Title(local),
+            defaults?.ShippingProfileId ?? last?.ShippingProfileId,
+            defaults?.ReadinessStateId ?? last?.ReadinessStateId,
+            defaults?.ReturnPolicyId ?? last?.ReturnPolicyId,
+            defaults?.ShopSectionId ?? last?.ShopSectionId);
     }
 
     /// <summary>The review: every call the clone makes, what blocks it and what to know.</summary>

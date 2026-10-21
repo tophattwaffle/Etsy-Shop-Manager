@@ -1,0 +1,341 @@
+@page "/listings/new"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Shops
+@using Microsoft.EntityFrameworkCore
+@inject ShopService Shops
+@inject ShopDefaultsService DefaultsService
+@inject ListingCreationService CreationService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>New listing · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="New listing">
+    <Summary>Create a new draft listing on Etsy and open it in the editor.</Summary>
+</PageHeader>
+
+@if (_shops is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_shops.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted">Connect a shop first to create listings.</MudText>
+}
+else
+{
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="8">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-3">Listing details</MudText>
+
+                <MudTextField T="string" Value="_title" ValueChanged="OnTitleChanged" Label="Title"
+                              Variant="Variant.Outlined" Counter="140" MaxLength="140" Immediate="true"
+                              Error="@(_titleProblems.Count > 0)" ErrorText="@string.Join("; ", _titleProblems)"
+                              HelperText="Up to 140 characters. Etsy allows % : & + at most once." Class="mb-4" />
+
+                <MudAutocomplete T="CategoryOption" Value="_category" ValueChanged="OnCategoryChanged"
+                                 SearchFunc="SearchCategoriesAsync" ToStringFunc="@(c => c?.Path ?? "")"
+                                 Label="Category" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                                 ResetValueOnEmptyText="true" CoerceText="false" CoerceValue="true" Clearable="true"
+                                 Placeholder="Search Etsy categories…" HelperText="Required: pick a category" Class="mb-4" />
+
+                <MudTextField T="string" @bind-Value="_description" Label="Description" Lines="6"
+                              Variant="Variant.Outlined" HelperText="Tell buyers about your item" Class="mb-4" />
+
+                <MudTextField T="string" Value="_tagsText" ValueChanged="OnTagsChanged" Label="Tags (separate with commas)"
+                              Variant="Variant.Outlined" HelperText="@($"{_tags.Count} of 13 tags. Etsy allows letters, numbers, spaces, - and '.")"
+                              Class="mb-4" />
+
+                <MudTextField T="string" Value="_materialsText" ValueChanged="OnMaterialsChanged" Label="Materials (separate with commas)"
+                              Variant="Variant.Outlined" HelperText="@($"{_materials.Count} of 13 materials. Letters, numbers and spaces only.")"
+                              Class="mb-2" />
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-3">Shop & fulfillment</MudText>
+
+                <MudSelect T="int" Value="_shopId" ValueChanged="OnShopChangedAsync" Label="Shop"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                    @foreach (var s in _shops)
+                    {
+                        <MudSelectItem T="int" Value="s.Id">@s.Name</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <MudNumericField T="decimal" @bind-Value="_price" Label="@($"Price ({_currencyCode})")"
+                                 Format="0.00" Min="0.20m" Step="0.01m" Variant="Variant.Outlined"
+                                 Margin="Margin.Dense" Class="mb-3" />
+
+                <MudNumericField T="int" @bind-Value="_quantity" Label="Quantity" Min="1"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" />
+
+                <MudSelect T="long?" @bind-Value="_shippingProfileId" Label="Shipping profile"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                    @if (_lookups is not null)
+                    {
+                        @foreach (var (id, name) in _lookups.ShippingProfiles)
+                        {
+                            <MudSelectItem T="long?" Value="@((long?)id)">@name</MudSelectItem>
+                        }
+                    }
+                </MudSelect>
+
+                <MudSelect T="long?" @bind-Value="_readinessStateId" Label="Processing profile"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                    @if (_lookups is not null)
+                    {
+                        @foreach (var (id, name) in _lookups.ProcessingProfiles)
+                        {
+                            <MudSelectItem T="long?" Value="@((long?)id)">@name</MudSelectItem>
+                        }
+                    }
+                </MudSelect>
+
+                <MudSelect T="long?" @bind-Value="_returnPolicyId" Label="Return policy"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="mb-3">
+                    <MudSelectItem T="long?" Value="@((long?)null)">None</MudSelectItem>
+                    @if (_lookups is not null)
+                    {
+                        @foreach (var (id, name) in _lookups.ReturnPolicies)
+                        {
+                            <MudSelectItem T="long?" Value="@((long?)id)">@name</MudSelectItem>
+                        }
+                    }
+                </MudSelect>
+
+                <MudSelect T="long?" @bind-Value="_shopSectionId" Label="Shop section"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="mb-3">
+                    <MudSelectItem T="long?" Value="@((long?)null)">None</MudSelectItem>
+                    @if (_lookups is not null)
+                    {
+                        @foreach (var (id, name) in _lookups.Sections)
+                        {
+                            <MudSelectItem T="long?" Value="@((long?)id)">@name</MudSelectItem>
+                        }
+                    }
+                </MudSelect>
+
+                <MudSelect T="string" @bind-Value="_whoMade" Label="Who made it?"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                    <MudSelectItem T="string" Value="@("i_did")">I did</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("collective")">A member of my shop</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("someone_else")">Another company or person</MudSelectItem>
+                </MudSelect>
+
+                <MudSelect T="string" @bind-Value="_whenMade" Label="When was it made?"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                    <MudSelectItem T="string" Value="@("made_to_order")">Made to order</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("2020_2026")">2020–2026</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("2010_2019")">2010–2019</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("2005_2009")">2005–2009</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("before_2005")">Before 2005</MudSelectItem>
+                </MudSelect>
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Create draft</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-3">
+                    The listing is created on Etsy as a draft (not visible to buyers; Etsy charges listing fees only when published). You will be redirected to the editor to add photos and variations.
+                </MudText>
+
+                @if (Blockers.Count > 0 && _touched)
+                {
+                    <div class="mb-3">
+                        @foreach (var b in Blockers)
+                        {
+                            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-1">@b</MudAlert>
+                        }
+                    </div>
+                }
+
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                           Disabled="@(_isCreating || (Blockers.Count > 0 && _touched))" OnClick="CreateDraftAsync">
+                    @(_isCreating ? "Creating draft…" : "Create draft listing")
+                </MudButton>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    public sealed record CategoryOption(long Id, string Path);
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<ShopSummary>? _shops;
+    private int _shopId;
+    private EditorLookups? _lookups;
+    private string _currencyCode = "USD";
+
+    private string _title = "";
+    private List<string> _titleProblems = [];
+    private CategoryOption? _category;
+    private decimal _price = 10.00m;
+    private int _quantity = 1;
+    private long? _shippingProfileId;
+    private long? _readinessStateId;
+    private long? _returnPolicyId;
+    private long? _shopSectionId;
+    private string _whoMade = "i_did";
+    private string _whenMade = "made_to_order";
+    private string _description = "";
+    private string _tagsText = "";
+    private List<string> _tags = [];
+    private string _materialsText = "";
+    private List<string> _materials = [];
+
+    private bool _isCreating;
+    private bool _touched;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
+        if (_shops.Count > 0)
+        {
+            await SelectShopAsync(_shops[0].Id);
+        }
+    }
+
+    private async Task OnShopChangedAsync(int newShopId)
+    {
+        if (_shopId == newShopId) return;
+        await SelectShopAsync(newShopId);
+    }
+
+    private async Task SelectShopAsync(int shopId)
+    {
+        _shopId = shopId;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _lookups = await EditorLookups.LoadAsync(db, shopId, [], null);
+        _currencyCode = _lookups.CurrencyCode ?? "USD";
+
+        var defaults = await DefaultsService.GetAsync(shopId);
+        if (defaults is not null)
+        {
+            if (defaults.ShippingProfileId is { } sp && _lookups.ShippingProfiles.ContainsKey(sp))
+                _shippingProfileId = sp;
+            else
+                _shippingProfileId = _lookups.ShippingProfiles.Keys.FirstOrDefault();
+
+            if (defaults.ReadinessStateId is { } rs && _lookups.ProcessingProfiles.ContainsKey(rs))
+                _readinessStateId = rs;
+            else
+                _readinessStateId = _lookups.ProcessingProfiles.Keys.FirstOrDefault();
+
+            if (defaults.ReturnPolicyId is { } rp && _lookups.ReturnPolicies.ContainsKey(rp))
+                _returnPolicyId = rp;
+            else
+                _returnPolicyId = null;
+
+            if (defaults.ShopSectionId is { } sec && _lookups.Sections.ContainsKey(sec))
+                _shopSectionId = sec;
+            else
+                _shopSectionId = null;
+
+            if (!string.IsNullOrEmpty(defaults.WhoMade)) _whoMade = defaults.WhoMade;
+            if (!string.IsNullOrEmpty(defaults.WhenMade)) _whenMade = defaults.WhenMade;
+
+            if (defaults.TaxonomyId is { } taxId)
+            {
+                var node = await db.TaxonomyNodes.FirstOrDefaultAsync(n => n.Id == taxId);
+                if (node is not null) _category = new CategoryOption(node.Id, node.FullPath);
+            }
+        }
+        else
+        {
+            _shippingProfileId = _lookups.ShippingProfiles.Keys.FirstOrDefault();
+            _readinessStateId = _lookups.ProcessingProfiles.Keys.FirstOrDefault();
+            _returnPolicyId = null;
+            _shopSectionId = null;
+        }
+    }
+
+    private void OnTitleChanged(string value)
+    {
+        _title = value;
+        _touched = true;
+        _titleProblems = ListingTextRules.TitleProblems(value).ToList();
+    }
+
+    private void OnCategoryChanged(CategoryOption? c)
+    {
+        _category = c;
+        _touched = true;
+    }
+
+    private void OnTagsChanged(string text)
+    {
+        _tagsText = text;
+        _touched = true;
+        _tags = (text ?? "").Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
+    }
+
+    private void OnMaterialsChanged(string text)
+    {
+        _materialsText = text;
+        _touched = true;
+        _materials = (text ?? "").Split(',').Select(m => m.Trim()).Where(m => m.Length > 0).ToList();
+    }
+
+    private async Task<IEnumerable<CategoryOption>> SearchCategoriesAsync(string text, CancellationToken ct)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync(ct);
+        var pattern = "%" + (text ?? "").Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+        return await db.TaxonomyNodes.Where(n => !n.HasChildren && EF.Functions.Like(n.FullPath, pattern, "\\"))
+            .OrderBy(n => n.FullPath).Take(50).Select(n => new CategoryOption(n.Id, n.FullPath)).ToListAsync(ct);
+    }
+
+    private NewListingModel BuildModel() => new()
+    {
+        ShopId = _shopId,
+        Title = _title,
+        Price = _price,
+        Quantity = _quantity,
+        TaxonomyId = _category?.Id,
+        ShippingProfileId = _shippingProfileId,
+        ReadinessStateId = _readinessStateId,
+        ReturnPolicyId = _returnPolicyId,
+        ShopSectionId = _shopSectionId,
+        WhoMade = _whoMade,
+        WhenMade = _whenMade,
+        Description = _description,
+        Tags = _tags,
+        Materials = _materials,
+    };
+
+    private IReadOnlyList<string> Blockers => CreationService.Validate(BuildModel(), _lookups);
+
+    private async Task CreateDraftAsync()
+    {
+        _touched = true;
+        var blockers = Blockers;
+        if (blockers.Count > 0)
+        {
+            Snackbar.Add(blockers[0], Severity.Error);
+            return;
+        }
+
+        _isCreating = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var localId = await CreationService.CreateDraftAsync(BuildModel(), user);
+            Snackbar.Add($"Created draft listing \"{_title.Trim()}\"", Severity.Success);
+            Navigation.NavigateTo($"listings/{localId}/edit");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _isCreating = false;
+        }
+    }
+}

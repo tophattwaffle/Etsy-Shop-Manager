@@ -62,8 +62,8 @@
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Schema & Domain Foundation | Video entity/collection, SkuPattern property, EF migration, ManagedListingState v6, StorageOptions | None | IN_PROGRESS |
-| M2 | R1: New Listing & Shop Defaults | Per-shop defaults, NewListing wizard, validation, draft creation & import | M1 | PLANNED |
+| M1 | Schema & Domain Foundation | Video entity/collection, SkuPattern property, EF migration, ManagedListingState v6, StorageOptions | None | DONE |
+| M2 | R1: New Listing & Shop Defaults | Per-shop defaults, NewListing wizard, validation, draft creation & import | M1 | DONE |
 | M3 | R2: Scheduled Backups & Export | Online SQLite backup, restorable zip, portable listing export, retention pruning, Admin UI | M1 | PLANNED |
 | M4 | R3: Field Placeholders | Built-in placeholders, multi-pass engine, nested templates, dynamic editor sync | M1 | PLANNED |
 | M5 | R4: Variation Reordering & SKU Patterns | Value order in inventory, InventoryWriter order fix, UI/template reordering, SkuPatternResolver | M1 | PLANNED |
