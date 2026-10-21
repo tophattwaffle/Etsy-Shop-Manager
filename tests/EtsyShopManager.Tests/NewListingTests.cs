@@ -184,11 +184,26 @@ public class NewListingTests
         Assert.Contains(p5, p => p.Contains("coffee#mug"));
         Assert.Contains(p5, p => p.Contains("tea@cup"));
 
+        // 5a. Too many tags (> 13)
+        var tooManyTags = valid with { Tags = Enumerable.Range(1, 14).Select(i => $"tag{i}").ToList() };
+        var pTagsCount = service.Validate(tooManyTags);
+        Assert.Contains(pTagsCount, p => p == $"Etsy allows at most {ListingEditor.MaxTags} tags.");
+
+        // 5b. Tag too long (> 20 chars)
+        var longTag = valid with { Tags = ["tag-exceeding-twenty-chars"] };
+        var pTagLen = service.Validate(longTag);
+        Assert.Contains(pTagLen, p => p == $"The tag \"tag-exceeding-twenty-chars\" is longer than {ListingEditor.MaxTagLength} characters.");
+
         // 6. Invalid materials (forbidden characters like hyphens or punctuation)
         var invalidMaterials = valid with { Materials = ["stainless-steel", "lead-free glaze!"] };
         var p6 = service.Validate(invalidMaterials);
         Assert.Contains(p6, p => p.Contains("stainless-steel"));
         Assert.Contains(p6, p => p.Contains("lead-free glaze!"));
+
+        // 6a. Too many materials (> 13)
+        var tooManyMaterials = valid with { Materials = Enumerable.Range(1, 14).Select(i => $"mat{i}").ToList() };
+        var pMatCount = service.Validate(tooManyMaterials);
+        Assert.Contains(pMatCount, p => p == $"Etsy allows at most {ListingEditor.MaxMaterials} materials.");
 
         // 7. Missing required profiles
         var missingShipping = valid with { ShippingProfileId = null };

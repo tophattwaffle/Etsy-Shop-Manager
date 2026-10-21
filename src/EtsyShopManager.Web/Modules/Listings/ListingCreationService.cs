@@ -52,7 +52,21 @@ public sealed class ListingCreationService(
         var problems = new List<string>();
 
         problems.AddRange(ListingTextRules.TitleProblems(model.Title ?? ""));
+
+        if (model.Tags is { Count: > ListingEditor.MaxTags })
+            problems.Add($"Etsy allows at most {ListingEditor.MaxTags} tags.");
+
+        if (model.Tags is not null)
+        {
+            foreach (var tag in model.Tags.Where(t => t is not null && t.Length > ListingEditor.MaxTagLength))
+                problems.Add($"The tag \"{tag}\" is longer than {ListingEditor.MaxTagLength} characters.");
+        }
+
         problems.AddRange(ListingTextRules.TagProblems(model.Tags ?? []));
+
+        if (model.Materials is { Count: > ListingEditor.MaxMaterials })
+            problems.Add($"Etsy allows at most {ListingEditor.MaxMaterials} materials.");
+
         problems.AddRange(ListingTextRules.MaterialProblems(model.Materials ?? []));
 
         if (model.Price <= 0)
