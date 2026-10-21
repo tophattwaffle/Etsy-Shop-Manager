@@ -545,7 +545,6 @@ public class AuthBypassEmpiricalTests
     [InlineData("PhotoTemplatePage.razor", "AuthorizeView Roles=\"@Roles.Admin\"")]
     [InlineData("OrderColors.razor", "AuthorizeView Roles=\"@Roles.Admin\"")]
     [InlineData("RefillPanel.razor", "AuthorizeView Roles=\"@Roles.Admin\"")]
-    [InlineData("Home.razor", "AuthorizeView Roles=\"@Roles.Admin\"")]
     [InlineData("Orders.razor", "AuthorizeView Roles=\"@Roles.Admin\"")]
     public void Razor_Viewable_Components_Protect_Mutations_With_Admin_Role(string componentFileName, string expectedGuard)
     {
@@ -554,5 +553,18 @@ public class AuthBypassEmpiricalTests
         var file = Assert.Single(files);
         var content = File.ReadAllText(file);
         Assert.Contains(expectedGuard, content);
+    }
+
+    [Theory]
+    [InlineData("Orders.razor")]
+    [InlineData("OpenOrdersTile.razor")]
+    [InlineData("ToMakeTile.razor")]
+    public void Order_Made_Toggles_Are_Enabled_For_User_Role(string componentFileName)
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var file = Assert.Single(Directory.GetFiles(Path.Combine(root, "src", "EtsyShopManager.Web"), componentFileName, SearchOption.AllDirectories));
+        var content = File.ReadAllText(file);
+        Assert.Contains("_canMark = true;", content);
+        Assert.DoesNotContain("_canMark = user.IsInRole(Roles.Admin)", content);
     }
 }

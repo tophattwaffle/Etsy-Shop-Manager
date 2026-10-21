@@ -67,13 +67,13 @@ else
     private JsonObject? _colorConfig;
     private IDisposable? _live;
 
-    // Admins and Editors mark items made; Viewers see what is made.
+    // Both Admin and User (including unsigned-in visitors) can mark items made.
     private bool _canMark;
 
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthState).User;
-        _canMark = user.IsInRole(Roles.Admin);
+        _canMark = true;
         _colorConfig = (await Colors.GetAsync()).ToCardJson();
         await LoadAsync();
         _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,
