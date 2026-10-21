@@ -22,8 +22,9 @@ public sealed record ManagedListingState
     /// <remarks>2: title, description, tags, materials and styles are HTML-decoded. 3: properties keep their name (variation
     /// names such as "Bulk Pricing", needed to add or rename variations). 4: photo alt text is HTML-decoded too.
     /// 5: attributes and personalization become editable: attributes without their name (Etsy's name for a property can
-    /// differ from the taxonomy's), values in id order; personalization as decoded questions without Etsy's ids.</remarks>
-    public const int CurrentVersion = 5;
+    /// differ from the taxonomy's), values in id order; personalization as decoded questions without Etsy's ids.
+    /// 6: listing video state tracking.</remarks>
+    public const int CurrentVersion = 6;
 
     public string State { get; init; } = "";
     public string Title { get; init; } = "";
@@ -59,6 +60,7 @@ public sealed record ManagedListingState
     public List<ManagedAttribute> Attributes { get; init; } = [];
     public ManagedInventory Inventory { get; init; } = new();
     public List<ManagedImage> Images { get; init; } = [];
+    public ManagedVideo? Video { get; init; }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -104,6 +106,9 @@ public sealed record ManagedListingState
         Inventory = ManagedInventory.From(listing),
         Images = [.. listing.Images.OrderBy(i => i.Rank).ThenBy(i => i.EtsyImageId)
             .Select(i => new ManagedImage(i.EtsyImageId, i.Rank, i.AltText ?? ""))],
+        Video = listing.Videos.FirstOrDefault(v => v.VideoState != "deleted") is { } v
+            ? new ManagedVideo(v.EtsyVideoId, v.VideoState ?? "active", v.Width, v.Height)
+            : null,
     };
 
     public string ToCanonicalJson() => JsonSerializer.Serialize(this, JsonOptions);
@@ -217,3 +222,5 @@ public sealed record ManagedProduct(string Sku, List<ManagedProperty> PropertyVa
 public sealed record ManagedOffering(long PriceAmount, int PriceDivisor, bool IsEnabled, long? ReadinessStateId);
 
 public sealed record ManagedImage(long EtsyImageId, int Rank, string AltText);
+
+public sealed record ManagedVideo(long EtsyVideoId, string VideoState, int? Width, int? Height);
