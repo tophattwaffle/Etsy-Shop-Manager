@@ -1,0 +1,235 @@
+@using EtsyShopManager.Core.Configuration
+@using EtsyShopManager.Core.Domain
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Infrastructure.Backups
+@inject BackupService Backups
+@inject ISettingsStore Settings
+@inject IJobQueue Jobs
+@inject IAuditLog Audit
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Backups & export</MudText>
+    <MudText Typo="Typo.body2" Class="mb-3">
+        Scheduled automatic backups take consistent snapshots of the database, images, and Data Protection keys into full restorable .zip archives.
+        Older backups are automatically pruned according to retention settings. You can also trigger an immediate backup or download a portable listing export.
+    </MudText>
+
+    <MudGrid Class="mb-3">
+        <MudItem xs="12" sm="4">
+            <MudNumericField T="int" @bind-Value="_scheduleHours" Label="Schedule interval (hours)" Immediate="true"
+                             Min="1" Max="720" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudNumericField T="int" @bind-Value="_retentionDays" Label="Retention (days, 0 = keep forever)" Immediate="true"
+                             Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudNumericField T="int" @bind-Value="_maxCount" Label="Max backups to keep (0 = unlimited)" Immediate="true"
+                             Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+    </MudGrid>
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+        <SaveButtons Text="Save backup settings" Changed="@HasChanges" Busy="_busy" OnSave="SaveSettingsAsync" OnCancel="RevertSettings" />
+    </MudStack>
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.h6" GutterBottom="true">Actions</MudText>
+    <MudStack Row="true" Spacing="2" Class="mb-4" AlignItems="AlignItems.Center">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateBackupNowAsync" Disabled="_busy">
+            Create backup now
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Href="/admin/backups/export" Target="_blank">
+            Export listings (.zip)
+        </MudButton>
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="RefreshBackups" Size="Size.Small" title="Refresh backup list" />
+    </MudStack>
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.h6" GutterBottom="true">Existing backups</MudText>
+    @if (_backups.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">No backup archives found in the backups directory.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <SortHeader Sort="_sort" Column="name" Changed="StateHasChanged">Filename</SortHeader>
+                    <SortHeader Sort="_sort" Column="type" Changed="StateHasChanged">Type</SortHeader>
+                    <SortHeader Sort="_sort" Column="created" Changed="StateHasChanged">Created (UTC)</SortHeader>
+                    <SortHeader Sort="_sort" Column="size" Changed="StateHasChanged">Size</SortHeader>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in _sort.Apply(_backups))
+                {
+                    <tr>
+                        <td><code>@b.FileName</code></td>
+                        <td>@b.BackupType</td>
+                        <td>@b.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@b.SizeMb MB</td>
+                        <td class="text-right">
+                            <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small"
+                                           Href="@($"/admin/backups/download/{b.FileName}")" Target="_blank" title="Download" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                           OnClick="() => ConfirmDeleteAsync(b)" title="Delete" />
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private int _scheduleHours = BackupService.DefaultScheduleIntervalHours;
+    private int _savedScheduleHours = BackupService.DefaultScheduleIntervalHours;
+    private int _retentionDays = BackupService.DefaultRetentionDays;
+    private int _savedRetentionDays = BackupService.DefaultRetentionDays;
+    private int _maxCount = BackupService.DefaultMaxCount;
+    private int _savedMaxCount = BackupService.DefaultMaxCount;
+    private bool _busy;
+
+    private List<BackupFileInfo> _backups = [];
+    private readonly TableSort<BackupFileInfo> _sort = new()
+    {
+        ["name"] = b => b.FileName,
+        ["type"] = b => b.BackupType,
+        ["created"] = b => b.CreatedAtUtc,
+        ["size"] = b => b.SizeBytes,
+    };
+
+    private bool HasChanges =>
+        _scheduleHours != _savedScheduleHours ||
+        _retentionDays != _savedRetentionDays ||
+        _maxCount != _savedMaxCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettingsAsync();
+        RefreshBackups();
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        var hoursRaw = await Settings.GetAsync(SettingKeys.BackupsScheduleIntervalHours);
+        if (int.TryParse(hoursRaw, out var h) && h > 0)
+            _scheduleHours = _savedScheduleHours = h;
+        else
+            _scheduleHours = _savedScheduleHours = BackupService.DefaultScheduleIntervalHours;
+
+        var daysRaw = await Settings.GetAsync(SettingKeys.BackupsRetentionDays);
+        if (int.TryParse(daysRaw, out var d) && d >= 0)
+            _retentionDays = _savedRetentionDays = d;
+        else
+            _retentionDays = _savedRetentionDays = BackupService.DefaultRetentionDays;
+
+        var countRaw = await Settings.GetAsync(SettingKeys.BackupsMaxCount);
+        if (int.TryParse(countRaw, out var c) && c >= 0)
+            _maxCount = _savedMaxCount = c;
+        else
+            _maxCount = _savedMaxCount = BackupService.DefaultMaxCount;
+    }
+
+    private void RevertSettings()
+    {
+        _scheduleHours = _savedScheduleHours;
+        _retentionDays = _savedRetentionDays;
+        _maxCount = _savedMaxCount;
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        _busy = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var h = Math.Clamp(_scheduleHours, 1, 720);
+            var d = Math.Max(0, _retentionDays);
+            var c = Math.Max(0, _maxCount);
+
+            await Settings.SetAsync(SettingKeys.BackupsScheduleIntervalHours, h.ToString(), updatedBy: user);
+            await Settings.SetAsync(SettingKeys.BackupsRetentionDays, d.ToString(), updatedBy: user);
+            await Settings.SetAsync(SettingKeys.BackupsMaxCount, c.ToString(), updatedBy: user);
+
+            await Audit.WriteAsync("settings.backups", "Setting", "Backups",
+                $"Schedule: {h}h, Retention: {d}d, Max: {c}", user);
+
+            _savedScheduleHours = _scheduleHours = h;
+            _savedRetentionDays = _retentionDays = d;
+            _savedMaxCount = _maxCount = c;
+
+            Snackbar.Add("Backup settings saved", Severity.Success);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreateBackupNowAsync()
+    {
+        _busy = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var jobId = await Jobs.EnqueueAsync(new JobRequest
+            {
+                JobType = CreateBackupJob.Type,
+                DedupeKey = "backup:manual",
+                CreatedBy = user ?? "admin"
+            });
+
+            if (jobId is not null)
+            {
+                Snackbar.Add("Backup job queued", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("A backup job is already queued or running", Severity.Info);
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void RefreshBackups()
+    {
+        _backups = [.. Backups.ListBackups()];
+    }
+
+    private async Task ConfirmDeleteAsync(BackupFileInfo file)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(
+            "Delete backup",
+            $"Delete \"{file.FileName}\"? This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed == true)
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var deleted = await Backups.DeleteBackupAsync(file.FileName, user);
+            if (deleted)
+            {
+                Snackbar.Add($"Deleted {file.FileName}", Severity.Success);
+                RefreshBackups();
+            }
+            else
+            {
+                Snackbar.Add("File not found or already deleted", Severity.Warning);
+            }
+        }
+    }
+}
