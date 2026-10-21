@@ -1,0 +1,82 @@
+@using EtsyShopManager.Web.Modules.Templates
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            Some listings linked to this template have per-variation pricing. Choose how newly added options should be priced on those listings.
+        </MudText>
+        <MudRadioGroup T="VariationPricingStrategy" @bind-Value="_strategy">
+            <MudRadio Value="VariationPricingStrategy.TakeHighest" Color="Color.Primary">
+                <div>Take highest price</div>
+                <div class="muted small">Set new options to the highest price among each listing's existing options</div>
+            </MudRadio>
+            <MudRadio Value="VariationPricingStrategy.TakeLowest" Color="Color.Primary">
+                <div>Take lowest price</div>
+                <div class="muted small">Set new options to the lowest price among each listing's existing options</div>
+            </MudRadio>
+            <MudRadio Value="VariationPricingStrategy.PickPerListing" Color="Color.Primary">
+                <div>Pick per listing</div>
+                <div class="muted small">Set a custom price for new options on each affected listing</div>
+            </MudRadio>
+        </MudRadioGroup>
+
+        @if (_strategy == VariationPricingStrategy.PickPerListing)
+        {
+            <MudSimpleTable Dense="true" Class="mt-3">
+                <thead class="esm-fixed-order">
+                    <tr>
+                        <th>Listing</th>
+                        <th>New options</th>
+                        <th>Existing prices</th>
+                        <th class="esm-w-sm">Price</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Listings)
+                    {
+                        <tr>
+                            <td>@item.Title <span class="muted small">· @item.ShopName</span></td>
+                            <td>@string.Join(", ", item.NewOptions)</td>
+                            <td>@item.MinPrice.ToString("0.00") – @item.MaxPrice.ToString("0.00") @item.CurrencyCode</td>
+                            <td>
+                                <MudNumericField T="decimal" Value="@_prices.GetValueOrDefault(item.ListingId, item.MaxPrice)"
+                                                 ValueChanged="@(v => _prices[item.ListingId] = v)"
+                                                 Min="0.20m" Format="0.00" Step="1m" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                 aria-label="@($"Price for {item.Title}")" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="() => Dialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Apply" Disabled="@(!IsValid)">Apply</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<ListingPricingItem> Listings { get; set; } = [];
+
+    private VariationPricingStrategy _strategy = VariationPricingStrategy.TakeHighest;
+    private readonly Dictionary<int, decimal> _prices = [];
+
+    protected override void OnInitialized()
+    {
+        foreach (var item in Listings)
+            _prices[item.ListingId] = item.MaxPrice;
+    }
+
+    private bool IsValid => _strategy != VariationPricingStrategy.PickPerListing ||
+        Listings.All(l => _prices.TryGetValue(l.ListingId, out var p) && p >= 0.20m);
+
+    private void Apply()
+    {
+        if (!IsValid) return;
+        Dialog.Close(DialogResult.Ok(new ApplyVariationTemplateResult(
+            _strategy,
+            _strategy == VariationPricingStrategy.PickPerListing ? _prices : null)));
+    }
+}

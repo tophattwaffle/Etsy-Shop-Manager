@@ -1,5 +1,5 @@
 @page "/listings/{Id:int}/clone"
-@attribute [Authorize(Roles = "Admin,Editor")]
+@attribute [Authorize(Roles = Roles.Admin)]
 @using EtsyShopManager.Core.Jobs
 @using EtsyShopManager.Web.Modules.Editor
 @using EtsyShopManager.Web.Modules.Listings

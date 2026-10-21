@@ -37,7 +37,7 @@ public sealed class ShopsModule : IModule
 
     public IEnumerable<NavItem> NavItems =>
     [
-        new("Shops", "shops", Icons.Material.Filled.Storefront, Order: 10),
+        new("Shops", "shops", Icons.Material.Filled.Storefront, Order: 890, Roles: Roles.Admin, Group: NavGroups.Settings),
     ];
 }
 

@@ -89,7 +89,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthState).User;
-        _canMark = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
+        _canMark = user.IsInRole(Roles.Admin);
         _colorConfig = (await Colors.GetAsync()).ToCardJson();
         await LoadAsync();
         _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,

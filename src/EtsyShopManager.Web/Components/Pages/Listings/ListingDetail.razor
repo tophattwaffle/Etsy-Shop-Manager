@@ -1,5 +1,4 @@
 @page "/listings/{Id:int}"
-@attribute [Authorize]
 @using System.Text.Json
 @using EtsyShopManager.Web.Modules.Listings
 @inject ListingQueries Queries
@@ -33,7 +32,7 @@ else
             @l.Shop.Name
         </Summary>
         <Actions>
-            <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+            <AuthorizeView Roles="@Roles.Admin">
                 <MudButton Variant="Variant.Outlined" Href="@($"listings/{l.Id}/clone")">Clone</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"listings/{l.Id}/edit")">Edit listing</MudButton>
             </AuthorizeView>

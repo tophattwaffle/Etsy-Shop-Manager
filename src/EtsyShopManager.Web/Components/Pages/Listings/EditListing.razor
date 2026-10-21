@@ -1,5 +1,5 @@
 @page "/listings/{Id:int}/edit"
-@attribute [Authorize(Roles = "Admin,Editor")]
+@attribute [Authorize(Roles = Roles.Admin)]
 @using System.Text.Json.Nodes
 @using EtsyShopManager.Core.Listings
 @using EtsyShopManager.Web.Modules.Editor

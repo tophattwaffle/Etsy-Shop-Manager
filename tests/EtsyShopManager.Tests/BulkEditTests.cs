@@ -82,7 +82,7 @@ public class BulkEditTests
         Assert.Contains("32.99", preview[0].After);
         Assert.Equal([1999, 2999], Prices((await ModelAsync(shop, first)).Local(ListingFields.Inventory))); // a preview saves nothing
 
-        var changed = await Bulk(shop).ApplyAsync([first, second], edit, User(Roles.Editor));
+        var changed = await Bulk(shop).ApplyAsync([first, second], edit, User(Roles.Admin));
 
         Assert.Equal([first, second], changed.Order());
         foreach (var id in changed)
@@ -100,11 +100,11 @@ public class BulkEditTests
     {
         var (shop, first, _) = await ImportedAsync();
         using var _s = shop;
-        await Bulk(shop).ApplyAsync([first], new BulkEdit(BulkEditKind.Price, Amount: 1), User(Roles.Editor));
+        await Bulk(shop).ApplyAsync([first], new BulkEdit(BulkEditKind.Price, Amount: 1), User(Roles.Admin));
 
         var review = Assert.Single(await Bulk(shop).ReviewAsync([first]));
         Assert.True(review.Preview.CanPush, string.Join("; ", review.Preview.Blockers));
-        var result = Assert.Single(await Bulk(shop).PushAsync([first], User(Roles.Editor)));
+        var result = Assert.Single(await Bulk(shop).PushAsync([first], User(Roles.Admin)));
         Assert.NotNull(result.PushId);
 
         await shop.Provider.GetRequiredService<PushListingJob>().HandleAsync(new JobExecutionContext
@@ -154,7 +154,7 @@ public class BulkEditTests
         var (shop, first, _) = await ImportedAsync();
         using var _s = shop;
 
-        await Bulk(shop).ApplyAsync([first], new BulkEdit(BulkEditKind.RemoveMaterials, Words: ["pla"]), User(Roles.Editor));
+        await Bulk(shop).ApplyAsync([first], new BulkEdit(BulkEditKind.RemoveMaterials, Words: ["pla"]), User(Roles.Admin));
 
         Assert.Empty(Words((await ModelAsync(shop, first)).Local("materials")));
     }
@@ -180,9 +180,9 @@ public class BulkEditTests
         Assert.All(await Bulk(shop).PreviewAsync([first], otherShop), r => Assert.Equal("Nothing chosen for this shop.", r.Skipped));
 
         await Bulk(shop).ApplyAsync([first, second],
-            new BulkEdit(BulkEditKind.ShippingProfile, PerShop: new Dictionary<int, long?> { [FakeEtsyShop.ShopId] = 502 }), User(Roles.Editor));
+            new BulkEdit(BulkEditKind.ShippingProfile, PerShop: new Dictionary<int, long?> { [FakeEtsyShop.ShopId] = 502 }), User(Roles.Admin));
         await Bulk(shop).ApplyAsync([first],
-            new BulkEdit(BulkEditKind.Section, PerShop: new Dictionary<int, long?> { [FakeEtsyShop.ShopId] = null }), User(Roles.Editor));
+            new BulkEdit(BulkEditKind.Section, PerShop: new Dictionary<int, long?> { [FakeEtsyShop.ShopId] = null }), User(Roles.Admin));
 
         Assert.Equal(502, (long?)(await ModelAsync(shop, second)).Local("shipping_profile_id"));
         var model = await ModelAsync(shop, first);
@@ -193,14 +193,14 @@ public class BulkEditTests
     }
 
     [Fact]
-    public async Task Viewers_cannot_bulk_edit_or_push()
+    public async Task Non_admins_cannot_bulk_edit_or_push()
     {
         var (shop, first, _) = await ImportedAsync();
         using var _s = shop;
         var edit = new BulkEdit(BulkEditKind.AddTags, Words: ["gift"]);
 
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Bulk(shop).ApplyAsync([first], edit, User(Roles.Viewer)));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Bulk(shop).PushAsync([first], User(Roles.Viewer)));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Bulk(shop).ApplyAsync([first], edit, User(Roles.User)));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Bulk(shop).PushAsync([first], User(Roles.User)));
 
         Assert.False((await ModelAsync(shop, first)).HasDraft);
     }

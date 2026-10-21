@@ -88,9 +88,9 @@
     {
         if (_form is null) return;
         var user = (await AuthState).User;
-        if (!user.IsInRole(Roles.Admin) && !user.IsInRole(Roles.Editor))
+        if (!user.IsInRole(Roles.Admin))
         {
-            _error = "Only admins and editors can change orders.";
+            _error = "Only admins can change orders.";
             return;
         }
         _saving = true;

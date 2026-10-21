@@ -14,7 +14,7 @@
 <PageHeader Title="Users">
     <Summary>
     <b>Admin</b>: everything, including users, settings and shop connections.
-    <b>Editor</b>: edit and push listings (from Phase 3). <b>Viewer</b>: read only.
+    <b>User</b>: read-only access to viewable pages.
     </Summary>
 </PageHeader>
 
@@ -126,7 +126,7 @@
     private bool _busy;
 
     private string? _newUserName, _newDisplayName, _newPassword;
-    private string _newRole = Roles.Viewer;
+    private string _newRole = Roles.User;
 
     private UserRow? _passwordUser;
     private string? _resetPassword;
@@ -147,7 +147,7 @@
         foreach (var u in users)
         {
             var roles = await UserManager.GetRolesAsync(u);
-            rows.Add(new UserRow(u.Id, u.UserName ?? "", u.DisplayName, roles.FirstOrDefault() ?? Roles.Viewer,
+            rows.Add(new UserRow(u.Id, u.UserName ?? "", u.DisplayName, roles.FirstOrDefault() ?? Roles.User,
                 u.CreatedAtUtc, u.LastLoginAtUtc, u.LockoutEnd is { } end && end > now));
         }
         _users = rows;
@@ -181,7 +181,7 @@
             await Audit.WriteAsync("user.created", "User", user.Id, $"{user.UserName} as {_newRole}", _currentUserName);
             Snackbar.Add($"User {user.UserName} added", Severity.Success);
             _newUserName = _newDisplayName = _newPassword = null;
-            _newRole = Roles.Viewer;
+            _newRole = Roles.User;
             await LoadAsync();
         }
         finally

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using EtsyShopManager.Web.Modules.Templates;
 
 namespace EtsyShopManager.Web.Modules.Editor;
 
@@ -76,6 +77,63 @@ public static class VariationEditor
             ProductArray(inv).Add(product);
         }
         return Canonical(inv);
+    }
+
+    /// <summary>
+    /// Applies pricing to newly added options on a listing when price varies by that variation.
+    /// Existing option prices are never modified.
+    /// </summary>
+    public static JsonObject ApplyOptionPricing(JsonNode inventory, long propertyId, IReadOnlyCollection<string> newOptionNames,
+        VariationPricingStrategy strategy, decimal? customPrice)
+    {
+        var inv = Clone(inventory);
+        var priceOn = (inv[PriceOnProperty]?.AsArray() ?? []).Select(x => (long)x!).ToHashSet();
+        if (!priceOn.Contains(propertyId) || newOptionNames.Count == 0) return Canonical(inv);
+
+        var newSet = new HashSet<string>(newOptionNames, StringComparer.OrdinalIgnoreCase);
+
+        // Group by other variations (if single variation, OtherKey returns "" so all products form 1 group).
+        foreach (var group in Products(inv).GroupBy(p => OtherKey(p, propertyId)))
+        {
+            var existingInGroup = group.Where(p => !newSet.Contains(ValueOf(p, propertyId) ?? "")).ToList();
+            var existingPrices = existingInGroup
+                .SelectMany(Offerings)
+                .Select(OfferingPrice)
+                .Where(p => p > 0)
+                .ToList();
+
+            if (existingPrices.Count == 0 && customPrice is null) continue;
+
+            decimal targetPrice;
+            if (customPrice is not null)
+                targetPrice = customPrice.Value;
+            else if (strategy == VariationPricingStrategy.TakeLowest)
+                targetPrice = existingPrices.Min();
+            else // TakeHighest or default
+                targetPrice = existingPrices.Max();
+
+            foreach (var product in group.Where(p => newSet.Contains(ValueOf(p, propertyId) ?? "")))
+            {
+                foreach (var offering in Offerings(product))
+                {
+                    SetOfferingPrice(offering, targetPrice);
+                }
+            }
+        }
+        return Canonical(inv);
+    }
+
+    /// <summary>The distinct existing prices of options on this variation other than the new ones.</summary>
+    public static IReadOnlyList<decimal> GetExistingPrices(JsonNode inventory, long propertyId, IEnumerable<string> newOptions)
+    {
+        var newSet = new HashSet<string>(newOptions, StringComparer.OrdinalIgnoreCase);
+        return [.. Products(inventory)
+            .Where(p => !newSet.Contains(ValueOf(p, propertyId) ?? ""))
+            .SelectMany(Offerings)
+            .Select(OfferingPrice)
+            .Where(p => p > 0)
+            .Distinct()
+            .Order()];
     }
 
     public static JsonObject RemoveValue(JsonNode inventory, long propertyId, string value)
@@ -328,9 +386,45 @@ public static class VariationEditor
         ? string.Join(" / ", PropertyValues(product).Select(ValueText))
         : "the listing";
 
+    public static decimal OfferingPrice(JsonObject offering)
+    {
+        if (offering["price_amount"] is not null)
+        {
+            var divisor = (int?)offering["price_divisor"] is int d && d > 0 ? d : 100;
+            return (decimal)((long?)offering["price_amount"] ?? 0) / divisor;
+        }
+        if (offering["price"] is JsonObject money)
+        {
+            var divisor = (int?)money["divisor"] is int d && d > 0 ? d : 100;
+            return (decimal)((long?)money["amount"] ?? 0) / divisor;
+        }
+        if (offering["price"] is not null)
+        {
+            return (decimal)offering["price"]!;
+        }
+        return 0m;
+    }
+
+    private static void SetOfferingPrice(JsonObject offering, decimal price)
+    {
+        var divisor = (int?)offering["price_divisor"] is int d && d > 0 ? d
+            : offering["price"] is JsonObject m && (int?)m["divisor"] is int md && md > 0 ? md : 100;
+        offering["price_amount"] = (long)Math.Round(price * divisor);
+        offering["price_divisor"] = divisor;
+        if (offering["price"] is JsonObject money)
+        {
+            money["amount"] = (long)Math.Round(price * divisor);
+            money["divisor"] = divisor;
+        }
+        else if (offering["price"] is not null)
+        {
+            offering["price"] = price;
+        }
+    }
+
     private static string PriceText(JsonObject product) =>
         Offerings(product).FirstOrDefault() is { } o
-            ? ((decimal)((long?)o["price_amount"] ?? 0) / ((int?)o["price_divisor"] is int d && d > 0 ? d : 100)).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
+            ? OfferingPrice(o).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
             : "";
 
     private static string OtherKey(JsonObject product, long propertyId) =>

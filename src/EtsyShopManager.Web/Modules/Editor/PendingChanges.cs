@@ -69,8 +69,8 @@ public sealed class PendingChangesService(IDbContextFactory<AppDbContext> dbFact
     public async Task<IReadOnlyList<PendingPushResult>> PushAsync(IReadOnlyDictionary<int, string> reviewed, ClaimsPrincipal user,
         CancellationToken ct = default)
     {
-        if (!user.IsInRole(Roles.Admin) && !user.IsInRole(Roles.Editor))
-            throw new UnauthorizedAccessException("Only admins and editors can push listings to Etsy.");
+        if (!user.IsInRole(Roles.Admin))
+            throw new UnauthorizedAccessException("Only admins can push listings to Etsy.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var ids = reviewed.Keys.ToList();
         var titles = await db.Listings.AsNoTracking().Where(l => ids.Contains(l.Id)).ToDictionaryAsync(l => l.Id, l => l.Title, ct);

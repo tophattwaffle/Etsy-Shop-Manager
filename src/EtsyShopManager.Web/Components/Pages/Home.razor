@@ -1,5 +1,4 @@
 @page "/"
-@attribute [Authorize]
 @using System.Security.Claims
 @using EtsyShopManager.Web.Modules.Dashboard
 @inject DashboardLayoutService Layouts
@@ -11,23 +10,25 @@
    buttons), resized down to their minimum size, removed and added. Layouts are saved per user. *@
 <PageHeader Title="Dashboard">
     <Actions>
-        @if (_editing)
-        {
-            <MudMenu Label="Add module" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" Disabled="@(Available.Count == 0)"
-                     AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                @foreach (var kind in Available)
-                {
-                    <MudMenuItem OnClick="() => Add(kind)">@kind.Title</MudMenuItem>
-                }
-            </MudMenu>
-            <MudButton Variant="Variant.Text" OnClick="ResetAsync">Reset to default</MudButton>
-            <MudButton Variant="Variant.Text" OnClick="CancelAsync">Cancel</MudButton>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save layout</MudButton>
-        }
-        else
-        {
-            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.DashboardCustomize" OnClick="Edit">Edit layout</MudButton>
-        }
+        <AuthorizeView Roles="@Roles.Admin">
+            @if (_editing)
+            {
+                <MudMenu Label="Add module" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" Disabled="@(Available.Count == 0)"
+                         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    @foreach (var kind in Available)
+                    {
+                        <MudMenuItem OnClick="() => Add(kind)">@kind.Title</MudMenuItem>
+                    }
+                </MudMenu>
+                <MudButton Variant="Variant.Text" OnClick="ResetAsync">Reset to default</MudButton>
+                <MudButton Variant="Variant.Text" OnClick="CancelAsync">Cancel</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save layout</MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.DashboardCustomize" OnClick="Edit">Edit layout</MudButton>
+            }
+        </AuthorizeView>
     </Actions>
 </PageHeader>
 
@@ -39,7 +40,9 @@ else if (_items.Count == 0)
 {
     <div class="lp-empty">
         <p>Your dashboard is empty.</p>
-        <button type="button" class="esm-button" @onclick="Edit">Add modules</button>
+        <AuthorizeView Roles="@Roles.Admin">
+            <button type="button" class="esm-button" @onclick="Edit">Add modules</button>
+        </AuthorizeView>
     </div>
 }
 else

@@ -3,7 +3,6 @@
 @* The old addresses, from before the Templates page. *@
 @page "/text-blocks/new"
 @page "/text-blocks/{Id:int}"
-@attribute [Authorize(Roles = "Admin,Editor")]
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Modules.Templates
 @inject TextBlockService Blocks
@@ -42,25 +41,27 @@ else
             }
         </Summary>
         <Actions>
-            @if (_saved is not null)
-            {
-                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
-            }
-            <SaveButtons Text="Save template" Changed="Dirty" OnSave="SaveAsync" OnCancel="Revert" />
+            <AuthorizeView Roles="@Roles.Admin">
+                @if (_saved is not null)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
+                }
+                <SaveButtons Text="Save template" Changed="Dirty" OnSave="SaveAsync" OnCancel="Revert" />
+            </AuthorizeView>
         </Actions>
     </PageHeader>
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" Class="mb-2">Template</MudText>
         <MudTextField T="string" Value="_name" ValueChanged="NameChanged" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
-                      Counter="TextBlockService.MaxNameLength" MaxLength="TextBlockService.MaxNameLength" />
+                      ReadOnly="!_canEdit" Counter="TextBlockService.MaxNameLength" MaxLength="TextBlockService.MaxNameLength" />
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3" Wrap="Wrap.Wrap">
             <MudTextField T="string" @bind-Value="_slug" Label="Placeholder name" Variant="Variant.Outlined" Immediate="true" Class="esm-w-lg"
-                          Counter="TextBlockService.MaxSlugLength" MaxLength="TextBlockService.MaxSlugLength"
+                          ReadOnly="!_canEdit" Counter="TextBlockService.MaxSlugLength" MaxLength="TextBlockService.MaxSlugLength"
                           HelperText="@($"Put {TextBlockMarkup.Token(SlugOrDefault)} in a description to show this template there. Lowercase letters, numbers and hyphens.")" />
             <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopyTokenAsync">Copy placeholder</MudButton>
         </MudStack>
-        <MudTextField T="string" @bind-Value="_text" Label="Text" Lines="8" Variant="Variant.Outlined" Immediate="true"
+        <MudTextField T="string" @bind-Value="_text" Label="Text" Lines="8" Variant="Variant.Outlined" Immediate="true" ReadOnly="!_canEdit"
                       HelperText="Exactly as it appears in every description that uses the template; it can only be changed here. Trailing spaces and blank lines around it are dropped." />
     </MudPaper>
 
@@ -69,14 +70,16 @@ else
         <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
                 <MudText Typo="Typo.h6">Listings using this template</MudText>
-                <MudStack Row="true" Spacing="2">
-                    <MudButton Variant="Variant.Outlined" Disabled="@(WillChange == 0 || Dirty)" OnClick="ApplyAsync">
-                        Apply to @WillChange listing@(WillChange == 1 ? "" : "s")
-                    </MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Pending == 0)" OnClick="ReviewAsync">
-                        Review and push @Pending listing@(Pending == 1 ? "" : "s")
-                    </MudButton>
-                </MudStack>
+                <AuthorizeView Roles="@Roles.Admin">
+                    <MudStack Row="true" Spacing="2">
+                        <MudButton Variant="Variant.Outlined" Disabled="@(WillChange == 0 || Dirty)" OnClick="ApplyAsync">
+                            Apply to @WillChange listing@(WillChange == 1 ? "" : "s")
+                        </MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Pending == 0)" OnClick="ReviewAsync">
+                            Review and push @Pending listing@(Pending == 1 ? "" : "s")
+                        </MudButton>
+                    </MudStack>
+                </AuthorizeView>
             </MudStack>
             <MudText Typo="Typo.body2" Class="muted mb-2">
                 Applying puts the template's new text into each listing's description as an unpushed edit; nothing is sent to Etsy
@@ -101,7 +104,7 @@ else
                         @foreach (var u in _useSort.Apply(_uses))
                         {
                             <tr>
-                                <td><a href="@($"listings/{u.ListingId}/edit")">@u.Title</a></td>
+                                <td><a href="@(_canEdit ? $"listings/{u.ListingId}/edit" : $"listings/{u.ListingId}")">@u.Title</a></td>
                                 <td>@u.ShopName</td>
                                 <td>
                                     <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
@@ -113,7 +116,10 @@ else
                                     }
                                 </td>
                                 <td class="text-right">
-                                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => DetachAsync(u))">Stop using</MudButton>
+                                    @if (_canEdit)
+                                    {
+                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => DetachAsync(u))">Stop using</MudButton>
+                                    }
                                 </td>
                             </tr>
                             @if (_open.Contains(u.ListingId))
@@ -149,7 +155,7 @@ else
                         @foreach (var item in _reviewSort.Apply(_review))
                         {
                             <tr>
-                                <td><a href="@($"listings/{item.ListingId}/edit")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
+                                <td><a href="@(_canEdit ? $"listings/{item.ListingId}/edit" : $"listings/{item.ListingId}")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
                                 <td>@string.Join(", ", item.Preview.Changes.Select(c => c.Label))</td>
                                 <td>
                                     @if (item.Preview.CanPush)
@@ -165,9 +171,11 @@ else
                         }
                     </tbody>
                 </MudSimpleTable>
-                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _pushing)" OnClick="PushAsync">
-                    Push @Ready listing@(Ready == 1 ? "" : "s") to Etsy
-                </MudButton>
+                <AuthorizeView Roles="@Roles.Admin">
+                    <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _pushing)" OnClick="PushAsync">
+                        Push @Ready listing@(Ready == 1 ? "" : "s") to Etsy
+                    </MudButton>
+                </AuthorizeView>
             </MudPaper>
         }
 
@@ -183,7 +191,7 @@ else
                     <thead>
                         <tr>
                             <th class="esm-col-icon">
-                                <MudCheckBox T="bool" Value="@(_picked.Count == _candidates.Count)" ValueChanged="PickAll" aria-label="Select all" Dense="true" />
+                                <MudCheckBox T="bool" Value="@(_picked.Count == _candidates.Count)" ValueChanged="PickAll" aria-label="Select all" Dense="true" Disabled="!_canEdit" />
                             </th>
                             <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
                             <SortHeader Sort="_candidateSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
@@ -193,16 +201,18 @@ else
                         @foreach (var c in _candidateSort.Apply(_candidates))
                         {
                             <tr>
-                                <td><MudCheckBox T="bool" Value="@_picked.Contains(c.ListingId)" ValueChanged="@(on => Pick(c.ListingId, on))" aria-label="@($"Link {c.Title}")" Dense="true" /></td>
+                                <td><MudCheckBox T="bool" Value="@_picked.Contains(c.ListingId)" ValueChanged="@(on => Pick(c.ListingId, on))" aria-label="@($"Link {c.Title}")" Dense="true" Disabled="!_canEdit" /></td>
                                 <td><a href="@($"listings/{c.ListingId}")">@c.Title</a></td>
                                 <td>@c.ShopName</td>
                             </tr>
                         }
                     </tbody>
                 </MudSimpleTable>
-                <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
-                    Use the template in @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
-                </MudButton>
+                <AuthorizeView Roles="@Roles.Admin">
+                    <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
+                        Use the template in @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
+                    </MudButton>
+                </AuthorizeView>
             </MudPaper>
         }
     }
@@ -213,7 +223,7 @@ else
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private TextBlock? _saved;
-    private bool _loaded, _pushing;
+    private bool _loaded, _pushing, _canEdit;
     private string _name = "", _text = "", _slug = "";
     private IReadOnlyList<TextBlockUse> _uses = [];
     private IReadOnlyList<TextBlockCandidate> _candidates = [];
@@ -247,7 +257,23 @@ else
         ["ready"] = r => r.Preview.CanPush,
     };
 
-    protected override async Task OnParametersSetAsync() => await LoadAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthState;
+        _canEdit = state.User.IsInRole(Roles.Admin);
+        if (Id is null && !_canEdit)
+        {
+            if (state.User.Identity?.IsAuthenticated == true)
+                Nav.NavigateTo("account/access-denied", forceLoad: true);
+            else
+            {
+                var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+                Nav.NavigateTo($"account/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+            }
+            return;
+        }
+        await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {

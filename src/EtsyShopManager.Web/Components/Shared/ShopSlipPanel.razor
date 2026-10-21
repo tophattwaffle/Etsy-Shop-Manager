@@ -95,7 +95,7 @@
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthState).User;
-        _canEdit = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
+        _canEdit = user.IsInRole(Roles.Admin);
         _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
         var ids = _shops.Select(s => s.Id).ToList();
         var notes = await Print.GetNotesAsync(ids);

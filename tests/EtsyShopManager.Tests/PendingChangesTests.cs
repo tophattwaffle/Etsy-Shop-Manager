@@ -65,7 +65,7 @@ public class PendingChangesTests
         using var _s = shop;
         var rows = await Pending(shop).ListAsync();
 
-        var results = await Pending(shop).PushAsync(rows.ToDictionary(r => r.ListingId, r => r.Reviewed), User(Roles.Editor));
+        var results = await Pending(shop).PushAsync(rows.ToDictionary(r => r.ListingId, r => r.Reviewed), User(Roles.Admin));
 
         var pushed = results.Single(r => r.ListingId == galaxy);
         Assert.NotNull(pushed.PushId);
@@ -105,14 +105,14 @@ public class PendingChangesTests
     }
 
     [Fact]
-    public async Task Viewers_cannot_push()
+    public async Task Non_admins_cannot_push()
     {
         var (shop, galaxy, _, _) = await EditedAsync();
         using var _s = shop;
         var reviewed = (await Pending(shop).ListAsync()).Single(r => r.ListingId == galaxy);
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            Pending(shop).PushAsync(new Dictionary<int, string> { [galaxy] = reviewed.Reviewed }, User(Roles.Viewer)));
+            Pending(shop).PushAsync(new Dictionary<int, string> { [galaxy] = reviewed.Reviewed }, User(Roles.User)));
         Assert.Empty(shop.Provider.GetRequiredService<RecordingJobQueue>().Requests);
     }
 }

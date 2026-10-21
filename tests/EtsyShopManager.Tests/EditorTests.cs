@@ -682,7 +682,7 @@ public class BulkRefillTests
         using var _ = shop;
 
         var changed = await Refiller(shop).ApplyBulkAsync([low, stocked, inactive], new BulkRefillChange(true, null, null),
-            User(EtsyShopManager.Core.Modules.Roles.Editor));
+            User(EtsyShopManager.Core.Modules.Roles.Admin));
 
         Assert.Equal(2, changed); // the stocked listing was already on
         var settings = await SettingsAsync(shop);
@@ -726,9 +726,9 @@ public class BulkRefillTests
         var preview = await Refiller(shop).PreviewBulkAsync([low, stocked], change);
         Assert.Contains(preview.Problems, p => p.Contains("Refill-to must be more than the threshold"));
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            Refiller(shop).ApplyBulkAsync([low, stocked], change, User(EtsyShopManager.Core.Modules.Roles.Editor)));
+            Refiller(shop).ApplyBulkAsync([low, stocked], change, User(EtsyShopManager.Core.Modules.Roles.Admin)));
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            Refiller(shop).ApplyBulkAsync([low], new BulkRefillChange(null, null, 1000), User(EtsyShopManager.Core.Modules.Roles.Editor)));
+            Refiller(shop).ApplyBulkAsync([low], new BulkRefillChange(null, null, 1000), User(EtsyShopManager.Core.Modules.Roles.Admin)));
 
         var settings = await SettingsAsync(shop);
         Assert.Equal((true, 10, 500), settings[stocked]); // nothing saved
@@ -736,13 +736,13 @@ public class BulkRefillTests
     }
 
     [Fact]
-    public async Task Viewers_cannot_bulk_edit()
+    public async Task Non_admins_cannot_bulk_edit()
     {
         var (shop, low, _, _) = await SetupAsync();
         using var _s = shop;
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            Refiller(shop).ApplyBulkAsync([low], new BulkRefillChange(true, null, null), User(EtsyShopManager.Core.Modules.Roles.Viewer)));
+            Refiller(shop).ApplyBulkAsync([low], new BulkRefillChange(true, null, null), User(EtsyShopManager.Core.Modules.Roles.User)));
 
         Assert.False((await SettingsAsync(shop)).ContainsKey(low));
     }

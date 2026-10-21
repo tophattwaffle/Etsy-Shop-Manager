@@ -171,8 +171,8 @@ public sealed class BulkListingEditor(IDbContextFactory<AppDbContext> dbFactory,
 
     private static void RequireEditor(ClaimsPrincipal user)
     {
-        if (!user.IsInRole(Roles.Admin) && !user.IsInRole(Roles.Editor))
-            throw new UnauthorizedAccessException("Only admins and editors can bulk edit listings.");
+        if (!user.IsInRole(Roles.Admin))
+            throw new UnauthorizedAccessException("Only admins can bulk edit listings.");
     }
 
     private async Task<List<(BulkEditRow Row, JsonNode? Value)>> PlanAsync(IReadOnlyCollection<int> listingIds, BulkEdit edit, CancellationToken ct)
