@@ -8,6 +8,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Modules.Templates;
 
+public enum VariationPricingStrategy
+{
+    TakeHighest,
+    TakeLowest,
+    PickPerListing,
+}
+
+public sealed record ListingPricingItem(int ListingId, string Title, string ShopName, string CurrencyCode, decimal MinPrice,
+    decimal MaxPrice, IReadOnlyList<string> NewOptions);
+
+public sealed record ListingOptionPriceOverride(int ListingId, string ListingTitle, decimal Price);
+
+public sealed record ApplyVariationTemplateResult(VariationPricingStrategy Strategy, IReadOnlyDictionary<int, decimal>? CustomPrices);
+
 public enum VariationListUseStatus
 {
     UpToDate,
@@ -70,7 +84,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     /// The plan for one listing (pure). Options are taken in the list's order; new ones go at the end of the listing's
     /// values (Etsy shows new values last).
     /// </summary>
-    public static VariationListPlan Plan(VariationList list, ListingVariationList link, JsonNode localInventory)
+    public static VariationListPlan Plan(VariationList list, ListingVariationList link, JsonNode localInventory,
+        VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest, decimal? customPrice = null)
     {
         var inventory = (JsonObject)localInventory.DeepClone();
         var changes = new List<string>();
@@ -80,6 +95,37 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         string? Has(string name) => VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId)?
             .Values.FirstOrDefault(v => string.Equals(v, name, StringComparison.OrdinalIgnoreCase));
 
+        // Removals: options in AppliedOptions no longer in the template (R1).
+        var removedFromTemplate = link.AppliedOptions.Where(b => list.Options.All(o => o.Id != b.Id)).ToList();
+        var retainedRemoved = new List<VariationListOption>();
+        foreach (var before in removedFromTemplate)
+        {
+            var current = Has(before.Name);
+            if (current is null)
+            {
+                notes.Add($"{before.Name} was already removed from this listing by hand.");
+                continue;
+            }
+            var variationValues = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId)?.Values ?? [];
+            if (variationValues.Count <= 1)
+            {
+                notes.Add($"Cannot remove {current}: it is the last remaining value on this variation.");
+                retainedRemoved.Add(before);
+                continue;
+            }
+            try
+            {
+                inventory = VariationEditor.RemoveValue(inventory, link.PropertyId, current);
+                changes.Add($"Removes {current}");
+            }
+            catch (ArgumentException ex)
+            {
+                notes.Add(ex.Message);
+                retainedRemoved.Add(before);
+            }
+        }
+
+        var newlyAdded = new List<string>();
         foreach (var option in list.Options)
         {
             if (!applied.TryGetValue(option.Id, out var before))
@@ -90,6 +136,7 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
                 {
                     inventory = VariationEditor.AddValue(inventory, link.PropertyId, option.Name);
                     changes.Add($"Adds {option.Name}");
+                    newlyAdded.Add(option.Name);
                 }
                 catch (ArgumentException ex) { notes.Add(ex.Message); }
                 continue;
@@ -117,8 +164,13 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             }
         }
 
-        // What the listing now reflects: each list option it has, under the name it has it.
-        var newApplied = new List<VariationListOption>();
+        if (newlyAdded.Count > 0)
+        {
+            inventory = VariationEditor.ApplyOptionPricing(inventory, link.PropertyId, newlyAdded, strategy, customPrice);
+        }
+
+        // What the listing now reflects: retained removed options plus each list option it has, under the name it has it.
+        var newApplied = new List<VariationListOption>(retainedRemoved);
         foreach (var option in list.Options)
         {
             var name = Has(option.Name) ?? (applied.TryGetValue(option.Id, out var before) ? Has(before.Name) : null);
@@ -470,11 +522,54 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     }
 
     /// <summary>
+    /// Listings linked to this list that have per-variation pricing on the linked variation and are adding new options.
+    /// </summary>
+    public async Task<IReadOnlyList<ListingPricingItem>> ListingsNeedingPricingAsync(int listId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var list = await db.VariationLists.AsNoTracking().FirstOrDefaultAsync(l => l.Id == listId, ct);
+        if (list is null) return [];
+
+        var links = await db.ListingVariationLists.AsNoTracking().Where(l => l.VariationListId == listId)
+            .Include(l => l.Listing).ThenInclude(l => l.EtsyState)
+            .Include(l => l.Listing).ThenInclude(l => l.Shop)
+            .ToListAsync(ct);
+
+        var result = new List<ListingPricingItem>();
+        foreach (var link in links.Where(l => l.Listing.EtsyState is not null && !l.Listing.IsMissingOnEtsy))
+        {
+            var model = ListingEditModel.Parse(link.Listing.EtsyState!.ManagedJson, link.Listing.EtsyState.BaseJson, link.Listing.DraftJson);
+            if (model.DriftFields.Contains(ListingFields.Inventory) || model.Local(ListingFields.Inventory) is not { } inventory)
+                continue;
+
+            var priceOn = (inventory[VariationEditor.PriceOnProperty]?.AsArray() ?? []).Select(x => (long)x!).ToHashSet();
+            if (!priceOn.Contains(link.PropertyId)) continue;
+
+            var plan = Plan(list, link, inventory);
+            var addedOptions = plan.Changes
+                .Where(c => c.StartsWith("Adds ", StringComparison.OrdinalIgnoreCase))
+                .Select(c => c["Adds ".Length..].Trim())
+                .ToList();
+
+            if (addedOptions.Count == 0) continue;
+
+            var existingPrices = VariationEditor.GetExistingPrices(inventory, link.PropertyId, addedOptions);
+            var min = existingPrices.Count > 0 ? existingPrices.Min() : 0.20m;
+            var max = existingPrices.Count > 0 ? existingPrices.Max() : min;
+            var currency = link.Listing.CurrencyCode ?? link.Listing.Shop?.CurrencyCode ?? "USD";
+
+            result.Add(new ListingPricingItem(link.ListingId, link.Listing.Title, link.Listing.Shop?.Name ?? "", currency, min, max, addedOptions));
+        }
+        return [.. result.OrderBy(r => r.Title, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>
     /// Brings every linked listing in line with the list, as drafts (nothing is sent to Etsy). Listings whose variations
     /// changed on Etsy, or that lost the variation, are skipped. Returns the listings changed. With <paramref name="listingId"/>,
     /// only that listing (the editor's "Apply list now").
     /// </summary>
-    public async Task<int> ApplyAsync(int listId, string? user, CancellationToken ct = default, int? listingId = null)
+    public async Task<int> ApplyAsync(int listId, string? user, VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest,
+        IReadOnlyDictionary<int, decimal>? customPrices = null, CancellationToken ct = default, int? listingId = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var list = await db.VariationLists.AsNoTracking().FirstAsync(l => l.Id == listId, ct);
@@ -486,7 +581,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             var model = ListingEditModel.Parse(link.Listing.EtsyState!.ManagedJson, link.Listing.EtsyState.BaseJson, link.Listing.DraftJson);
             if (model.DriftFields.Contains(ListingFields.Inventory) || model.Local(ListingFields.Inventory) is not { } inventory
                 || VariationEditor.Variations(inventory).All(v => v.PropertyId != link.PropertyId)) continue;
-            var plan = Plan(list, link, inventory);
+            decimal? customPrice = customPrices is not null && customPrices.TryGetValue(link.ListingId, out var cp) ? cp : null;
+            var plan = Plan(list, link, inventory, strategy, customPrice);
             if (plan.Changes.Count > 0)
             {
                 await editor.SaveAsync(link.ListingId, new Dictionary<string, JsonNode?> { [ListingFields.Inventory] = plan.Inventory }, user, ct);

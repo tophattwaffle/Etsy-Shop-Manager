@@ -85,8 +85,8 @@ public sealed class StockRefiller(
     public async Task<int> ApplyBulkAsync(IReadOnlyCollection<int> listingIds, BulkRefillChange change, ClaimsPrincipal user,
         CancellationToken ct = default)
     {
-        if (!user.IsInRole(Roles.Admin) && !user.IsInRole(Roles.Editor))
-            throw new UnauthorizedAccessException("Only admins and editors can change auto-refill.");
+        if (!user.IsInRole(Roles.Admin))
+            throw new UnauthorizedAccessException("Only admins can change auto-refill.");
         if (change.IsEmpty) throw new ArgumentException("Choose at least one setting to change.");
 
         var plan = await PlanBulkAsync(listingIds, change, ct);

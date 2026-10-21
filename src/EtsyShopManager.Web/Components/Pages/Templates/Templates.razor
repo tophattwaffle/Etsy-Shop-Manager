@@ -3,15 +3,15 @@
 @page "/text-blocks"
 @page "/variation-lists"
 @page "/photo-templates"
-@attribute [Authorize(Roles = "Admin,Editor")]
 @inject NavigationManager Nav
-
 <PageTitle>@Current.Title · Etsy Shop Manager</PageTitle>
 
 <PageHeader Title="Templates">
     <Summary>@Current.Summary</Summary>
     <Actions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"templates/{Current.Slug}/new")">@Current.NewLabel</MudButton>
+        <AuthorizeView Roles="@Roles.Admin">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"templates/{Current.Slug}/new")">@Current.NewLabel</MudButton>
+        </AuthorizeView>
     </Actions>
 </PageHeader>
 

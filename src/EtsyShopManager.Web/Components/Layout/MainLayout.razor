@@ -28,7 +28,7 @@
         <MudSpacer />
         <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit" OnClick="() => _dark = !_dark" title="@(_dark ? "Switch to light mode" : "Switch to dark mode")" />
-        <AuthorizeView>
+        <AuthorizeView Roles="@Roles.Admin">
             <Authorized>
                 <span class="esm-user">@context.User.Identity?.Name</span>
                 <form action="account/logout" method="post" class="d-inline">
@@ -37,6 +37,9 @@
                     <MudIconButton ButtonType="ButtonType.Submit" Icon="@Icons.Material.Filled.Logout" Color="Color.Inherit" title="Sign out" />
                 </form>
             </Authorized>
+            <NotAuthorized>
+                <MudButton Href="account/login" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Login">Sign in</MudButton>
+            </NotAuthorized>
         </AuthorizeView>
     </MudAppBar>
 

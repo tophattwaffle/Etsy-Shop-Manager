@@ -54,15 +54,21 @@ public static class DashboardModules
     }
 }
 
-/// <summary>Each user's dashboard layout, kept as an app setting ("Dashboard.Layout.{userId}"), so no schema change.</summary>
+/// <summary>Each user's dashboard layout, kept as an app setting ("Dashboard.Layout.{userId}"), so no schema change.
+/// Unsigned-in visitors share the <see cref="AnonymousUserId"/> layout.</summary>
 public sealed class DashboardLayoutService(ISettingsStore settings)
 {
+    public const string AnonymousUserId = "anonymous";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public static string SettingKey(string userId) => $"Dashboard.Layout.{userId}";
+    private static string NormalizeUserId(string? userId) =>
+        string.IsNullOrWhiteSpace(userId) ? AnonymousUserId : userId.Trim();
+
+    public static string SettingKey(string? userId) => $"Dashboard.Layout.{NormalizeUserId(userId)}";
 
     /// <summary>The user's saved layout, or the default one if they haven't saved one (or it can't be read).</summary>
-    public async Task<List<DashboardItem>> GetAsync(string userId, CancellationToken ct = default)
+    public async Task<List<DashboardItem>> GetAsync(string? userId, CancellationToken ct = default)
     {
         if (await settings.GetAsync(SettingKey(userId), ct) is not { Length: > 0 } json) return [.. DashboardModules.Default];
         try
@@ -75,13 +81,13 @@ public sealed class DashboardLayoutService(ISettingsStore settings)
         }
     }
 
-    public async Task SaveAsync(string userId, IEnumerable<DashboardItem> items, CancellationToken ct = default) =>
+    public async Task SaveAsync(string? userId, IEnumerable<DashboardItem> items, CancellationToken ct = default) =>
         await settings.SetAsync(SettingKey(userId), JsonSerializer.Serialize(DashboardModules.Normalize(items), Json),
-            updatedBy: userId, ct: ct);
+            updatedBy: NormalizeUserId(userId), ct: ct);
 
     /// <summary>Back to the default layout.</summary>
-    public Task ResetAsync(string userId, CancellationToken ct = default) =>
-        settings.SetAsync(SettingKey(userId), null, updatedBy: userId, ct: ct);
+    public Task ResetAsync(string? userId, CancellationToken ct = default) =>
+        settings.SetAsync(SettingKey(userId), null, updatedBy: NormalizeUserId(userId), ct: ct);
 }
 
 /// <summary>Registers the dashboard's layout store and its sidebar entry.</summary>

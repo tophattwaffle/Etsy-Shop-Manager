@@ -1,5 +1,4 @@
 @page "/orders"
-@attribute [Authorize]
 @using System.Text.Json.Nodes
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Components.Pages.Listings
@@ -22,9 +21,7 @@
 
 <PageHeader Title="Orders">
     <Actions>
-        <AuthorizeView Roles="@Roles.Admin">
-            <MudButton Variant="Variant.Text" Href="admin/order-colors" StartIcon="@Icons.Material.Filled.Palette">Order colors</MudButton>
-        </AuthorizeView>
+        <MudButton Variant="Variant.Text" Href="order-colors" StartIcon="@Icons.Material.Filled.Palette">Order colors</MudButton>
     </Actions>
 </PageHeader>
 
@@ -233,13 +230,13 @@
     private IDisposable? _live;
     private JsonObject? _colorConfig;
 
-    // Admins and Editors mark items made; Viewers see what is made.
+    // Both Admin and User (including unsigned-in visitors) can mark items made.
     private bool _canMark;
 
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthState).User;
-        _canMark = user.IsInRole(Roles.Admin) || user.IsInRole(Roles.Editor);
+        _canMark = true;
         _colorConfig = (await Colors.GetAsync()).ToCardJson();
         await LoadAsync();
         await LoadHistoryAsync();
@@ -430,7 +427,7 @@
                     <div class="small muted">@OrderTotal(o)</div>
                     @if (o.IsOpen)
                     {
-                        <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+                        <AuthorizeView Roles="@Roles.Admin">
                             <MudTooltip Text="Change personalization, variations or address">
                                 <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => ChangeOrderAsync(o)"
                                                aria-label="@($"Change order {o.EtsyReceiptId}")" />
@@ -599,7 +596,7 @@
                     }
                 </fieldset>
                 <fieldset class="esm-filter-group">
-                    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+                    <AuthorizeView Roles="@Roles.Admin">
                         <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="PollNowAsync"
                                    Class="align-self-start">
                             Check for orders now

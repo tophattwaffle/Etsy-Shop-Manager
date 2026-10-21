@@ -128,9 +128,27 @@ if (app.Environment.IsStaging())
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
     foreach (var role in Roles.All)
         if (!await roleManager.RoleExistsAsync(role))
             await roleManager.CreateAsync(new IdentityRole(role));
+
+    foreach (var legacyRole in new[] { "Editor", "Viewer" })
+    {
+        if (await roleManager.RoleExistsAsync(legacyRole))
+        {
+            var usersInRole = await userManager.GetUsersInRoleAsync(legacyRole);
+            foreach (var user in usersInRole)
+            {
+                if (!await userManager.IsInRoleAsync(user, Roles.User))
+                    await userManager.AddToRoleAsync(user, Roles.User);
+                await userManager.RemoveFromRoleAsync(user, legacyRole);
+            }
+            var roleEntity = await roleManager.FindByNameAsync(legacyRole);
+            if (roleEntity is not null)
+                await roleManager.DeleteAsync(roleEntity);
+        }
+    }
 }
 
 // ---- Pipeline --------------------------------------------------------------------------------------

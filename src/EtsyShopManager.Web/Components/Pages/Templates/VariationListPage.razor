@@ -3,7 +3,6 @@
 @* The old addresses, from before the Templates page. *@
 @page "/variation-lists/new"
 @page "/variation-lists/{Id:int}"
-@attribute [Authorize(Roles = "Admin,Editor")]
 @using EtsyShopManager.Web.Modules.Templates
 @inject VariationListService Lists
 @inject NavigationManager Nav
@@ -36,18 +35,20 @@ else
             }
         </Summary>
         <Actions>
-            @if (_saved is not null)
-            {
-                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
-            }
-            <SaveButtons Text="Save template" Changed="Dirty" OnSave="SaveAsync" OnCancel="Revert" />
+            <AuthorizeView Roles="@Roles.Admin">
+                @if (_saved is not null)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete template</MudButton>
+                }
+                <SaveButtons Text="Save template" Changed="Dirty" OnSave="SaveAsync" OnCancel="Revert" />
+            </AuthorizeView>
         </Actions>
     </PageHeader>
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" Class="mb-2">Template</MudText>
         <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
-                      Counter="VariationListService.MaxNameLength" MaxLength="VariationListService.MaxNameLength" />
+                      ReadOnly="!_canEdit" Counter="VariationListService.MaxNameLength" MaxLength="VariationListService.MaxNameLength" />
         <MudText Typo="Typo.body2" Class="muted mb-2">
             Switch an option off to retire it: linked listings keep the value but buyers can't pick it. Renaming an option renames
             it on the listings too. New options are added at the end of each listing's choices.
@@ -61,25 +62,31 @@ else
                     var index = i;
                     <tr>
                         <td><MudTextField T="string" Value="o.Name" ValueChanged="@(v => _options[index] = o with { Name = v ?? "" })" Variant="Variant.Outlined"
-                                          Margin="Margin.Dense" Immediate="true" aria-label="Option name" /></td>
+                                          Margin="Margin.Dense" Immediate="true" ReadOnly="!_canEdit" aria-label="Option name" /></td>
                         <td><MudSwitch T="bool" Value="o.Enabled" ValueChanged="@(v => _options[index] = o with { Enabled = v })" Color="Color.Primary"
-                                       aria-label="@($"{o.Name} on")" /></td>
+                                       Disabled="!_canEdit" aria-label="@($"{o.Name} on")" /></td>
                         <td class="text-right">
-                            <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Disabled="@(i == 0)" aria-label="@($"Move {o.Name} up")" OnClick="@(() => Move(index, -1))" />
-                            <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Disabled="@(i == _options.Count - 1)" aria-label="@($"Move {o.Name} down")" OnClick="@(() => Move(index, 1))" />
-                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="@($"Remove {o.Name}")" OnClick="@(() => _options.RemoveAt(index))" />
+                            @if (_canEdit)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Disabled="@(i == 0)" aria-label="@($"Move {o.Name} up")" OnClick="@(() => Move(index, -1))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Disabled="@(i == _options.Count - 1)" aria-label="@($"Move {o.Name} down")" OnClick="@(() => Move(index, 1))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="@($"Remove {o.Name}")" OnClick="@(() => _options.RemoveAt(index))" />
+                            }
                         </td>
                     </tr>
                 }
             </tbody>
         </MudSimpleTable>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-3">
-            <MudTextField T="string" @bind-Value="_add" Label="Add options, separated by commas" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
-            <MudButton Variant="Variant.Outlined" Disabled="@string.IsNullOrWhiteSpace(_add)" OnClick="AddOptions">Add</MudButton>
-        </MudStack>
+        @if (_canEdit)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-3">
+                <MudTextField T="string" @bind-Value="_add" Label="Add options, separated by commas" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+                <MudButton Variant="Variant.Outlined" Disabled="@string.IsNullOrWhiteSpace(_add)" OnClick="AddOptions">Add</MudButton>
+            </MudStack>
+        }
         @if (_saved is not null && _saved.Options.Any(o => _options.All(x => x.Id != o.Id)))
         {
-            <MudText Typo="Typo.body2" Class="muted mt-2">Removing an option from the template leaves the listings that have it alone; switch it off to retire it.</MudText>
+            <MudText Typo="Typo.body2" Class="muted mt-2">Removing an option removes it from linked listings when applied. Switch an option off instead to retire it (keep the value but hide it from buyers).</MudText>
         }
     </MudPaper>
 
@@ -89,12 +96,14 @@ else
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
                 <MudText Typo="Typo.h6">Listings using this template</MudText>
                 <MudStack Row="true" Spacing="2">
-                    <MudButton Variant="Variant.Outlined" Disabled="@(WithChanges == 0 || Dirty)" OnClick="ApplyAsync">
-                        Apply to @WithChanges listing@(WithChanges == 1 ? "" : "s")
-                    </MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Pending == 0)" OnClick="ReviewAsync">
-                        Review and push @Pending listing@(Pending == 1 ? "" : "s")
-                    </MudButton>
+                    <AuthorizeView Roles="@Roles.Admin">
+                        <MudButton Variant="Variant.Outlined" Disabled="@(WithChanges == 0 || Dirty)" OnClick="ApplyAsync">
+                            Apply to @WithChanges listing@(WithChanges == 1 ? "" : "s")
+                        </MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Pending == 0)" OnClick="ReviewAsync">
+                            Review and push @Pending listing@(Pending == 1 ? "" : "s")
+                        </MudButton>
+                    </AuthorizeView>
                 </MudStack>
             </MudStack>
             <MudText Typo="Typo.body2" Class="muted mb-2">
@@ -121,14 +130,19 @@ else
                         @foreach (var u in _useSort.Apply(_uses))
                         {
                             <tr>
-                                <td><a href="@($"listings/{u.ListingId}/edit")">@u.Title</a> <span class="muted small">· @u.ShopName</span></td>
+                                <td><a href="@(_canEdit ? $"listings/{u.ListingId}/edit" : $"listings/{u.ListingId}")">@u.Title</a> <span class="muted small">· @u.ShopName</span></td>
                                 <td>@u.VariationName</td>
                                 <td>
                                     <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
                                     @foreach (var c in u.Changes.Skip(1)) { <div class="small">@c</div> }
                                     @foreach (var n in u.Notes) { <div class="small muted">@n</div> }
                                 </td>
-                                <td class="text-right"><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkAsync(u))">Unlink</MudButton></td>
+                                <td class="text-right">
+                                    @if (_canEdit)
+                                    {
+                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkAsync(u))">Unlink</MudButton>
+                                    }
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -159,7 +173,7 @@ else
                         @foreach (var item in _reviewSort.Apply(_review))
                         {
                             <tr>
-                                <td><a href="@($"listings/{item.ListingId}/edit")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
+                                <td><a href="@(_canEdit ? $"listings/{item.ListingId}/edit" : $"listings/{item.ListingId}")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
                                 <td>@string.Join(", ", item.Preview.Changes.Select(c => c.Label))</td>
                                 <td>
                                     @if (item.Preview.CanPush)
@@ -175,9 +189,11 @@ else
                         }
                     </tbody>
                 </MudSimpleTable>
-                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _pushing)" OnClick="PushAsync">
-                    Push @Ready listing@(Ready == 1 ? "" : "s") to Etsy
-                </MudButton>
+                <AuthorizeView Roles="@Roles.Admin">
+                    <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _pushing)" OnClick="PushAsync">
+                        Push @Ready listing@(Ready == 1 ? "" : "s") to Etsy
+                    </MudButton>
+                </AuthorizeView>
             </MudPaper>
         }
 
@@ -192,7 +208,7 @@ else
                 <MudSimpleTable Dense="true">
                     <thead>
                         <tr>
-                            <th class="esm-col-icon"><MudCheckBox T="bool" Value="@(_picked.Count == _candidates.Count)" ValueChanged="PickAll" aria-label="Select all" Dense="true" /></th>
+                            <th class="esm-col-icon"><MudCheckBox T="bool" Value="@(_picked.Count == _candidates.Count)" ValueChanged="PickAll" aria-label="Select all" Dense="true" Disabled="!_canEdit" /></th>
                             <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
                             <SortHeader Sort="_candidateSort" Column="variation" Changed="StateHasChanged">Variation</SortHeader>
                             <SortHeader Sort="_candidateSort" Column="match" Changed="StateHasChanged">In the template</SortHeader>
@@ -203,7 +219,7 @@ else
                         {
                             var key = (c.ListingId, c.PropertyId);
                             <tr>
-                                <td><MudCheckBox T="bool" Value="@_picked.Contains(key)" ValueChanged="@(on => Pick(key, on))" aria-label="@($"Link {c.Title}")" Dense="true" /></td>
+                                <td><MudCheckBox T="bool" Value="@_picked.Contains(key)" ValueChanged="@(on => Pick(key, on))" aria-label="@($"Link {c.Title}")" Dense="true" Disabled="!_canEdit" /></td>
                                 <td><a href="@($"listings/{c.ListingId}")">@c.Title</a> <span class="muted small">· @c.ShopName</span></td>
                                 <td>@c.VariationName</td>
                                 <td>@c.InList of @c.Values values</td>
@@ -211,43 +227,47 @@ else
                         }
                     </tbody>
                 </MudSimpleTable>
-                <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
-                    Link @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
-                </MudButton>
+                <AuthorizeView Roles="@Roles.Admin">
+                    <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
+                        Link @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
+                    </MudButton>
+                </AuthorizeView>
             </MudPaper>
         }
 
-        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-            <MudText Typo="Typo.h6" Class="mb-2">Add listings</MudText>
-            <MudText Typo="Typo.body2" Class="muted mb-2">
-                Adds the template's switched-on options to any listing as a new variation, and links it. Every combination the
-                listing has takes each option; the price stays as it is (it doesn't vary by the new variation) and the listing's
-                stock is shared. It's an unpushed edit until you review and push.
-            </MudText>
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
-                <MudAutocomplete T="VariationListAddable" Value="@_addTo" ValueChanged="PickAddToAsync" SearchFunc="SearchAddableAsync"
-                                 ToStringFunc="@(a => a is null ? "" : $"{a.Title} · {a.ShopName}")" Label="Listing" Variant="Variant.Outlined"
-                                 Margin="Margin.Dense" ResetValueOnEmptyText="true" Class="esm-w-lg" />
-                <MudTextField T="string" Value="@_addName" ValueChanged="SetAddNameAsync" Label="Variation name" Variant="Variant.Outlined"
-                              Margin="Margin.Dense" Class="esm-w-sm" />
-                <MudButton Variant="Variant.Outlined" Disabled="@(_addPlan is null)" OnClick="AddToListingAsync">Add to listing</MudButton>
-            </MudStack>
-            @if (_addTo is not null)
-            {
-                @if (_addError is not null)
+        <AuthorizeView Roles="@Roles.Admin">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Add listings</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Adds the template's switched-on options to any listing as a new variation, and links it. Every combination the
+                    listing has takes each option; the price stays as it is (it doesn't vary by the new variation) and the listing's
+                    stock is shared. It's an unpushed edit until you review and push.
+                </MudText>
+                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
+                    <MudAutocomplete T="VariationListAddable" Value="@_addTo" ValueChanged="PickAddToAsync" SearchFunc="SearchAddableAsync"
+                                     ToStringFunc="@(a => a is null ? "" : $"{a.Title} · {a.ShopName}")" Label="Listing" Variant="Variant.Outlined"
+                                     Margin="Margin.Dense" ResetValueOnEmptyText="true" Class="esm-w-lg" />
+                    <MudTextField T="string" Value="@_addName" ValueChanged="SetAddNameAsync" Label="Variation name" Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" Class="esm-w-sm" />
+                    <MudButton Variant="Variant.Outlined" Disabled="@(_addPlan is null)" OnClick="AddToListingAsync">Add to listing</MudButton>
+                </MudStack>
+                @if (_addTo is not null)
                 {
-                    <MudText Typo="Typo.body2" Class="error-text mt-2">@_addError</MudText>
+                    @if (_addError is not null)
+                    {
+                        <MudText Typo="Typo.body2" Class="error-text mt-2">@_addError</MudText>
+                    }
+                    else if (_addPlan is not null)
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-2">
+                            Adds @_addPlan.VariationName with @_addPlan.Values.Count option@(_addPlan.Values.Count == 1 ? "" : "s")
+                            @(_addTo.Variations.Count > 0 ? $"next to {string.Join(" and ", _addTo.Variations)}" : ""):
+                            @_addPlan.Combinations combination@(_addPlan.Combinations == 1 ? "" : "s").
+                        </MudText>
+                    }
                 }
-                else if (_addPlan is not null)
-                {
-                    <MudText Typo="Typo.body2" Class="mt-2">
-                        Adds @_addPlan.VariationName with @_addPlan.Values.Count option@(_addPlan.Values.Count == 1 ? "" : "s")
-                        @(_addTo.Variations.Count > 0 ? $"next to {string.Join(" and ", _addTo.Variations)}" : ""):
-                        @_addPlan.Combinations combination@(_addPlan.Combinations == 1 ? "" : "s").
-                    </MudText>
-                }
-            }
-        </MudPaper>
+            </MudPaper>
+        </AuthorizeView>
     }
 }
 
@@ -256,7 +276,7 @@ else
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private VariationList? _saved;
-    private bool _loaded, _pushing;
+    private bool _loaded, _pushing, _canEdit;
     private string _name = "";
     private string? _add;
     private List<VariationListOption> _options = [];
@@ -295,7 +315,23 @@ else
         ["ready"] = r => r.Preview.CanPush,
     };
 
-    protected override async Task OnParametersSetAsync() => await LoadAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthState;
+        _canEdit = state.User.IsInRole(Roles.Admin);
+        if (Id is null && !_canEdit)
+        {
+            if (state.User.Identity?.IsAuthenticated == true)
+                Nav.NavigateTo("account/access-denied", forceLoad: true);
+            else
+            {
+                var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+                Nav.NavigateTo($"account/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+            }
+            return;
+        }
+        await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
@@ -377,11 +413,32 @@ else
 
     private async Task ApplyAsync()
     {
-        var ok = await Dialogs.ShowMessageBoxAsync("Apply the template",
-            $"Change the variations of {WithChanges} listing{(WithChanges == 1 ? "" : "s")} to match the template? They become unpushed edits; " +
-            "nothing is sent to Etsy until you review and push.", yesText: "Apply", cancelText: "Cancel");
-        if (ok != true) return;
-        var count = await Lists.ApplyAsync(_saved!.Id, await User());
+        var needingPricing = await Lists.ListingsNeedingPricingAsync(_saved!.Id);
+        VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest;
+        IReadOnlyDictionary<int, decimal>? customPrices = null;
+
+        if (needingPricing.Count > 0)
+        {
+            var dialog = await Dialogs.ShowAsync<ApplyVariationTemplateDialog>("Apply variation template",
+                new DialogParameters<ApplyVariationTemplateDialog> { { d => d.Listings, needingPricing } },
+                new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true });
+            var result = await dialog.Result;
+            if (result is null || result.Canceled) return;
+            if (result.Data is ApplyVariationTemplateResult pricing)
+            {
+                strategy = pricing.Strategy;
+                customPrices = pricing.CustomPrices;
+            }
+        }
+        else
+        {
+            var ok = await Dialogs.ShowMessageBoxAsync("Apply the template",
+                $"Change the variations of {WithChanges} listing{(WithChanges == 1 ? "" : "s")} to match the template? They become unpushed edits; " +
+                "nothing is sent to Etsy until you review and push.", yesText: "Apply", cancelText: "Cancel");
+            if (ok != true) return;
+        }
+
+        var count = await Lists.ApplyAsync(_saved!.Id, await User(), strategy, customPrices);
         await LoadAsync();
         _review = null;
         Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} updated as unpushed edits.", Severity.Success);

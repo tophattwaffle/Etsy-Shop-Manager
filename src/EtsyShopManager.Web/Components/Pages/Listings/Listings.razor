@@ -1,5 +1,4 @@
 @page "/listings"
-@attribute [Authorize]
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Core.Jobs
 @using EtsyShopManager.Web.Modules.Stock
@@ -29,7 +28,7 @@
         <Actions>
             @if (_pending > 0)
             {
-                <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")" Context="auth">
+                <AuthorizeView Roles="@Roles.Admin" Context="auth">
                     <MudButton Variant="Variant.Outlined" Href="listings/pending" StartIcon="@Icons.Material.Filled.CloudUpload">
                         @($"{_pending:N0} listing{(_pending == 1 ? " has" : "s have")} pending changes")
                     </MudButton>
@@ -62,7 +61,7 @@
                         <MudIcon Icon="@Icons.Material.Filled.ViewList" Size="Size.Small" />
                     </button>
                 </div>
-                <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")" Context="auth">
+                <AuthorizeView Roles="@Roles.Admin" Context="auth">
                     <MudButton Variant="@(_selecting ? Variant.Filled : Variant.Outlined)" Color="@(_selecting ? Color.Primary : Color.Default)"
                                Size="Size.Small" OnClick="ToggleSelecting" aria-pressed="@(_selecting ? "true" : "false")">
                         @(_selecting ? "Done" : "Bulk edit")
@@ -296,7 +295,7 @@
                         </button>
                         <div class="lp-shop-status">
                             <ImportStatusLine Shop="s" Now="Now" />
-                            <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")" Context="auth">
+                            <AuthorizeView Roles="@Roles.Admin" Context="auth">
                                 <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true"
                                          AriaLabel="@($"Import options for {s.ShopName}")" Disabled="!s.IsHealthy">
                                     <MudMenuItem OnClick="() => ImportAsync(s, force: false)">Import now</MudMenuItem>

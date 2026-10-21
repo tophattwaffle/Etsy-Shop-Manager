@@ -277,10 +277,12 @@ public class VariationListTests
         }, "tophattwaffle");
         await Lists(shop).SaveAsync(listId, "PLA Colors", [list.Options[0] with { Name = "Jet Black" }, list.Options[1]], "tophattwaffle");
         var use = Assert.Single(await Lists(shop).UsesAsync(listId));
-        Assert.Equal(VariationListUseStatus.UpToDate, use.Status);
+        Assert.Equal(VariationListUseStatus.HasChanges, use.Status);
+        Assert.Equal(["Color:", "Removes Red"], use.Changes);
         Assert.Equal(["Black was removed from this listing by hand, so the template leaves it out."], use.Notes);
-        Assert.Equal(0, await Lists(shop).ApplyAsync(listId, "tophattwaffle"));
-        Assert.Contains("Red", Colors(await InventoryAsync(shop, colored))); // dropped from the list, kept on the listing
+        Assert.Equal(1, await Lists(shop).ApplyAsync(listId, "tophattwaffle"));
+        Assert.DoesNotContain("Red", Colors(await InventoryAsync(shop, colored))); // dropped from the list, removed from listing
+        Assert.Contains("Custom swirl", Colors(await InventoryAsync(shop, colored))); // custom unlinked value preserved
 
         // A change to the variations on etsy.com blocks the list for that listing until it's resolved.
         await Editor(shop).DiscardAsync(colored, null, "tophattwaffle");
@@ -295,5 +297,369 @@ public class VariationListTests
         await Lists(shop).SaveAsync(listId, "PLA Colors", [list.Options[0], list.Options[1], new(0, "Blue", true)], "tophattwaffle");
         Assert.Equal(0, await Lists(shop).ApplyAsync(listId, "tophattwaffle"));
         Assert.Empty(shop.Writes);
+    }
+
+    private static async Task<int> AddSingleVariationListingAsync(FakeEtsyShop shop, long listingId, string title, (string Color, long Price)[] options)
+    {
+        var listing = FakeEtsyShop.Listing(listingId, title);
+        long productId = listingId * 100;
+        JsonObject MakeProduct(string color, long price) => new()
+        {
+            ["product_id"] = ++productId,
+            ["sku"] = $"SKU-{listingId}-{color}",
+            ["is_deleted"] = false,
+            ["property_values"] = new JsonArray(new JsonObject
+            {
+                ["property_id"] = Color,
+                ["property_name"] = "Color",
+                ["value_ids"] = new JsonArray(),
+                ["values"] = new JsonArray(color),
+            }),
+            ["offerings"] = new JsonArray(new JsonObject
+            {
+                ["offering_id"] = productId * 10,
+                ["quantity"] = 5,
+                ["is_enabled"] = true,
+                ["is_deleted"] = false,
+                ["price"] = FakeEtsyShop.Money(price),
+            }),
+        };
+        listing["price"] = FakeEtsyShop.Money(options[0].Price);
+        listing["inventory"] = new JsonObject
+        {
+            ["price_on_property"] = new JsonArray(Color),
+            ["quantity_on_property"] = new JsonArray(),
+            ["sku_on_property"] = new JsonArray(),
+            ["products"] = new JsonArray([.. options.Select(o => (JsonNode)MakeProduct(o.Color, o.Price))]),
+        };
+        shop.Listings.Add(listing);
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        await using var db = shop.Db.CreateDbContext();
+        return await db.Listings.Where(l => l.EtsyListingId == listingId).Select(l => l.Id).SingleAsync();
+    }
+
+    private static async Task<int> AddTwoVariationListingAsync(FakeEtsyShop shop, long listingId, string title, (string Size, string Color, long Price)[] combos)
+    {
+        var listing = FakeEtsyShop.Listing(listingId, title);
+        long productId = listingId * 100;
+        JsonObject MakeProduct(string size, string color, long price) => new()
+        {
+            ["product_id"] = ++productId,
+            ["sku"] = $"SKU-{listingId}-{size}-{color}",
+            ["is_deleted"] = false,
+            ["property_values"] = new JsonArray(
+                new JsonObject
+                {
+                    ["property_id"] = 100L,
+                    ["property_name"] = "Size",
+                    ["value_ids"] = new JsonArray(),
+                    ["values"] = new JsonArray(size),
+                },
+                new JsonObject
+                {
+                    ["property_id"] = Color,
+                    ["property_name"] = "Color",
+                    ["value_ids"] = new JsonArray(),
+                    ["values"] = new JsonArray(color),
+                }),
+            ["offerings"] = new JsonArray(new JsonObject
+            {
+                ["offering_id"] = productId * 10,
+                ["quantity"] = 5,
+                ["is_enabled"] = true,
+                ["is_deleted"] = false,
+                ["price"] = FakeEtsyShop.Money(price),
+            }),
+        };
+        listing["price"] = FakeEtsyShop.Money(combos[0].Price);
+        listing["inventory"] = new JsonObject
+        {
+            ["price_on_property"] = new JsonArray(100L, Color),
+            ["quantity_on_property"] = new JsonArray(),
+            ["sku_on_property"] = new JsonArray(),
+            ["products"] = new JsonArray([.. combos.Select(c => (JsonNode)MakeProduct(c.Size, c.Color, c.Price))]),
+        };
+        shop.Listings.Add(listing);
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        await using var db = shop.Db.CreateDbContext();
+        return await db.Listings.Where(l => l.EtsyListingId == listingId).Select(l => l.Id).SingleAsync();
+    }
+
+    private static decimal OfferingPriceOf(JsonNode inventory, string color, string? size = null)
+    {
+        var products = inventory["products"]!.AsArray().Select(p => p!.AsObject());
+        var match = products.First(p =>
+        {
+            var pvs = p["property_values"]!.AsArray();
+            var colorVal = (string)pvs.First(v => (long)v!["property_id"]! == Color)!["values"]![0]!;
+            if (colorVal != color) return false;
+            if (size is not null)
+            {
+                var sizeVal = (string)pvs.First(v => (long)v!["property_id"]! == 100L)!["values"]![0]!;
+                if (sizeVal != size) return false;
+            }
+            return true;
+        });
+        var offering = match["offerings"]![0]!.AsObject();
+        return VariationEditor.OfferingPrice(offering);
+    }
+
+    [Fact]
+    public async Task Option_removal_from_template_removes_from_linked_listings_and_preserves_custom_values()
+    {
+        var (shop, colored, _) = await SetupAsync();
+        using var _ = shop;
+        var listId = await PlaColorsAsync(shop);
+        await Lists(shop).LinkAsync(listId, [(colored, Color)], "tophattwaffle");
+        var list = (await Lists(shop).GetAsync(listId))!;
+
+        // Template has Black, White, Red. Listing also has Custom swirl.
+        // Remove White and Red from the template.
+        await Lists(shop).SaveAsync(listId, "PLA Colors", [list.Options[0]], "tophattwaffle");
+
+        var use = Assert.Single(await Lists(shop).UsesAsync(listId));
+        Assert.Equal(VariationListUseStatus.HasChanges, use.Status);
+        Assert.Equal(["Color:", "Removes White", "Removes Red"], use.Changes);
+
+        Assert.Equal(1, await Lists(shop).ApplyAsync(listId, "tophattwaffle"));
+        var inventory = await InventoryAsync(shop, colored);
+        var colors = Colors(inventory);
+        Assert.Equal(["Black", "Custom swirl"], colors.Order());
+        Assert.DoesNotContain("White", colors);
+        Assert.DoesNotContain("Red", colors);
+        Assert.Contains("Custom swirl", colors);
+
+        var updatedUse = Assert.Single(await Lists(shop).UsesAsync(listId));
+        Assert.Equal(VariationListUseStatus.UpToDate, updatedUse.Status);
+    }
+
+    [Fact]
+    public async Task Option_removal_handles_already_removed_by_hand_gracefully()
+    {
+        var (shop, colored, _) = await SetupAsync();
+        using var _ = shop;
+        var listId = await PlaColorsAsync(shop);
+        await Lists(shop).LinkAsync(listId, [(colored, Color)], "tophattwaffle");
+        var list = (await Lists(shop).GetAsync(listId))!;
+
+        // Remove Red from the listing by hand first.
+        await Editor(shop).SaveAsync(colored, new Dictionary<string, JsonNode?>
+        {
+            [ListingFields.Inventory] = VariationEditor.RemoveValue(await InventoryAsync(shop, colored), Color, "Red"),
+        }, "tophattwaffle");
+
+        // Now drop Red from the template.
+        await Lists(shop).SaveAsync(listId, "PLA Colors", [list.Options[0], list.Options[1]], "tophattwaffle");
+
+        var use = Assert.Single(await Lists(shop).UsesAsync(listId));
+        Assert.Equal(VariationListUseStatus.UpToDate, use.Status);
+        Assert.Equal(["Red was already removed from this listing by hand."], use.Notes);
+        Assert.DoesNotContain(use.Changes, c => c.Contains("Removes Red"));
+
+        // Applying changes 0 listings and drops Red from AppliedOptions.
+        Assert.Equal(0, await Lists(shop).ApplyAsync(listId, "tophattwaffle"));
+        await using var db = shop.Db.CreateDbContext();
+        var link = await db.ListingVariationLists.SingleAsync(l => l.ListingId == colored && l.VariationListId == listId);
+        Assert.DoesNotContain(link.AppliedOptions, o => o.Name == "Red");
+    }
+
+    [Fact]
+    public async Task Option_removal_refuses_to_remove_last_remaining_value_on_variation()
+    {
+        var shop = new FakeEtsyShop();
+        using var _ = shop;
+        var listingId = await AddSingleVariationListingAsync(shop, 10, "Single option item", [("OnlyOne", 1500)]);
+
+        // Create template with OnlyOne (on) and Extra (off, so it's not on the listing).
+        var listId = (await Lists(shop).SaveAsync(null, "SingleList",
+            [new(0, "OnlyOne", true), new(0, "Extra", false)], "tophattwaffle")).Id!.Value;
+
+        // Link the listing
+        Assert.Equal(1, await Lists(shop).LinkAsync(listId, [(listingId, Color)], "tophattwaffle"));
+
+        var list = (await Lists(shop).GetAsync(listId))!;
+        // Remove OnlyOne from template, leaving only Extra (off).
+        await Lists(shop).SaveAsync(listId, "SingleList", [list.Options[1]], "tophattwaffle");
+
+        var use = Assert.Single(await Lists(shop).UsesAsync(listId));
+        Assert.Equal(VariationListUseStatus.UpToDate, use.Status);
+        Assert.Equal(["Cannot remove OnlyOne: it is the last remaining value on this variation."], use.Notes);
+
+        // Applying leaves OnlyOne on the listing and in AppliedOptions.
+        Assert.Equal(0, await Lists(shop).ApplyAsync(listId, "tophattwaffle"));
+        var inventory = await InventoryAsync(shop, listingId);
+        Assert.Contains("OnlyOne", Colors(inventory));
+    }
+
+    [Fact]
+    public async Task Adding_options_with_take_highest_price_sets_max_price()
+    {
+        var shop = new FakeEtsyShop();
+        using var _ = shop;
+        var listingId = await AddSingleVariationListingAsync(shop, 20, "Pricing test item",
+            [("Red", 500), ("Blue", 1000)]); // $5.00 and $10.00
+
+        var listId = (await Lists(shop).SaveAsync(null, "Test Colors",
+            [new(0, "Red", true), new(0, "Blue", true)], "tophattwaffle")).Id!.Value;
+
+        await Lists(shop).LinkAsync(listId, [(listingId, Color)], "tophattwaffle");
+
+        // Add Green to template
+        var list = (await Lists(shop).GetAsync(listId))!;
+        await Lists(shop).SaveAsync(listId, "Test Colors", [.. list.Options, new(0, "Green", true)], "tophattwaffle");
+
+        var needing = await Lists(shop).ListingsNeedingPricingAsync(listId);
+        var item = Assert.Single(needing);
+        Assert.Equal((listingId, 5.00m, 10.00m), (item.ListingId, item.MinPrice, item.MaxPrice));
+        Assert.Equal(["Green"], item.NewOptions);
+
+        // Apply with TakeHighest
+        Assert.Equal(1, await Lists(shop).ApplyAsync(listId, "tophattwaffle", VariationPricingStrategy.TakeHighest));
+
+        var inventory = await InventoryAsync(shop, listingId);
+        Assert.Equal(5.00m, OfferingPriceOf(inventory, "Red"));
+        Assert.Equal(10.00m, OfferingPriceOf(inventory, "Blue"));
+        Assert.Equal(10.00m, OfferingPriceOf(inventory, "Green")); // takes highest (10.00)
+    }
+
+    [Fact]
+    public async Task Adding_options_with_take_lowest_price_sets_min_price()
+    {
+        var shop = new FakeEtsyShop();
+        using var _ = shop;
+        var listingId = await AddSingleVariationListingAsync(shop, 21, "Pricing test item 2",
+            [("Red", 500), ("Blue", 1000)]);
+
+        var listId = (await Lists(shop).SaveAsync(null, "Test Colors 2",
+            [new(0, "Red", true), new(0, "Blue", true)], "tophattwaffle")).Id!.Value;
+
+        await Lists(shop).LinkAsync(listId, [(listingId, Color)], "tophattwaffle");
+
+        // Add Green to template
+        var list = (await Lists(shop).GetAsync(listId))!;
+        await Lists(shop).SaveAsync(listId, "Test Colors 2", [.. list.Options, new(0, "Green", true)], "tophattwaffle");
+
+        // Apply with TakeLowest
+        Assert.Equal(1, await Lists(shop).ApplyAsync(listId, "tophattwaffle", VariationPricingStrategy.TakeLowest));
+
+        var inventory = await InventoryAsync(shop, listingId);
+        Assert.Equal(5.00m, OfferingPriceOf(inventory, "Red"));
+        Assert.Equal(10.00m, OfferingPriceOf(inventory, "Blue"));
+        Assert.Equal(5.00m, OfferingPriceOf(inventory, "Green")); // takes lowest (5.00)
+    }
+
+    [Fact]
+    public async Task Adding_options_with_pick_per_listing_applies_specified_prices()
+    {
+        var shop = new FakeEtsyShop();
+        using var _ = shop;
+        var listingA = await AddSingleVariationListingAsync(shop, 31, "Listing A",
+            [("Red", 500), ("Blue", 1000)]); // 5.00 / 10.00
+        var listingB = await AddSingleVariationListingAsync(shop, 32, "Listing B",
+            [("Red", 1500), ("Blue", 3000)]); // 15.00 / 30.00
+
+        var listId = (await Lists(shop).SaveAsync(null, "Shared Palette",
+            [new(0, "Red", true), new(0, "Blue", true)], "tophattwaffle")).Id!.Value;
+
+        await Lists(shop).LinkAsync(listId, [(listingA, Color), (listingB, Color)], "tophattwaffle");
+
+        // Add Green to template
+        var list = (await Lists(shop).GetAsync(listId))!;
+        await Lists(shop).SaveAsync(listId, "Shared Palette", [.. list.Options, new(0, "Green", true)], "tophattwaffle");
+
+        var needing = await Lists(shop).ListingsNeedingPricingAsync(listId);
+        Assert.Equal(2, needing.Count);
+
+        var customPrices = new Dictionary<int, decimal>
+        {
+            [listingA] = 8.50m,
+            [listingB] = 22.00m,
+        };
+
+        Assert.Equal(2, await Lists(shop).ApplyAsync(listId, "tophattwaffle", VariationPricingStrategy.PickPerListing, customPrices));
+
+        var invA = await InventoryAsync(shop, listingA);
+        Assert.Equal(5.00m, OfferingPriceOf(invA, "Red"));
+        Assert.Equal(10.00m, OfferingPriceOf(invA, "Blue"));
+        Assert.Equal(8.50m, OfferingPriceOf(invA, "Green")); // user specified 8.50
+
+        var invB = await InventoryAsync(shop, listingB);
+        Assert.Equal(15.00m, OfferingPriceOf(invB, "Red"));
+        Assert.Equal(30.00m, OfferingPriceOf(invB, "Blue"));
+        Assert.Equal(22.00m, OfferingPriceOf(invB, "Green")); // user specified 22.00
+    }
+
+    [Fact]
+    public async Task Adding_options_to_listing_with_two_variations_both_varying_price()
+    {
+        var shop = new FakeEtsyShop();
+        using var _ = shop;
+        var listingId = await AddTwoVariationListingAsync(shop, 40, "Two variations both vary",
+        [
+            ("Small", "Red", 500),
+            ("Small", "Blue", 1000),
+            ("Large", "Red", 1500),
+            ("Large", "Blue", 3000),
+        ]);
+
+        var listId = (await Lists(shop).SaveAsync(null, "Color Varies Both",
+            [new(0, "Red", true), new(0, "Blue", true)], "tophattwaffle")).Id!.Value;
+
+        await Lists(shop).LinkAsync(listId, [(listingId, Color)], "tophattwaffle");
+
+        // Add Green to template
+        var list = (await Lists(shop).GetAsync(listId))!;
+        await Lists(shop).SaveAsync(listId, "Color Varies Both", [.. list.Options, new(0, "Green", true)], "tophattwaffle");
+
+        // Apply with TakeHighest
+        Assert.Equal(1, await Lists(shop).ApplyAsync(listId, "tophattwaffle", VariationPricingStrategy.TakeHighest));
+
+        var inventory = await InventoryAsync(shop, listingId);
+        // Existing prices untouched
+        Assert.Equal(5.00m, OfferingPriceOf(inventory, "Red", "Small"));
+        Assert.Equal(10.00m, OfferingPriceOf(inventory, "Blue", "Small"));
+        Assert.Equal(15.00m, OfferingPriceOf(inventory, "Red", "Large"));
+        Assert.Equal(30.00m, OfferingPriceOf(inventory, "Blue", "Large"));
+
+        // Newly added Green takes highest within each other-variation group
+        Assert.Equal(10.00m, OfferingPriceOf(inventory, "Green", "Small")); // max(5, 10)
+        Assert.Equal(30.00m, OfferingPriceOf(inventory, "Green", "Large")); // max(15, 30)
+    }
+
+    [Fact]
+    public async Task Adding_options_to_listing_with_two_variations_both_varying_price_take_lowest()
+    {
+        var shop = new FakeEtsyShop();
+        using var _ = shop;
+        var listingId = await AddTwoVariationListingAsync(shop, 41, "Two variations both vary lowest",
+        [
+            ("Small", "Red", 500),
+            ("Small", "Blue", 1000),
+            ("Large", "Red", 1500),
+            ("Large", "Blue", 3000),
+        ]);
+
+        var listId = (await Lists(shop).SaveAsync(null, "Color Varies Both 2",
+            [new(0, "Red", true), new(0, "Blue", true)], "tophattwaffle")).Id!.Value;
+
+        await Lists(shop).LinkAsync(listId, [(listingId, Color)], "tophattwaffle");
+
+        // Add Green to template
+        var list = (await Lists(shop).GetAsync(listId))!;
+        await Lists(shop).SaveAsync(listId, "Color Varies Both 2", [.. list.Options, new(0, "Green", true)], "tophattwaffle");
+
+        // Apply with TakeLowest
+        Assert.Equal(1, await Lists(shop).ApplyAsync(listId, "tophattwaffle", VariationPricingStrategy.TakeLowest));
+
+        var inventory = await InventoryAsync(shop, listingId);
+        // Existing prices untouched
+        Assert.Equal(5.00m, OfferingPriceOf(inventory, "Red", "Small"));
+        Assert.Equal(10.00m, OfferingPriceOf(inventory, "Blue", "Small"));
+        Assert.Equal(15.00m, OfferingPriceOf(inventory, "Red", "Large"));
+        Assert.Equal(30.00m, OfferingPriceOf(inventory, "Blue", "Large"));
+
+        // Newly added Green takes lowest within each other-variation group
+        Assert.Equal(5.00m, OfferingPriceOf(inventory, "Green", "Small")); // min(5, 10)
+        Assert.Equal(15.00m, OfferingPriceOf(inventory, "Green", "Large")); // min(15, 30)
     }
 }

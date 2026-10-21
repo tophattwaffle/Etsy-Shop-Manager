@@ -497,6 +497,6 @@ public sealed class TemplatesModule : IModule
     public IEnumerable<NavItem> NavItems =>
     [
         // One entry; the Templates page has a tab each for text, variation and photo templates.
-        new("Templates", "templates", Icons.Material.Filled.DashboardCustomize, Order: 25, Roles: "Admin,Editor"),
+        new("Templates", "templates", Icons.Material.Filled.DashboardCustomize, Order: 25),
     ];
 }

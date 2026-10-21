@@ -1,5 +1,4 @@
 @page "/lookups"
-@attribute [Authorize]
 @using EtsyShopManager.Web.Modules.Listings
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<AppDbContext> DbFactory
@@ -32,7 +31,7 @@
             <MudText Typo="Typo.body2" Class="muted">Last refreshed @ListingFormat.Local(_lookupsAt)</MudText>
         }
         <MudSpacer />
-        <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+        <AuthorizeView Roles="@Roles.Admin">
             <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="_shopId is null" OnClick="RefreshLookupsAsync"
                        StartIcon="@Icons.Material.Filled.Refresh">Refresh shop lookups</MudButton>
             <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="RefreshTaxonomyAsync"

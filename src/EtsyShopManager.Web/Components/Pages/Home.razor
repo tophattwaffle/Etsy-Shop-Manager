@@ -1,5 +1,4 @@
 @page "/"
-@attribute [Authorize]
 @using System.Security.Claims
 @using EtsyShopManager.Web.Modules.Dashboard
 @inject DashboardLayoutService Layouts
@@ -8,7 +7,8 @@
 <PageTitle>Dashboard · Etsy Shop Manager</PageTitle>
 
 @* A grid of modules each user arranges for themselves: in edit mode modules can be dragged (or moved with the arrow
-   buttons), resized down to their minimum size, removed and added. Layouts are saved per user. *@
+   buttons), resized down to their minimum size, removed and added. Layouts are saved per user (or shared across all
+   unsigned-in visitors under the anonymous layout). *@
 <PageHeader Title="Dashboard">
     <Actions>
         @if (_editing)
@@ -98,7 +98,7 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
-    private string _userId = "";
+    private string _userId = DashboardLayoutService.AnonymousUserId;
     private List<DashboardItem>? _items;
     private bool _editing;
     private int? _dragFrom;
@@ -110,7 +110,9 @@ else
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthState).User;
-        _userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.Identity?.Name ?? "";
+        _userId = user.Identity?.IsAuthenticated == true
+            ? (user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.Identity.Name ?? DashboardLayoutService.AnonymousUserId)
+            : DashboardLayoutService.AnonymousUserId;
         _items = await Layouts.GetAsync(_userId);
     }
 

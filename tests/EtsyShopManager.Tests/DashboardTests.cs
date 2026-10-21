@@ -63,6 +63,23 @@ public class DashboardTests
     }
 
     [Fact]
+    public async Task Unsigned_in_users_share_the_anonymous_dashboard_layout()
+    {
+        var layouts = new DashboardLayoutService(new MemorySettings());
+        var custom = new DashboardItem[] { new("to-make", 12, 8), new("open-orders", 12, 6) };
+
+        await layouts.SaveAsync(null, custom);
+
+        Assert.Equal(custom, await layouts.GetAsync(""));
+        Assert.Equal(custom, await layouts.GetAsync("   "));
+        Assert.Equal(custom, await layouts.GetAsync(DashboardLayoutService.AnonymousUserId));
+        Assert.Equal(DashboardModules.Default, await layouts.GetAsync("tophattwaffle"));
+
+        await layouts.ResetAsync("");
+        Assert.Equal(DashboardModules.Default, await layouts.GetAsync(DashboardLayoutService.AnonymousUserId));
+    }
+
+    [Fact]
     public async Task An_unreadable_saved_layout_falls_back_to_the_default()
     {
         var settings = new MemorySettings();

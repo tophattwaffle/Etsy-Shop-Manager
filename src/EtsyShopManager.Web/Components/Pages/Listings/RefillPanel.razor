@@ -13,7 +13,7 @@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
         <MudText Typo="Typo.h6">Auto-refill</MudText>
-        <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+        <AuthorizeView Roles="@Roles.Admin">
             @if (_saved?.Enabled == true)
             {
                 <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CheckNowAsync">Check stock now</MudButton>
@@ -26,7 +26,7 @@
         every new order and once an hour, and only while the listing is active.
     </MudText>
 
-    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Editor}")">
+    <AuthorizeView Roles="@Roles.Admin">
         <Authorized>
             <MudGrid Spacing="2">
                 <MudItem xs="12" sm="4" Class="d-flex align-center">

@@ -7,63 +7,63 @@
 @* Each user can put the sidebar in their own order: Reorder turns the links into rows that can be dragged or moved with
    the arrows (pages and groups among their neighbours, a group's pages within it). Every move is saved at once, per
    user, so the order follows them to other devices. *@
-<AuthorizeView>
-    <Authorized>
-        @{ var entries = Entries(context.User); }
-        @if (_editing)
-        {
-            <div class="esm-nav esm-nav-edit">
-                <p class="esm-nav-edit-hint small muted">Drag a page or group, or use the arrows. Changes are saved as you go.</p>
-                <div role="list" aria-label="Sidebar order">
-                    @foreach (var entry in entries)
-                    {
-                        @EditRow(entries, entry, entries, false)
-                        @foreach (var child in entry.Children)
-                        {
-                            @EditRow(entries, child, entry.Children, true)
-                        }
-                    }
-                </div>
-                <div class="esm-nav-edit-actions">
-                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ResetAsync" Disabled="@(_saved is null)">Reset to default</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => _editing = false">Done</MudButton>
-                </div>
-            </div>
-        }
-        else
-        {
-            <MudNavMenu Class="esm-nav">
-                @foreach (var entry in entries)
+@{ var entries = Entries(_user); }
+@if (_editing)
+{
+    <div class="esm-nav esm-nav-edit">
+        <p class="esm-nav-edit-hint small muted">Drag a page or group, or use the arrows. Changes are saved as you go.</p>
+        <div role="list" aria-label="Sidebar order">
+            @foreach (var entry in entries)
+            {
+                @EditRow(entries, entry, entries, false)
+                @foreach (var child in entry.Children)
                 {
-                    if (entry.Item is { } item)
-                    {
-                        @Link(item)
-                    }
-                    else
-                    {
-                        // A group starts open while one of its pages is showing.
-                        var group = entry.Group!;
-                        <MudNavGroup Title="@group" Icon="@GroupIcon(group)" Expanded="@IsOpen(group, entry.Children)"
-                                     ExpandedChanged="@(open => _open[group] = open)">
-                            @foreach (var child in entry.Children)
-                            {
-                                @Link(child.Item!)
-                            }
-                        </MudNavGroup>
-                    }
+                    @EditRow(entries, child, entry.Children, true)
                 }
-            </MudNavMenu>
-            <div class="esm-nav-foot">
-                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.SwapVert" Class="esm-nav-reorder"
-                           OnClick="() => _editing = true">Reorder</MudButton>
-            </div>
+            }
+        </div>
+        <div class="esm-nav-edit-actions">
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ResetAsync" Disabled="@(_saved is null)">Reset to default</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => _editing = false">Done</MudButton>
+        </div>
+    </div>
+}
+else
+{
+    <MudNavMenu Class="esm-nav">
+        @foreach (var entry in entries)
+        {
+            if (entry.Item is { } item)
+            {
+                @Link(item)
+            }
+            else
+            {
+                // A group starts open while one of its pages is showing.
+                var group = entry.Group!;
+                <MudNavGroup Title="@group" Icon="@GroupIcon(group)" Expanded="@IsOpen(group, entry.Children)"
+                             ExpandedChanged="@(open => _open[group] = open)">
+                    @foreach (var child in entry.Children)
+                    {
+                        @Link(child.Item!)
+                    }
+                </MudNavGroup>
+            }
         }
-    </Authorized>
-</AuthorizeView>
+    </MudNavMenu>
+    @if (_user.IsInRole(Roles.Admin))
+    {
+        <div class="esm-nav-foot">
+            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.SwapVert" Class="esm-nav-reorder"
+                       OnClick="() => _editing = true">Reorder</MudButton>
+        </div>
+    }
+}
 
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
+    private ClaimsPrincipal _user = new(new ClaimsIdentity());
     private readonly Dictionary<string, bool> _open = [];
     private string _userId = "";
     private List<string>? _saved;
@@ -73,8 +73,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var user = (await AuthState).User;
-        _userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.Identity?.Name ?? "";
+        _user = (await AuthState).User;
+        _userId = _user.FindFirstValue(ClaimTypes.NameIdentifier) ?? _user.Identity?.Name ?? "";
         if (_userId.Length > 0) _saved = await Orders.GetAsync(_userId);
     }
 
