@@ -85,7 +85,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     /// values (Etsy shows new values last).
     /// </summary>
     public static VariationListPlan Plan(VariationList list, ListingVariationList link, JsonNode localInventory,
-        VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest, decimal? customPrice = null)
+        VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest, decimal? customPrice = null,
+        string? skuPattern = null, string? baseSku = null)
     {
         var inventory = (JsonObject)localInventory.DeepClone();
         var changes = new List<string>();
@@ -94,6 +95,9 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         var label = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId)?.Name ?? "the variation";
         string? Has(string name) => VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId)?
             .Values.FirstOrDefault(v => string.Equals(v, name, StringComparison.OrdinalIgnoreCase));
+
+        var pattern = skuPattern ?? (string?)localInventory["sku_pattern"] ?? link.Listing?.SkuPattern;
+        var baseSkuVal = baseSku ?? (string?)localInventory["base_sku"] ?? link.Listing?.Skus.FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "";
 
         // Removals: options in AppliedOptions no longer in the template (R1).
         var removedFromTemplate = link.AppliedOptions.Where(b => list.Options.All(o => o.Id != b.Id)).ToList();
@@ -134,7 +138,7 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
                 if (!option.Enabled || Has(option.Name) is not null) continue;
                 try
                 {
-                    inventory = VariationEditor.AddValue(inventory, link.PropertyId, option.Name);
+                    inventory = VariationEditor.AddValue(inventory, link.PropertyId, option.Name, pattern, baseSkuVal);
                     changes.Add($"Adds {option.Name}");
                     newlyAdded.Add(option.Name);
                 }
@@ -167,6 +171,53 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         if (newlyAdded.Count > 0)
         {
             inventory = VariationEditor.ApplyOptionPricing(inventory, link.PropertyId, newlyAdded, strategy, customPrice);
+        }
+
+        var currentListingValues = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId)?.Values ?? [];
+
+        // Compare order of enabled template options
+        var templateOrder = list.Options.Where(o => o.Enabled).Select(o => o.Name).ToList();
+        var appliedOrder = link.AppliedOptions.Where(o => o.Enabled).Select(o => o.Name).ToList();
+
+        var templateOrderChanged = false;
+        if (appliedOrder.Count > 1)
+        {
+            var commonApplied = appliedOrder.Where(a => templateOrder.Any(t => string.Equals(t, a, StringComparison.OrdinalIgnoreCase))).ToList();
+            var commonTemplate = templateOrder.Where(t => appliedOrder.Any(a => string.Equals(a, t, StringComparison.OrdinalIgnoreCase))).ToList();
+            templateOrderChanged = commonApplied.Count > 1 && !commonApplied.SequenceEqual(commonTemplate, StringComparer.OrdinalIgnoreCase);
+        }
+
+        var inventoryOrderDiffers = false;
+        if (inventory["value_order"]?[link.PropertyId.ToString()] is JsonArray voArr && voArr.Count > 0)
+        {
+            var voList = voArr.Select(x => (string)x!).ToList();
+            var voTemplateOrder = voList.Where(v => templateOrder.Any(t => string.Equals(t, v, StringComparison.OrdinalIgnoreCase))).ToList();
+            var expectedTemplateOrder = templateOrder.Where(t => voList.Any(v => string.Equals(v, t, StringComparison.OrdinalIgnoreCase))).ToList();
+            inventoryOrderDiffers = voTemplateOrder.Count > 1 && !voTemplateOrder.SequenceEqual(expectedTemplateOrder, StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (templateOrderChanged || inventoryOrderDiffers)
+        {
+            var templateOrderedOnListing = new List<string>();
+            foreach (var optName in templateOrder)
+            {
+                var matched = currentListingValues.FirstOrDefault(lv => string.Equals(lv, optName, StringComparison.OrdinalIgnoreCase));
+                if (matched is not null && !templateOrderedOnListing.Contains(matched, StringComparer.OrdinalIgnoreCase))
+                {
+                    templateOrderedOnListing.Add(matched);
+                }
+            }
+            var extraValues = currentListingValues
+                .Where(lv => !templateOrderedOnListing.Contains(lv, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            List<string> reorderedValues = [.. templateOrderedOnListing, .. extraValues];
+
+            try
+            {
+                inventory = VariationEditor.ReorderValues(inventory, link.PropertyId, reorderedValues);
+                changes.Add($"Reorders options in {label}");
+            }
+            catch (ArgumentException ex) { notes.Add(ex.Message); }
         }
 
         // What the listing now reflects: retained removed options plus each list option it has, under the name it has it.

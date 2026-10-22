@@ -46,6 +46,22 @@ public static class VariationEditor
             if (!v.Values.Contains(ValueText(pv), StringComparer.Ordinal))
                 result[index] = v with { Values = [.. v.Values, ValueText(pv)] };
         }
+        for (var i = 0; i < result.Count; i++)
+        {
+            var v = result[i];
+            if (inventory["value_order"]?[v.PropertyId.ToString()] is JsonArray orderArr && orderArr.Count > 0)
+            {
+                var desiredOrder = orderArr.Select(x => (string)x!).ToList();
+                var sortedValues = v.Values
+                    .OrderBy(val =>
+                    {
+                        var idx = desiredOrder.FindIndex(d => string.Equals(d, val, StringComparison.OrdinalIgnoreCase));
+                        return idx >= 0 ? idx : int.MaxValue;
+                    })
+                    .ToList();
+                result[i] = v with { Values = sortedValues };
+            }
+        }
         return [.. result.OrderBy(v => Position(order, v.PropertyId)).ThenBy(v => v.PropertyId)];
     }
 
@@ -53,13 +69,60 @@ public static class VariationEditor
     public static IReadOnlyList<long> EtsyOrder(EtsyShopManager.Core.Domain.Listing listing) =>
         [.. listing.Products.Where(p => !p.IsDeleted).SelectMany(p => p.PropertyValues).Select(v => v.PropertyId).Distinct()];
 
-    public static JsonObject AddValue(JsonNode inventory, long propertyId, string value)
+    /// <summary>
+    /// Gets the desired value order for a variation. If inventory["value_order"] contains an entry for propertyId,
+    /// returns it; otherwise defaults to the order in which values appear in inventory["products"].
+    /// </summary>
+    public static IReadOnlyList<string> GetValueOrder(JsonNode inventory, long propertyId)
+    {
+        if (inventory["value_order"]?[propertyId.ToString()] is JsonArray orderArr && orderArr.Count > 0)
+        {
+            return [.. orderArr.Select(x => (string)x!)];
+        }
+        return Variations(inventory).FirstOrDefault(v => v.PropertyId == propertyId)?.Values ?? [];
+    }
+
+    /// <summary>
+    /// Reorders the values of a variation, updating value_order and sorting products in grid order.
+    /// </summary>
+    public static JsonObject ReorderValues(JsonNode inventory, long propertyId, IReadOnlyList<string> newOrder)
+    {
+        var inv = Clone(inventory);
+        var variation = Find(inv, propertyId);
+        var currentValues = variation.Values;
+        if (newOrder.Count != currentValues.Count ||
+            !newOrder.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(currentValues))
+        {
+            throw new ArgumentException($"New value order does not match existing values for {Label(variation)}.");
+        }
+
+        var valueOrderObj = inv["value_order"] as JsonObject;
+        if (valueOrderObj is null)
+        {
+            valueOrderObj = new JsonObject();
+            inv["value_order"] = valueOrderObj;
+        }
+        valueOrderObj[propertyId.ToString()] = new JsonArray([.. newOrder.Select(v => (JsonNode)v)]);
+
+        return Canonical(inv);
+    }
+
+    public static JsonObject AddValue(JsonNode inventory, long propertyId, string value, string? skuPattern = null, string? baseSku = null)
     {
         var inv = Clone(inventory);
         var text = Clean(value, "The value");
         var variation = Find(inv, propertyId);
         if (variation.Values.Contains(text, StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException($"{Label(variation)} already has \"{text}\".");
+
+        if (inv["value_order"]?[propertyId.ToString()] is JsonArray orderArr)
+        {
+            orderArr.Add(text);
+        }
+
+        var pattern = skuPattern ?? (string?)inv["sku_pattern"];
+        var baseSkuVal = baseSku ?? (string?)inv["base_sku"]
+            ?? Products(inv).Select(p => (string?)p["sku"]).FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "";
 
         // One new product per combination of the other variations' values, copied from an existing one (so the price
         // and processing follow whatever they vary by).
@@ -74,6 +137,21 @@ public static class VariationEditor
             pv["value_ids"] = new JsonArray();
             pv["values"] = new JsonArray(text);
             foreach (var offering in Offerings(product)) offering["is_enabled"] = true;
+
+            if (!string.IsNullOrWhiteSpace(pattern))
+            {
+                var variationValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var pval in PropertyValues(product))
+                {
+                    var pId = (long)pval["property_id"]!;
+                    var pName = (string?)pval["property_name"]
+                        ?? Variations(inv).FirstOrDefault(v => v.PropertyId == pId)?.Name
+                        ?? pId.ToString();
+                    variationValues[pName] = ValueText(pval);
+                }
+                product["sku"] = SkuPatternResolver.GenerateSku(pattern, baseSkuVal, variationValues);
+            }
+
             ProductArray(inv).Add(product);
         }
         return Canonical(inv);
@@ -145,6 +223,11 @@ public static class VariationEditor
         if (variation.Values.Count == 1)
             throw new ArgumentException($"\"{value}\" is the only value of {Label(variation)}; remove the variation instead.");
         RemoveProducts(inv, p => ValueOf(p, propertyId) == value);
+        if (inv["value_order"]?[propertyId.ToString()] is JsonArray orderArr)
+        {
+            var itemToRemove = orderArr.FirstOrDefault(x => string.Equals((string?)x, value, StringComparison.OrdinalIgnoreCase));
+            if (itemToRemove is not null) orderArr.Remove(itemToRemove);
+        }
         return Canonical(inv);
     }
 
@@ -161,6 +244,17 @@ public static class VariationEditor
         {
             pv["value_ids"] = new JsonArray(); // a new value for Etsy
             pv["values"] = new JsonArray(text);
+        }
+        if (inv["value_order"]?[propertyId.ToString()] is JsonArray orderArr)
+        {
+            for (var i = 0; i < orderArr.Count; i++)
+            {
+                if (string.Equals((string?)orderArr[i], value, StringComparison.OrdinalIgnoreCase))
+                {
+                    orderArr[i] = text;
+                    break;
+                }
+            }
         }
         return Canonical(inv);
     }
@@ -198,6 +292,10 @@ public static class VariationEditor
                 ProductArray(inv).Add(copy);
             }
         }
+        if (inv["value_order"] is JsonObject vo)
+        {
+            vo[propertyId.ToString()] = new JsonArray([.. texts.Select(t => (JsonNode)t)]);
+        }
         return Canonical(inv);
     }
 
@@ -220,6 +318,8 @@ public static class VariationEditor
         foreach (var key in new[] { PriceOnProperty, "quantity_on_property", "sku_on_property", ProcessingOnProperty })
             if (inv[key] is JsonArray on)
                 foreach (var item in on.Where(x => (long)x! == propertyId).ToList()) on.Remove(item);
+        if (inv["value_order"] is JsonObject vo)
+            vo.Remove(propertyId.ToString());
         return Canonical(inv);
     }
 
@@ -348,7 +448,7 @@ public static class VariationEditor
         return Canonical(inv);
     }
 
-    /// <summary>Managed-state order: property values by id, products by their values (ordinal), then SKU (see ManagedInventory).</summary>
+    /// <summary>Managed-state order: property values by id, products by value_order (or values/Key), then SKU (see ManagedInventory).</summary>
     public static JsonObject Canonical(JsonObject inventory)
     {
         var products = Products(inventory).ToList();
@@ -357,8 +457,38 @@ public static class VariationEditor
             var pvs = PropertyValues(product).OrderBy(v => (long)v["property_id"]!).Select(v => v.DeepClone()).ToArray();
             product["property_values"] = new JsonArray(pvs);
         }
+
+        var valueOrderObj = inventory["value_order"] as JsonObject;
+        var variations = Variations(inventory);
+        var prop1 = variations.Count > 0 ? variations[0].PropertyId : (long?)null;
+        var prop2 = variations.Count > 1 ? variations[1].PropertyId : (long?)null;
+
+        var order1 = prop1.HasValue && valueOrderObj?[prop1.Value.ToString()] is JsonArray a1
+            ? a1.Select(x => (string)x!).ToList()
+            : null;
+        var order2 = prop2.HasValue && valueOrderObj?[prop2.Value.ToString()] is JsonArray a2
+            ? a2.Select(x => (string)x!).ToList()
+            : null;
+
+        int IndexIn(IReadOnlyList<string>? order, string? val)
+        {
+            if (order is null || val is null) return 0;
+            var idx = -1;
+            for (var i = 0; i < order.Count; i++)
+            {
+                if (string.Equals(order[i], val, StringComparison.OrdinalIgnoreCase))
+                {
+                    idx = i;
+                    break;
+                }
+            }
+            return idx >= 0 ? idx : int.MaxValue;
+        }
+
         var sorted = products
-            .OrderBy(p => string.Join(";", PropertyValues(p).Select(Key)), StringComparer.Ordinal)
+            .OrderBy(p => prop1.HasValue ? IndexIn(order1, ValueOf(p, prop1.Value)) : 0)
+            .ThenBy(p => prop2.HasValue ? IndexIn(order2, ValueOf(p, prop2.Value)) : 0)
+            .ThenBy(p => string.Join(";", PropertyValues(p).Select(Key)), StringComparer.Ordinal)
             .ThenBy(p => (string?)p["sku"] ?? "", StringComparer.Ordinal)
             .Select(p => p.DeepClone())
             .ToArray();

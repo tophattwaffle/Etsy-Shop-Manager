@@ -193,7 +193,10 @@ else
                 </MudText>
                 @if (_form![ListingFields.Inventory] is { } inventoryNode)
                 {
-                    <VariationsEditor Inventory="inventoryNode" Order="VariationEditor.EtsyOrder(l)" InventoryChanged="@(i => Set(ListingFields.Inventory, i))" />
+                    <VariationsEditor Inventory="inventoryNode" Order="VariationEditor.EtsyOrder(l)"
+                                      @bind-SkuPattern="_skuPattern"
+                                      BaseSku="@(l.Skus.FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "")"
+                                      InventoryChanged="@(i => Set(ListingFields.Inventory, i))" />
                     @if (_variationLists.Count > 0)
                     {
                         @foreach (var v in VariationEditor.Variations(inventoryNode, VariationEditor.EtsyOrder(l)))
@@ -497,6 +500,8 @@ else
     private readonly Dictionary<long, int?> _linkPick = [];
     private readonly Dictionary<long, (EtsyShopManager.Web.Modules.Templates.VariationListLinkPreview? Preview, string? Error)> _linkPreview = [];
     private IDisposable? _live;
+    private string? _skuPattern;
+    private string? _savedSkuPattern;
 
     private TableSort<FieldChange> _changeSort = new();
     private readonly TableSort<ListingPush> _pushSort = new()
@@ -540,6 +545,7 @@ else
         if (keepForm && _form is not null) return;
         _form = model.LocalState();
         _description = _savedDescription = await TextBlocks.SourceAsync(Id);
+        _skuPattern = _savedSkuPattern = _snapshot.Listing.SkuPattern;
         _category = Long("taxonomy_id") is { } t ? new CategoryOption(t, _lookups.Categories.GetValueOrDefault(t, $"#{t}")) : null;
         _attributeProperties = await AttributeEditor.LoadAsync(db, Long("taxonomy_id"));
     }
@@ -613,11 +619,13 @@ else
     /// to what it was isn't one.</summary>
     private bool Unsaved => _snapshot is { } s && _form is not null
         && (_description != _savedDescription
+            || _skuPattern != _savedSkuPattern
             || ListingFields.All.Any(f => f.Editable && !JsonNode.DeepEquals(_form[f.Key], s.Model.Local(f.Key))));
 
     /// <summary>Cancel: back to the saved draft (Discard changes is the one that goes back to what's on Etsy).</summary>
     private async Task CancelEditsAsync()
     {
+        _skuPattern = _savedSkuPattern;
         await LoadAsync();
         _preview = null;
     }
@@ -729,6 +737,17 @@ else
         if (changes.Count > 0) await Editor.SaveAsync(Id, changes, await User());
         if (_description != _savedDescription || !JsonNode.DeepEquals(_form!["description"], model.Local("description")))
             await TextBlocks.SaveDescriptionAsync(Id, _description, await User());
+        if (_skuPattern != _savedSkuPattern)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = await db.Listings.FirstOrDefaultAsync(l => l.Id == Id);
+            if (entity is not null)
+            {
+                entity.SkuPattern = string.IsNullOrWhiteSpace(_skuPattern) ? null : _skuPattern.Trim();
+                await db.SaveChangesAsync();
+            }
+            _savedSkuPattern = _skuPattern;
+        }
         await LoadAsync();
         Snackbar.Add("Draft saved. Nothing has been sent to Etsy.", Severity.Success);
     }
