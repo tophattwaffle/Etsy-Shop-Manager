@@ -24,17 +24,19 @@ dotnet test EtsyShopManager.slnx
 ### Requirement-Driven E2E Test Suites (R1–R7)
 Runs all 102 comprehensive requirement tests spanning R1–R6 across Tiers 1–4:
 ```powershell
-dotnet test EtsyShopManager.slnx --filter "FullyQualifiedName~RequirementE2ETests"
+dotnet test EtsyShopManager.slnx --filter "FullyQualifiedName~RequirementE2ETests_R1_R4|FullyQualifiedName~RequirementE2ETests_R5_R6"
 ```
 
 To run individual requirement suites:
 ```powershell
-# Requirements R1 through R4 (51 tests)
-dotnet test EtsyShopManager.slnx --filter "FullyQualifiedName~RequirementE2ETests."
+# Requirements R1 through R4 (51 tests in RequirementE2ETests_R1_R4.cs)
+dotnet test EtsyShopManager.slnx --filter "FullyQualifiedName~RequirementE2ETests_R1_R4"
 
-# Requirements R5 and R6 (51 tests)
+# Requirements R5 and R6 (51 tests in RequirementE2ETests_R5_R6.cs)
 dotnet test EtsyShopManager.slnx --filter "FullyQualifiedName~RequirementE2ETests_R5_R6"
 ```
+
+*(Note: `tests/EtsyShopManager.Tests/E2E/RequirementE2ETests.cs` is the legacy PR #104 baseline test suite).*
 
 ### UI Design System Compliance Tests
 Verifies dark mode, color tokens, MudBlazor components, and styling rules per `docs/DESIGN.md`:
