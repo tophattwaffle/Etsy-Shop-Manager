@@ -204,4 +204,46 @@ public sealed partial class EtsyApiClient
         using var _ = await SendAsync(() => new HttpRequestMessage(HttpMethod.Delete,
             $"/v3/application/shops/{etsyShopId}/listings/{listingId}/videos/{videoId}"), auth, ct);
     }
+
+    /// <summary>
+    /// createProcessingProfile (POST, form-encoded): creates a new readiness state definition for a shop.
+    /// </summary>
+    public async Task<EtsyRaw<EtsyProcessingProfile>> CreateProcessingProfileAsync(long etsyShopId,
+        IReadOnlyList<KeyValuePair<string, string>> fields, EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(() =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post,
+                $"/v3/application/shops/{etsyShopId}/readiness-state-definitions")
+            {
+                Content = new FormUrlEncodedContent(fields),
+            };
+            request.Options.Set(Http.EtsyRetryHandler.NoRetry, true); // never create the same definition twice
+            return request;
+        }, auth, ct);
+        var element = await response.Content.ReadFromJsonAsync<JsonElement>(EtsyJson.Options, ct);
+        return new EtsyRaw<EtsyProcessingProfile>(
+            element.Deserialize<EtsyProcessingProfile>(EtsyJson.Options)
+            ?? throw new JsonException($"Empty response creating processing profile for shop {etsyShopId}"),
+            element.GetRawText());
+    }
+
+    /// <summary>
+    /// updateProcessingProfile (PUT, form-encoded): updates an existing readiness state definition for a shop.
+    /// </summary>
+    public async Task<EtsyRaw<EtsyProcessingProfile>> UpdateProcessingProfileAsync(long etsyShopId,
+        long readinessStateDefinitionId, IReadOnlyList<KeyValuePair<string, string>> fields, EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Put,
+            $"/v3/application/shops/{etsyShopId}/readiness-state-definitions/{readinessStateDefinitionId}")
+        {
+            Content = new FormUrlEncodedContent(fields),
+        }, auth, ct);
+        var element = await response.Content.ReadFromJsonAsync<JsonElement>(EtsyJson.Options, ct);
+        return new EtsyRaw<EtsyProcessingProfile>(
+            element.Deserialize<EtsyProcessingProfile>(EtsyJson.Options)
+            ?? throw new JsonException($"Empty response updating processing profile {readinessStateDefinitionId}"),
+            element.GetRawText());
+    }
 }
+

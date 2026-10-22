@@ -60,7 +60,6 @@ public sealed class AdminModule : IModule
         new("Users", "admin/users", Icons.Material.Filled.People, Order: 910, Roles: Roles.Admin, Group: NavGroups.Settings),
         new("Audit log", "admin/audit", Icons.Material.Filled.History, Order: 920, Roles: Roles.Admin, Group: NavGroups.Settings),
         new("Etsy writes", "admin/etsy-writes", Icons.Material.Filled.CloudUpload, Order: 925, Roles: Roles.Admin, Group: NavGroups.Settings),
-        new("Photo order test", "admin/photo-order-test", Icons.Material.Filled.PhotoLibrary, Order: 926, Roles: Roles.Admin, Group: NavGroups.Settings),
         new("General", "admin/settings", Icons.Material.Filled.Tune, Order: 899, Roles: Roles.Admin, Group: NavGroups.Settings),
     ];
 }

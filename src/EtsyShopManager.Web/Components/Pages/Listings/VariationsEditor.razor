@@ -1,5 +1,6 @@
 @using System.Text.Json.Nodes
 @using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Templates
 
 @* The variations of a listing being edited: their values, names, and what the price and processing vary by. Every
    change goes back to the editor as a new local inventory (nothing is sent to Etsy until a reviewed push). *@
@@ -34,6 +35,7 @@
                 {
                     var idx = i;
                     var value = v.Values[idx];
+                    var locked = IsOrderLocked(v.PropertyId);
                     @if (_renaming == (v.PropertyId, value))
                     {
                         <MudTextField T="string" @bind-Value="_renameText" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
@@ -44,7 +46,7 @@
                     else
                     {
                         <div class="d-inline-flex align-center mr-1 mb-1">
-                            @if (v.Values.Count > 1)
+                            @if (!locked && v.Values.Count > 1)
                             {
                                 <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Disabled="@(idx == 0)"
                                                aria-label="@($"Move {value} earlier")"
@@ -61,7 +63,7 @@
                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
                                          OnClick="@(() => StartRename(v.PropertyId, value))">@value</MudChip>
                             }
-                            @if (v.Values.Count > 1)
+                            @if (!locked && v.Values.Count > 1)
                             {
                                 <MudIconButton Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" Disabled="@(idx == v.Values.Count - 1)"
                                                aria-label="@($"Move {value} later")"
@@ -71,6 +73,12 @@
                     }
                 }
             </div>
+            @if (GetLink(v.PropertyId) is { } link)
+            {
+                <MudText Typo="Typo.caption" Class="muted mt-1 d-block">
+                    Value order is controlled by template @link.ListName.
+                </MudText>
+            }
             <div class="esm-variation-add">
                 <MudTextField T="string" Value="@NewValue(v.PropertyId)" ValueChanged="@(t => _newValues[v.PropertyId] = t)" Immediate="true"
                               Placeholder="@($"Add to {v.Name}")" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
@@ -140,6 +148,9 @@
     /// <summary>Etsy's order of the variations (see VariationEditor.EtsyOrder), so they show as buyers see them.</summary>
     [Parameter] public IReadOnlyList<long>? Order { get; set; }
 
+    /// <summary>Links to variation templates for locking manual value reordering.</summary>
+    [Parameter] public IReadOnlyList<VariationListLink>? Links { get; set; }
+
     /// <summary>The listing's SKU pattern (e.g. "{listing.sku}-{size}-{color}").</summary>
     [Parameter] public string? SkuPattern { get; set; }
 
@@ -165,6 +176,9 @@
     private bool Varies(string key, Variation v) => (Inventory[key]?.AsArray() ?? []).Any(x => (long)x! == v.PropertyId);
 
     private string? NewValue(long propertyId) => _newValues.GetValueOrDefault(propertyId);
+
+    private VariationListLink? GetLink(long propertyId) => Links?.FirstOrDefault(l => l.PropertyId == propertyId);
+    private bool IsOrderLocked(long propertyId) => GetLink(propertyId) is not null;
 
     private async Task OnPatternChanged(string? value)
     {
@@ -195,6 +209,7 @@
 
     private async Task MoveValue(long propertyId, int currentIndex, int direction)
     {
+        if (IsOrderLocked(propertyId)) return;
         var targetIndex = currentIndex + direction;
         var values = VariationEditor.GetValueOrder(Inventory, propertyId).ToList();
         if (targetIndex < 0 || targetIndex >= values.Count) return;

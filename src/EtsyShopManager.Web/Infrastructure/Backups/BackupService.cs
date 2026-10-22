@@ -20,6 +20,32 @@ public sealed record BackupFileInfo(
     double SizeMb,
     DateTime CreatedAtUtc);
 
+public sealed record BackupValidationResult(
+    bool IsValid,
+    string? ErrorMessage = null,
+    int Version = 0,
+    string? BackupType = null,
+    long DbSizeBytes = 0,
+    int ImageCount = 0,
+    int VideoCount = 0,
+    int KeyCount = 0);
+
+public sealed record BackupRestoreResult(
+    bool Success,
+    string? ErrorMessage = null,
+    string? PreRestoreSafetyBackup = null,
+    int RestoredImages = 0,
+    int RestoredVideos = 0,
+    int RestoredKeys = 0);
+
+public sealed record BackupDirectoryProbeResult(
+    bool Success,
+    string? ResolvedPath = null,
+    string? ErrorMessage = null)
+{
+    public bool IsValid => Success;
+}
+
 /// <summary>
 /// Manages SQLite consistent snapshots, full restorable backup archives, retention pruning,
 /// and portable listing exports.
@@ -42,14 +68,104 @@ public sealed partial class BackupService(
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    [GeneratedRegex(@"^backup-(\d{8}-\d{6})\.zip$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^backup-(\d{8}-\d{6})(?:-\d+)?\.zip$", RegexOptions.IgnoreCase)]
     private static partial Regex BackupFileNameRegex();
 
-    [GeneratedRegex(@"^etsy-listings-export-(\d{8}-\d{6})\.zip$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^etsy-listings-export-(\d{8}-\d{6})(?:-\d+)?\.zip$", RegexOptions.IgnoreCase)]
     private static partial Regex ExportFileNameRegex();
 
     [GeneratedRegex(@"[^a-z0-9]+", RegexOptions.IgnoreCase)]
     private static partial Regex SlugRegex();
+
+    /// <summary>Resolves the configured backup directory or falls back to <see cref="StorageOptions.BackupsDirectory"/>.</summary>
+    public async Task<string> GetBackupsDirectoryAsync(CancellationToken ct = default)
+    {
+        var configured = await settings.GetAsync(SettingKeys.BackupsDirectory, ct);
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            var resolved = Path.GetFullPath(Environment.ExpandEnvironmentVariables(configured.Trim()));
+            Directory.CreateDirectory(resolved);
+            return resolved;
+        }
+        storage.EnsureDirectories();
+        return storage.BackupsDirectory;
+    }
+
+    /// <summary>Synchronous version of <see cref="GetBackupsDirectoryAsync"/>.</summary>
+    public string GetBackupsDirectory()
+    {
+        var configured = settings.GetAsync(SettingKeys.BackupsDirectory).GetAwaiter().GetResult();
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            var resolved = Path.GetFullPath(Environment.ExpandEnvironmentVariables(configured.Trim()));
+            Directory.CreateDirectory(resolved);
+            return resolved;
+        }
+        storage.EnsureDirectories();
+        return storage.BackupsDirectory;
+    }
+
+    /// <summary>
+    /// Verifies path syntax and tests directory writeability via a temporary probe file.
+    /// Blank/null path tests the default backups directory.
+    /// </summary>
+    public BackupDirectoryProbeResult ProbeBackupDirectory(string? directoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            try
+            {
+                storage.EnsureDirectories();
+                var testFile = Path.Combine(storage.BackupsDirectory, $".probe-{Guid.NewGuid():N}.tmp");
+                File.WriteAllText(testFile, "probe");
+                File.Delete(testFile);
+                return new BackupDirectoryProbeResult(true, storage.BackupsDirectory);
+            }
+            catch (Exception ex)
+            {
+                return new BackupDirectoryProbeResult(false, storage.BackupsDirectory, $"Default backup directory is not writable: {ex.Message}");
+            }
+        }
+
+        var trimmed = directoryPath.Trim();
+        if (trimmed.Contains('\0') ||
+            trimmed.IndexOfAny(Path.GetInvalidPathChars()) >= 0 ||
+            trimmed.IndexOfAny(['*', '?']) >= 0)
+        {
+            return new BackupDirectoryProbeResult(false, null, "Invalid path syntax: Directory path contains invalid characters.");
+        }
+
+        string resolved;
+        try
+        {
+            var expanded = Environment.ExpandEnvironmentVariables(trimmed);
+            if (expanded.Contains('\0') ||
+                expanded.IndexOfAny(Path.GetInvalidPathChars()) >= 0 ||
+                expanded.IndexOfAny(['*', '?']) >= 0)
+            {
+                return new BackupDirectoryProbeResult(false, null, "Invalid path syntax: Directory path contains invalid characters.");
+            }
+
+            resolved = Path.GetFullPath(expanded);
+        }
+        catch (Exception ex)
+        {
+            return new BackupDirectoryProbeResult(false, null, $"Invalid path syntax: {ex.Message}");
+        }
+
+        try
+        {
+            Directory.CreateDirectory(resolved);
+            var testFile = Path.Combine(resolved, $".probe-{Guid.NewGuid():N}.tmp");
+            File.WriteAllText(testFile, "probe");
+            File.Delete(testFile);
+            return new BackupDirectoryProbeResult(true, resolved);
+        }
+        catch (Exception ex)
+        {
+            return new BackupDirectoryProbeResult(false, resolved, $"Directory is not writable: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// Creates a consistent online snapshot of SQLite database using <see cref="SqliteConnection.BackupDatabase(SqliteConnection)"/>
@@ -105,13 +221,28 @@ public sealed partial class BackupService(
     public async Task<string> CreateRestorableBackupAsync(
         string? user = null,
         SqliteConnection? sourceConnection = null,
+        bool prune = true,
+        IEnumerable<string>? excludeFileNames = null,
+        string? excludeFileName = null,
         CancellationToken ct = default)
     {
         storage.EnsureDirectories();
+        var backupsDir = await GetBackupsDirectoryAsync(ct);
         var now = time.GetUtcNow().UtcDateTime;
-        var fileName = $"backup-{now:yyyyMMdd-HHmmss}.zip";
-        var finalZipPath = Path.Combine(storage.BackupsDirectory, fileName);
-        var tempZipPath = Path.Combine(storage.BackupsDirectory, $"{fileName}.{Guid.NewGuid():N}.tmp");
+        var baseFileName = $"backup-{now:yyyyMMdd-HHmmss}";
+        var fileName = $"{baseFileName}.zip";
+        var finalZipPath = Path.Combine(backupsDir, fileName);
+        if (File.Exists(finalZipPath))
+        {
+            var counter = 1;
+            while (File.Exists(Path.Combine(backupsDir, $"{baseFileName}-{counter}.zip")))
+            {
+                counter++;
+            }
+            fileName = $"{baseFileName}-{counter}.zip";
+            finalZipPath = Path.Combine(backupsDir, fileName);
+        }
+        var tempZipPath = Path.Combine(backupsDir, $"{fileName}.{Guid.NewGuid():N}.tmp");
         var tempDbPath = Path.Combine(storage.BackupsDirectory, $"snapshot-{Guid.NewGuid():N}.db");
 
         try
@@ -187,7 +318,14 @@ public sealed partial class BackupService(
             logger.LogInformation("Created restorable backup {FileName} ({SizeMb:F2} MB)", fileName, sizeMb);
 
             // Automatic retention pruning
-            await PruneBackupsAsync(user: user ?? "system", ct: ct);
+            if (prune)
+            {
+                await PruneBackupsAsync(
+                    user: user ?? "system",
+                    excludeFileNames: excludeFileNames,
+                    excludeFileName: excludeFileName,
+                    ct: ct);
+            }
 
             return fileName;
         }
@@ -219,10 +357,13 @@ public sealed partial class BackupService(
         int? retentionDays = null,
         int? maxCount = null,
         string? user = "system",
+        IEnumerable<string>? excludeFileNames = null,
+        string? excludeFileName = null,
         CancellationToken ct = default)
     {
         storage.EnsureDirectories();
-        if (!Directory.Exists(storage.BackupsDirectory)) return 0;
+        var backupsDir = await GetBackupsDirectoryAsync(ct);
+        if (!Directory.Exists(backupsDir)) return 0;
 
         if (retentionDays is null)
         {
@@ -236,7 +377,21 @@ public sealed partial class BackupService(
             maxCount = int.TryParse(raw, out var c) && c >= 0 ? c : DefaultMaxCount;
         }
 
-        var candidates = Directory.EnumerateFiles(storage.BackupsDirectory, "backup-*.zip", SearchOption.TopDirectoryOnly)
+        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (excludeFileNames is not null)
+        {
+            foreach (var name in excludeFileNames)
+            {
+                if (!string.IsNullOrWhiteSpace(name))
+                    excluded.Add(Path.GetFileName(name));
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(excludeFileName))
+        {
+            excluded.Add(Path.GetFileName(excludeFileName));
+        }
+
+        var candidates = Directory.EnumerateFiles(backupsDir, "backup-*.zip", SearchOption.TopDirectoryOnly)
             .Select(path =>
             {
                 var name = Path.GetFileName(path);
@@ -256,6 +411,11 @@ public sealed partial class BackupService(
         for (var i = 1; i < candidates.Count; i++)
         {
             var item = candidates[i];
+            if (excluded.Contains(item.FileName))
+            {
+                continue;
+            }
+
             var pruneByAge = ageCutoff.HasValue && item.Timestamp < ageCutoff.Value;
             var pruneByCount = maxCount.Value > 0 && i >= maxCount.Value;
 
@@ -271,6 +431,10 @@ public sealed partial class BackupService(
             try
             {
                 var name = Path.GetFileName(path);
+                if (excluded.Contains(name))
+                {
+                    continue;
+                }
                 File.Delete(path);
                 deletedCount++;
                 await audit.WriteAsync("backup.pruned", "Backup", name, $"Pruned backup archive {name}", user ?? "system");
@@ -297,10 +461,22 @@ public sealed partial class BackupService(
     public async Task<string> CreateListingExportAsync(string? user = null, CancellationToken ct = default)
     {
         storage.EnsureDirectories();
+        var backupsDir = await GetBackupsDirectoryAsync(ct);
         var now = time.GetUtcNow().UtcDateTime;
-        var fileName = $"etsy-listings-export-{now:yyyyMMdd-HHmmss}.zip";
-        var finalZipPath = Path.Combine(storage.BackupsDirectory, fileName);
-        var tempZipPath = Path.Combine(storage.BackupsDirectory, $"{fileName}.{Guid.NewGuid():N}.tmp");
+        var baseFileName = $"etsy-listings-export-{now:yyyyMMdd-HHmmss}";
+        var fileName = $"{baseFileName}.zip";
+        var finalZipPath = Path.Combine(backupsDir, fileName);
+        if (File.Exists(finalZipPath))
+        {
+            var counter = 1;
+            while (File.Exists(Path.Combine(backupsDir, $"{baseFileName}-{counter}.zip")))
+            {
+                counter++;
+            }
+            fileName = $"{baseFileName}-{counter}.zip";
+            finalZipPath = Path.Combine(backupsDir, fileName);
+        }
+        var tempZipPath = Path.Combine(backupsDir, $"{fileName}.{Guid.NewGuid():N}.tmp");
 
         try
         {
@@ -549,10 +725,11 @@ public sealed partial class BackupService(
     public IReadOnlyList<BackupFileInfo> ListBackups()
     {
         storage.EnsureDirectories();
-        if (!Directory.Exists(storage.BackupsDirectory)) return [];
+        var backupsDir = GetBackupsDirectory();
+        if (!Directory.Exists(backupsDir)) return [];
 
         var list = new List<BackupFileInfo>();
-        foreach (var path in Directory.EnumerateFiles(storage.BackupsDirectory, "*.zip", SearchOption.TopDirectoryOnly))
+        foreach (var path in Directory.EnumerateFiles(backupsDir, "*.zip", SearchOption.TopDirectoryOnly))
         {
             var name = Path.GetFileName(path);
             string backupType;
@@ -614,10 +791,11 @@ public sealed partial class BackupService(
         if (!BackupFileNameRegex().IsMatch(fileName) && !ExportFileNameRegex().IsMatch(fileName))
             throw new ArgumentException($"File name '{fileName}' is not an authorized backup archive.", nameof(fileName));
 
-        var fullPath = Path.GetFullPath(Path.Combine(storage.BackupsDirectory, fileName));
-        var backupsDir = Path.GetFullPath(storage.BackupsDirectory);
+        var backupsDir = Path.GetFullPath(GetBackupsDirectory());
+        var dirWithSep = backupsDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var fullPath = Path.GetFullPath(Path.Combine(backupsDir, fileName));
 
-        if (!fullPath.StartsWith(backupsDir, StringComparison.OrdinalIgnoreCase))
+        if (!fullPath.StartsWith(dirWithSep, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Path traversal attempt detected.", nameof(fileName));
 
         return fullPath;
@@ -648,5 +826,371 @@ public sealed partial class BackupService(
         var slug = SlugRegex().Replace(text.Trim().ToLowerInvariant(), "-").Trim('-');
         if (slug.Length == 0) return "item";
         return slug.Length > maxLength ? slug[..maxLength].TrimEnd('-') : slug;
+    }
+
+    /// <summary>
+    /// Validates an on-disk backup archive (.zip) structure, security boundaries,
+    /// manifest metadata, and database integrity. Accepts either a full path or a file name
+    /// in the backups directory.
+    /// </summary>
+    public async Task<BackupValidationResult> ValidateBackupArchiveAsync(string zipPathOrFileName, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(zipPathOrFileName))
+            return new BackupValidationResult(false, "Backup archive path cannot be empty.");
+
+        string resolvedPath;
+        if (File.Exists(zipPathOrFileName))
+        {
+            resolvedPath = zipPathOrFileName;
+        }
+        else
+        {
+            try
+            {
+                resolvedPath = ValidateAndResolvePath(zipPathOrFileName);
+            }
+            catch
+            {
+                return new BackupValidationResult(false, $"Backup archive file was not found at '{zipPathOrFileName}'.");
+            }
+        }
+
+        if (!File.Exists(resolvedPath))
+            return new BackupValidationResult(false, $"Backup archive file was not found at '{resolvedPath}'.");
+
+        try
+        {
+            await using var stream = new FileStream(resolvedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+
+            // 1. Entry path security validation
+            foreach (var entry in zip.Entries)
+            {
+                var name = entry.FullName;
+                if (name.Contains("..") || name.StartsWith('/') || name.StartsWith('\\') || Path.IsPathRooted(name) ||
+                    name.IndexOfAny([':', '\0']) >= 0)
+                {
+                    return new BackupValidationResult(false, $"Archive contains invalid or malicious entry path: '{name}'.");
+                }
+            }
+
+            // 2. manifest.json verification
+            var manifestEntry = zip.GetEntry("manifest.json");
+            if (manifestEntry is null)
+                return new BackupValidationResult(false, "Archive is missing manifest.json.");
+
+            int version;
+            string? backupType;
+            long dbSizeBytes;
+            int imageCount;
+            int videoCount;
+            int keyCount;
+
+            await using (var manifestStream = manifestEntry.Open())
+            {
+                using var doc = await JsonDocument.ParseAsync(manifestStream, cancellationToken: ct);
+                var root = doc.RootElement;
+                version = root.TryGetProperty("version", out var v) ? v.GetInt32() : 0;
+                backupType = root.TryGetProperty("backup_type", out var bt) ? bt.GetString() : null;
+                dbSizeBytes = root.TryGetProperty("database_size_bytes", out var dsb) ? dsb.GetInt64() : 0;
+                imageCount = root.TryGetProperty("image_count", out var ic) ? ic.GetInt32() : 0;
+                videoCount = root.TryGetProperty("video_count", out var vc) ? vc.GetInt32() : 0;
+                keyCount = root.TryGetProperty("key_count", out var kc) ? kc.GetInt32() : 0;
+            }
+
+            if (!string.Equals(backupType, "full_restore", StringComparison.OrdinalIgnoreCase))
+            {
+                return new BackupValidationResult(false, $"Invalid backup_type '{backupType}'. Only 'full_restore' archives can be restored.");
+            }
+
+            // 3. Entry prefix validation for full_restore archive
+            foreach (var entry in zip.Entries)
+            {
+                var name = entry.FullName;
+                if (name.EndsWith('/') || name.EndsWith('\\')) continue;
+
+                bool isManifest = string.Equals(name, "manifest.json", StringComparison.OrdinalIgnoreCase);
+                bool isDb = string.Equals(name, "etsyshopmanager.db", StringComparison.OrdinalIgnoreCase);
+                bool isImage = name.StartsWith("images/", StringComparison.OrdinalIgnoreCase);
+                bool isVideo = name.StartsWith("videos/", StringComparison.OrdinalIgnoreCase);
+                bool isKey = name.StartsWith("keys/", StringComparison.OrdinalIgnoreCase);
+
+                if (!isManifest && !isDb && !isImage && !isVideo && !isKey)
+                {
+                    return new BackupValidationResult(false, $"Archive contains unauthorized entry: '{name}'.");
+                }
+            }
+
+            // 3. etsyshopmanager.db verification
+            var dbEntry = zip.GetEntry("etsyshopmanager.db");
+            if (dbEntry is null)
+                return new BackupValidationResult(false, "Archive is missing etsyshopmanager.db.");
+
+            var tempDbPath = Path.Combine(Path.GetTempPath(), $"esm-validate-{Guid.NewGuid():N}.db");
+            try
+            {
+                dbEntry.ExtractToFile(tempDbPath, overwrite: true);
+                var fi = new FileInfo(tempDbPath);
+                if (fi.Length == 0)
+                    return new BackupValidationResult(false, "Database file in archive is empty.");
+
+                await using var conn = new SqliteConnection($"Data Source={tempDbPath};Pooling=False");
+                await conn.OpenAsync(ct);
+
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = "PRAGMA integrity_check;";
+                var integrity = (string?)await cmd.ExecuteScalarAsync(ct);
+                if (!string.Equals(integrity, "ok", StringComparison.OrdinalIgnoreCase))
+                    return new BackupValidationResult(false, $"SQLite integrity check failed: '{integrity}'.");
+
+                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('Shops', 'Listings', 'Settings');";
+                var tableCount = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+                if (tableCount < 3)
+                    return new BackupValidationResult(false, $"Database is missing essential application tables (found {tableCount} of 3).");
+
+                return new BackupValidationResult(
+                    IsValid: true,
+                    ErrorMessage: null,
+                    Version: version,
+                    BackupType: backupType,
+                    DbSizeBytes: fi.Length,
+                    ImageCount: imageCount,
+                    VideoCount: videoCount,
+                    KeyCount: keyCount);
+            }
+            finally
+            {
+                if (File.Exists(tempDbPath))
+                {
+                    try { File.Delete(tempDbPath); } catch { /* ignore */ }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            return new BackupValidationResult(false, $"Corrupted or invalid backup archive: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Validates an in-memory or network stream by spooling to a temporary disk file.
+    /// If the stream is already a local FileStream, validates directly without an extra copy.
+    /// </summary>
+    public async Task<BackupValidationResult> ValidateBackupStreamAsync(Stream zipStream, CancellationToken ct = default)
+    {
+        if (zipStream is FileStream fileStream && File.Exists(fileStream.Name))
+        {
+            try
+            {
+                return await ValidateBackupArchiveAsync(fileStream.Name, ct);
+            }
+            catch (IOException)
+            {
+                // Fall back to temp file spooling if the file cannot be shared or opened concurrently
+            }
+        }
+
+        var tempPath = Path.Combine(Path.GetTempPath(), $"esm-stream-val-{Guid.NewGuid():N}.zip");
+        try
+        {
+            await using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await zipStream.CopyToAsync(fs, ct);
+            }
+            return await ValidateBackupArchiveAsync(tempPath, ct);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Restores a full backup from an existing file in the backups directory.
+    /// Performs pre-validation, creates an automated safety backup of current live state,
+    /// performs online SQLite restoration, extracts media and keys, clears settings cache,
+    /// and writes an audit log entry.
+    /// </summary>
+    public async Task<BackupRestoreResult> RestoreBackupAsync(string fileName, string? user = null, CancellationToken ct = default)
+    {
+        var fullZipPath = ValidateAndResolvePath(fileName);
+        if (!File.Exists(fullZipPath))
+            return new BackupRestoreResult(false, $"Backup file '{fileName}' was not found.");
+
+        return await RestoreFromZipFileAsync(fullZipPath, fileName, user, ct);
+    }
+
+    /// <summary>
+    /// Restores a full backup from an uploaded stream.
+    /// If the stream is already a local FileStream, restores directly without an extra copy.
+    /// </summary>
+    public async Task<BackupRestoreResult> RestoreBackupFromStreamAsync(
+        Stream zipStream,
+        string sourceLabel,
+        string? user = null,
+        CancellationToken ct = default)
+    {
+        if (zipStream is FileStream fileStream && File.Exists(fileStream.Name))
+        {
+            try
+            {
+                return await RestoreFromZipFileAsync(fileStream.Name, sourceLabel, user, ct);
+            }
+            catch (IOException)
+            {
+                // Fall back to temp file spooling if the file cannot be shared or opened concurrently
+            }
+        }
+
+        var tempZipPath = Path.Combine(Path.GetTempPath(), $"esm-stream-restore-{Guid.NewGuid():N}.zip");
+        try
+        {
+            await using (var fs = new FileStream(tempZipPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await zipStream.CopyToAsync(fs, ct);
+            }
+            return await RestoreFromZipFileAsync(tempZipPath, sourceLabel, user, ct);
+        }
+        finally
+        {
+            if (File.Exists(tempZipPath))
+            {
+                try { File.Delete(tempZipPath); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    private async Task<BackupRestoreResult> RestoreFromZipFileAsync(
+        string zipFilePath,
+        string sourceLabel,
+        string? user,
+        CancellationToken ct)
+    {
+        // Step 1: Pre-validation
+        var validation = await ValidateBackupArchiveAsync(zipFilePath, ct);
+        if (!validation.IsValid)
+            return new BackupRestoreResult(false, validation.ErrorMessage);
+
+        // Step 2: Automated Pre-Restore Safety Backup
+        string safetyBackupName;
+        try
+        {
+            var targetFileName = Path.GetFileName(zipFilePath);
+            safetyBackupName = await CreateRestorableBackupAsync(
+                user: $"pre-restore:{user ?? "admin"}",
+                prune: false,
+                excludeFileName: targetFileName,
+                ct: ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to create pre-restore safety backup before restoring {SourceLabel}", sourceLabel);
+            return new BackupRestoreResult(false, $"Pre-restore safety backup failed: {ex.Message}");
+        }
+
+        // Step 3: SQLite Online Restore
+        var tempDbPath = Path.Combine(Path.GetTempPath(), $"esm-restore-db-{Guid.NewGuid():N}.db");
+        try
+        {
+            using (var zip = ZipFile.OpenRead(zipFilePath))
+            {
+                var dbEntry = zip.GetEntry("etsyshopmanager.db")!;
+                dbEntry.ExtractToFile(tempDbPath, overwrite: true);
+            }
+
+            var srcConnStr = $"Data Source={tempDbPath};Pooling=False";
+            await using (var source = new SqliteConnection(srcConnStr))
+            {
+                await source.OpenAsync(ct);
+                await using (var dest = new SqliteConnection(storage.ConnectionString))
+                {
+                    await dest.OpenAsync(ct);
+                    await Task.Run(() => source.BackupDatabase(dest), ct);
+
+                    await using var cmd = dest.CreateCommand();
+                    cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                    await cmd.ExecuteNonQueryAsync(ct);
+                }
+            }
+            SqliteConnection.ClearAllPools();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to restore database from {SourceLabel}", sourceLabel);
+            return new BackupRestoreResult(false, $"Database restore failed: {ex.Message}", PreRestoreSafetyBackup: safetyBackupName);
+        }
+        finally
+        {
+            if (File.Exists(tempDbPath))
+            {
+                try { File.Delete(tempDbPath); } catch { /* ignore */ }
+            }
+        }
+
+        // Step 4: Media and Keys Extraction
+        int restoredImages = 0;
+        int restoredVideos = 0;
+        int restoredKeys = 0;
+
+        try
+        {
+            using var zip = ZipFile.OpenRead(zipFilePath);
+            var resolvedRootWithSep = storage.ResolvedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                      + Path.DirectorySeparatorChar;
+
+            foreach (var entry in zip.Entries)
+            {
+                if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\')) continue;
+                if (string.Equals(entry.FullName, "manifest.json", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(entry.FullName, "etsyshopmanager.db", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                bool isImage = entry.FullName.StartsWith("images/", StringComparison.OrdinalIgnoreCase);
+                bool isVideo = entry.FullName.StartsWith("videos/", StringComparison.OrdinalIgnoreCase);
+                bool isKey = entry.FullName.StartsWith("keys/", StringComparison.OrdinalIgnoreCase);
+
+                if (!isImage && !isVideo && !isKey) continue;
+
+                var targetPath = Path.GetFullPath(Path.Combine(storage.ResolvedRoot, entry.FullName));
+                if (!targetPath.StartsWith(resolvedRootWithSep, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Path traversal attempt in archive entry: {entry.FullName}");
+                }
+
+                var dir = Path.GetDirectoryName(targetPath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+                entry.ExtractToFile(targetPath, overwrite: true);
+
+                if (isImage) restoredImages++;
+                else if (isVideo) restoredVideos++;
+                else if (isKey) restoredKeys++;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to extract media or keys from {SourceLabel}", sourceLabel);
+            return new BackupRestoreResult(false, $"Media/keys extraction failed: {ex.Message}", PreRestoreSafetyBackup: safetyBackupName);
+        }
+
+        // Step 5: Invalidate in-memory settings cache
+        settings.ClearCache();
+
+        // Step 6: Post-restore audit logging
+        var details = $"Restored backup from {sourceLabel}. Pre-restore safety backup: {safetyBackupName}. Restored {restoredImages} images, {restoredVideos} videos, {restoredKeys} keys.";
+        await audit.WriteAsync("backup.restored", "Backup", sourceLabel, details, user, ct);
+        logger.LogInformation("Restored backup from {SourceLabel}. Safety backup: {SafetyBackup}", sourceLabel, safetyBackupName);
+
+        // Step 7: Return successful result
+        return new BackupRestoreResult(
+            Success: true,
+            ErrorMessage: null,
+            PreRestoreSafetyBackup: safetyBackupName,
+            RestoredImages: restoredImages,
+            RestoredVideos: restoredVideos,
+            RestoredKeys: restoredKeys);
     }
 }

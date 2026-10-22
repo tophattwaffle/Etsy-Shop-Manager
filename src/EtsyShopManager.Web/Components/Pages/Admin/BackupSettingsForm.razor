@@ -2,8 +2,10 @@
 @using EtsyShopManager.Core.Domain
 @using EtsyShopManager.Core.Jobs
 @using EtsyShopManager.Web.Infrastructure.Backups
+@implements IDisposable
 @inject BackupService Backups
 @inject ISettingsStore Settings
+@inject StorageOptions Storage
 @inject IJobQueue Jobs
 @inject IAuditLog Audit
 @inject ISnackbar Snackbar
@@ -29,6 +31,11 @@
             <MudNumericField T="int" @bind-Value="_maxCount" Label="Max backups to keep (0 = unlimited)" Immediate="true"
                              Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
         </MudItem>
+        <MudItem xs="12">
+            <MudTextField T="string" @bind-Value="_backupDirectory" Label="Backup folder path (leave blank for default)"
+                          Immediate="true" HelperText="@($"Default: {Storage.BackupsDirectory}")"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
     </MudGrid>
 
     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
@@ -39,13 +46,13 @@
 
     <MudText Typo="Typo.h6" GutterBottom="true">Actions</MudText>
     <MudStack Row="true" Spacing="2" Class="mb-4" AlignItems="AlignItems.Center">
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateBackupNowAsync" Disabled="_busy">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateBackupNowAsync" Disabled="_busy || _restoring">
             Create backup now
         </MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Href="/admin/backups/export" Target="_blank">
+        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Href="/admin/backups/export" Target="_blank" Disabled="_restoring">
             Export listings (.zip)
         </MudButton>
-        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="RefreshBackups" Size="Size.Small" title="Refresh backup list" />
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="RefreshBackups" Size="Size.Small" title="Refresh backup list" Disabled="_restoring" />
     </MudStack>
 
     <MudDivider Class="my-4" />
@@ -76,15 +83,98 @@
                         <td>@b.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
                         <td>@b.SizeMb MB</td>
                         <td class="text-right">
+                            @if (b.BackupType == "Restorable")
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.Restore" Color="Color.Warning" Size="Size.Small"
+                                               Disabled="_busy || _restoring || _validating"
+                                               OnClick="() => ConfirmRestoreRowAsync(b)" title="Restore this backup" />
+                            }
                             <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small"
                                            Href="@($"/admin/backups/download/{b.FileName}")" Target="_blank" title="Download" />
                             <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                           Disabled="_busy || _restoring || _validating"
                                            OnClick="() => ConfirmDeleteAsync(b)" title="Delete" />
                         </td>
                     </tr>
                 }
             </tbody>
         </MudSimpleTable>
+    }
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.h6" GutterBottom="true">Restore backup archive</MudText>
+    <MudText Typo="Typo.body2" Class="mb-3">
+        Upload a restorable .zip backup archive to validate its structure, inspect contents, and restore it to this system.
+    </MudText>
+
+    @if (_uploadValidation is null && !_validating)
+    {
+        <MudFileUpload T="IBrowserFile" FilesChanged="OnUploadFileSelectedAsync" Accept=".zip" MaximumFileCount="1"
+                       Disabled="_restoring || _validating">
+            <CustomContent>
+                <MudPaper Elevation="0" Outlined="true" Class="pa-6 d-flex flex-column align-center justify-center">
+                    <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Size="Size.Large" Class="mb-2 muted" />
+                    <MudText Typo="Typo.body1" Class="mb-1"><strong>Select backup archive (.zip)</strong></MudText>
+                    <MudText Typo="Typo.body2" Class="muted mb-3">Full restorable .zip backup archive up to 500 MB</MudText>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => context.OpenFilePickerAsync())"
+                               Disabled="_restoring || _validating" StartIcon="@Icons.Material.Filled.FolderOpen">
+                        Browse archive
+                    </MudButton>
+                </MudPaper>
+            </CustomContent>
+        </MudFileUpload>
+    }
+
+    @if (_validating)
+    {
+        <MudPaper Class="pa-4 mt-3" Elevation="0" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                <MudText Typo="Typo.body2">Uploading and validating archive (verifying manifest, checksums, and SQLite database integrity)...</MudText>
+            </MudStack>
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        </MudPaper>
+    }
+
+    @if (_uploadError is not null)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3" ShowCloseIcon="true" CloseIconClicked="CancelUpload">
+            @_uploadError
+        </MudAlert>
+    }
+
+    @if (_uploadValidation is not null && _uploadValidation.IsValid)
+    {
+        <MudPaper Class="pa-4 mt-3" Elevation="0" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" />
+                <MudText Typo="Typo.subtitle1"><strong>Backup archive verified</strong></MudText>
+            </MudStack>
+
+            <MudSimpleTable Dense="true" Class="mb-3">
+                <tbody>
+                    <tr><td><strong>Archive file</strong></td><td><code>@_selectedUploadFileName</code></td></tr>
+                    <tr><td><strong>Archive size</strong></td><td>@($"{_selectedUploadFileSize / (1024.0 * 1024.0):F2} MB")</td></tr>
+                    <tr><td><strong>Database snapshot</strong></td><td>@($"{_uploadValidation.DbSizeBytes / (1024.0 * 1024.0):F2} MB (SQLite integrity check: OK)")</td></tr>
+                    <tr><td><strong>Stored media</strong></td><td>@($"{_uploadValidation.ImageCount} images, {_uploadValidation.VideoCount} videos")</td></tr>
+                    <tr><td><strong>Security keys</strong></td><td>@($"{_uploadValidation.KeyCount} Data Protection keys")</td></tr>
+                </tbody>
+            </MudSimpleTable>
+
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                Restoring will overwrite your live SQLite database, media files, and Data Protection keys. An automated pre-restore safety backup will be created in your configured backup directory first.
+            </MudAlert>
+
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_restoring" OnClick="ExecuteUploadRestoreAsync">
+                    @(_restoring ? "Restoring backup…" : "Restore this backup")
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="_restoring" OnClick="CancelUpload">
+                    Cancel
+                </MudButton>
+            </MudStack>
+        </MudPaper>
     }
 </MudPaper>
 
@@ -97,7 +187,17 @@
     private int _savedRetentionDays = BackupService.DefaultRetentionDays;
     private int _maxCount = BackupService.DefaultMaxCount;
     private int _savedMaxCount = BackupService.DefaultMaxCount;
+    private string _backupDirectory = string.Empty;
+    private string _savedBackupDirectory = string.Empty;
     private bool _busy;
+    private bool _validating;
+    private bool _restoring;
+
+    private BackupValidationResult? _uploadValidation;
+    private string? _uploadError;
+    private string? _uploadedTempPath;
+    private string? _selectedUploadFileName;
+    private long _selectedUploadFileSize;
 
     private List<BackupFileInfo> _backups = [];
     private readonly TableSort<BackupFileInfo> _sort = new()
@@ -111,7 +211,8 @@
     private bool HasChanges =>
         _scheduleHours != _savedScheduleHours ||
         _retentionDays != _savedRetentionDays ||
-        _maxCount != _savedMaxCount;
+        _maxCount != _savedMaxCount ||
+        _backupDirectory != _savedBackupDirectory;
 
     protected override async Task OnInitializedAsync()
     {
@@ -138,6 +239,9 @@
             _maxCount = _savedMaxCount = c;
         else
             _maxCount = _savedMaxCount = BackupService.DefaultMaxCount;
+
+        var dirRaw = await Settings.GetAsync(SettingKeys.BackupsDirectory);
+        _backupDirectory = _savedBackupDirectory = dirRaw ?? string.Empty;
     }
 
     private void RevertSettings()
@@ -145,6 +249,7 @@
         _scheduleHours = _savedScheduleHours;
         _retentionDays = _savedRetentionDays;
         _maxCount = _savedMaxCount;
+        _backupDirectory = _savedBackupDirectory;
     }
 
     private async Task SaveSettingsAsync()
@@ -157,17 +262,32 @@
             var d = Math.Max(0, _retentionDays);
             var c = Math.Max(0, _maxCount);
 
+            if (_backupDirectory != _savedBackupDirectory)
+            {
+                var probe = Backups.ProbeBackupDirectory(_backupDirectory);
+                if (!probe.Success)
+                {
+                    Snackbar.Add(probe.ErrorMessage ?? "The specified backup folder is invalid or not writable.", Severity.Error);
+                    return;
+                }
+            }
+
+            var dirValue = string.IsNullOrWhiteSpace(_backupDirectory) ? null : _backupDirectory.Trim();
+
             await Settings.SetAsync(SettingKeys.BackupsScheduleIntervalHours, h.ToString(), updatedBy: user);
             await Settings.SetAsync(SettingKeys.BackupsRetentionDays, d.ToString(), updatedBy: user);
             await Settings.SetAsync(SettingKeys.BackupsMaxCount, c.ToString(), updatedBy: user);
+            await Settings.SetAsync(SettingKeys.BackupsDirectory, dirValue, updatedBy: user);
 
             await Audit.WriteAsync("settings.backups", "Setting", "Backups",
-                $"Schedule: {h}h, Retention: {d}d, Max: {c}", user);
+                $"Schedule: {h}h, Retention: {d}d, Max: {c}, Directory: {dirValue ?? "default"}", user);
 
             _savedScheduleHours = _scheduleHours = h;
             _savedRetentionDays = _retentionDays = d;
             _savedMaxCount = _maxCount = c;
+            _savedBackupDirectory = _backupDirectory = dirValue ?? string.Empty;
 
+            RefreshBackups();
             Snackbar.Add("Backup settings saved", Severity.Success);
         }
         finally
@@ -231,5 +351,189 @@
                 Snackbar.Add("File not found or already deleted", Severity.Warning);
             }
         }
+    }
+
+    private async Task ConfirmRestoreRowAsync(BackupFileInfo b)
+    {
+        _validating = true;
+        _busy = true;
+        StateHasChanged();
+
+        try
+        {
+            var validation = await Backups.ValidateBackupArchiveAsync(b.FileName);
+            if (!validation.IsValid)
+            {
+                Snackbar.Add($"Cannot restore \"{b.FileName}\": {validation.ErrorMessage}", Severity.Error);
+                return;
+            }
+
+            var message = (MarkupString)$@"
+<div class=""mb-2"">Are you sure you want to restore <strong>{b.FileName}</strong>?</div>
+<div class=""muted small mb-2"">
+    • Database: {validation.DbSizeBytes / (1024.0 * 1024.0):F2} MB (SQLite integrity: OK)<br />
+    • Media: {validation.ImageCount} images, {validation.VideoCount} videos<br />
+    • Security: {validation.KeyCount} Data Protection keys
+</div>
+<div class=""warning-text small mb-2"">
+    <strong>WARNING:</strong> Restoring will replace the live SQLite database, media files, and Data Protection keys.
+</div>
+<div class=""muted small"">
+    An automated pre-restore safety backup of current live data will be created in your configured backup directory before live data is replaced.
+</div>";
+
+            var confirmed = await Dialogs.ShowMessageBoxAsync(
+                "Restore backup",
+                message,
+                yesText: "Restore backup",
+                cancelText: "Cancel");
+
+            if (confirmed != true) return;
+
+            _restoring = true;
+            StateHasChanged();
+
+            var user = (await AuthState).User.Identity?.Name;
+            var result = await Backups.RestoreBackupAsync(b.FileName, user: user);
+
+            if (result.Success)
+            {
+                Snackbar.Add($"Backup restored successfully. Pre-restore safety backup: {result.PreRestoreSafetyBackup}", Severity.Success);
+                await LoadSettingsAsync();
+                RefreshBackups();
+            }
+            else
+            {
+                Snackbar.Add($"Restore failed: {result.ErrorMessage}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error during restore: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _validating = false;
+            _restoring = false;
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnUploadFileSelectedAsync(IBrowserFile? file)
+    {
+        if (file is null) return;
+
+        CancelUpload();
+        _selectedUploadFileName = file.Name;
+        _selectedUploadFileSize = file.Size;
+
+        if (!file.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            _uploadError = $"File \"{file.Name}\" is not a .zip backup archive.";
+            return;
+        }
+
+        const long maxUploadBytes = 500L * 1024L * 1024L;
+        if (file.Size > maxUploadBytes)
+        {
+            _uploadError = $"File \"{file.Name}\" ({file.Size / (1024.0 * 1024.0):F1} MB) exceeds maximum allowed size (500 MB).";
+            return;
+        }
+
+        _validating = true;
+        StateHasChanged();
+
+        try
+        {
+            _uploadedTempPath = Path.Combine(Path.GetTempPath(), $"upload-restore-{Guid.NewGuid():N}.zip");
+
+            await using (var outStream = new FileStream(_uploadedTempPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 81920, useAsync: true))
+            {
+                await file.OpenReadStream(maxAllowedSize: maxUploadBytes).CopyToAsync(outStream);
+            }
+
+            await using (var readStream = File.OpenRead(_uploadedTempPath))
+            {
+                _uploadValidation = await Backups.ValidateBackupStreamAsync(readStream);
+            }
+
+            if (!_uploadValidation.IsValid)
+            {
+                _uploadError = $"Invalid backup archive: {_uploadValidation.ErrorMessage}";
+                CancelUpload();
+            }
+        }
+        catch (Exception ex)
+        {
+            _uploadError = $"Failed to process uploaded file: {ex.Message}";
+            CancelUpload();
+        }
+        finally
+        {
+            _validating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExecuteUploadRestoreAsync()
+    {
+        if (_uploadedTempPath is null || !File.Exists(_uploadedTempPath) || _uploadValidation is null || !_uploadValidation.IsValid)
+        {
+            Snackbar.Add("No valid uploaded backup to restore.", Severity.Error);
+            return;
+        }
+
+        _restoring = true;
+        StateHasChanged();
+
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            BackupRestoreResult result;
+            await using (var stream = File.OpenRead(_uploadedTempPath))
+            {
+                result = await Backups.RestoreBackupFromStreamAsync(stream, _selectedUploadFileName ?? "uploaded-archive.zip", user: user);
+            }
+
+            if (result.Success)
+            {
+                Snackbar.Add($"Backup restored successfully. Pre-restore safety backup: {result.PreRestoreSafetyBackup}", Severity.Success);
+                CancelUpload();
+                await LoadSettingsAsync();
+                RefreshBackups();
+            }
+            else
+            {
+                Snackbar.Add($"Restore failed: {result.ErrorMessage}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Restore failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _restoring = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelUpload()
+    {
+        _uploadValidation = null;
+        _uploadError = null;
+        _selectedUploadFileName = null;
+        _selectedUploadFileSize = 0;
+        if (_uploadedTempPath is not null && File.Exists(_uploadedTempPath))
+        {
+            try { File.Delete(_uploadedTempPath); } catch { /* ignore */ }
+        }
+        _uploadedTempPath = null;
+    }
+
+    public void Dispose()
+    {
+        CancelUpload();
     }
 }

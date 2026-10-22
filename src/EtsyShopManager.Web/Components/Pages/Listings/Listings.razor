@@ -385,7 +385,7 @@
     private static readonly BulkEditKind?[] BulkKinds =
     [
         null, BulkEditKind.Price, BulkEditKind.AddTags, BulkEditKind.RemoveTags, BulkEditKind.AddMaterials, BulkEditKind.RemoveMaterials,
-        BulkEditKind.ShippingProfile, BulkEditKind.Section,
+        BulkEditKind.ShippingProfile, BulkEditKind.ProcessingProfile, BulkEditKind.Section,
     ];
     private bool? _bulkEnabled;
     private int? _bulkThreshold;
@@ -631,6 +631,7 @@
         BulkEditKind.AddMaterials => "Add materials",
         BulkEditKind.RemoveMaterials => "Remove materials",
         BulkEditKind.ShippingProfile => "Shipping profile",
+        BulkEditKind.ProcessingProfile => "Processing profile",
         _ => "Shop section",
     };
 

@@ -32,6 +32,9 @@ public static class SettingKeys
 
     /// <summary>Maximum number of restorable backups to keep (default 10, 0 = unlimited).</summary>
     public const string BackupsMaxCount = "Backups.MaxCount";
+
+    /// <summary>Configured backup directory path (null or empty = default under Storage:DataRoot).</summary>
+    public const string BackupsDirectory = "Backups.Directory";
 }
 
 /// <summary>Who changed what. Written for user, settings and shop changes.</summary>

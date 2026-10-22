@@ -83,6 +83,36 @@ public static class VariationEditor
     }
 
     /// <summary>
+    /// Orders a listing's variation values to follow template option order:
+    /// values matching template options appear first in template order, followed by
+    /// any extra listing-specific values in their original relative sequence.
+    /// Comparisons are case-insensitive and preserve the listing's existing casing for values.
+    /// </summary>
+    public static IReadOnlyList<string> OrderValuesByTemplate(
+        IEnumerable<string> currentValues,
+        IEnumerable<string> templateOptions)
+    {
+        var currentList = currentValues.ToList();
+        var templateList = templateOptions.ToList();
+
+        var templateOrderedOnListing = new List<string>();
+        foreach (var opt in templateList)
+        {
+            var match = currentList.FirstOrDefault(v => string.Equals(v, opt, StringComparison.OrdinalIgnoreCase));
+            if (match is not null && !templateOrderedOnListing.Contains(match, StringComparer.OrdinalIgnoreCase))
+            {
+                templateOrderedOnListing.Add(match);
+            }
+        }
+
+        var extraValues = currentList
+            .Where(v => !templateOrderedOnListing.Contains(v, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        return [.. templateOrderedOnListing, .. extraValues];
+    }
+
+    /// <summary>
     /// Reorders the values of a variation, updating value_order and sorting products in grid order.
     /// </summary>
     public static JsonObject ReorderValues(JsonNode inventory, long propertyId, IReadOnlyList<string> newOrder)
@@ -445,6 +475,7 @@ public static class VariationEditor
         foreach (var pv in Products(inv).SelectMany(PropertyValues).Where(v => (v["value_ids"] as JsonArray)?.Count is null or 0))
             if (known.TryGetValue(((long)pv["property_id"]!, ValueText(pv)), out var ids))
                 pv["value_ids"] = ids.DeepClone();
+        inv.Remove("value_order");
         return Canonical(inv);
     }
 
@@ -459,15 +490,21 @@ public static class VariationEditor
         }
 
         var valueOrderObj = inventory["value_order"] as JsonObject;
+        var hasCustomOrder = valueOrderObj is not null && valueOrderObj.Any(kv => kv.Value is JsonArray a && a.Count > 0);
+
         var variations = Variations(inventory);
         var prop1 = variations.Count > 0 ? variations[0].PropertyId : (long?)null;
         var prop2 = variations.Count > 1 ? variations[1].PropertyId : (long?)null;
 
-        var order1 = prop1.HasValue && valueOrderObj?[prop1.Value.ToString()] is JsonArray a1
-            ? a1.Select(x => (string)x!).ToList()
+        var order1 = prop1.HasValue && hasCustomOrder
+            ? (valueOrderObj?[prop1.Value.ToString()] is JsonArray a1
+                ? a1.Select(x => (string)x!).ToList()
+                : variations.FirstOrDefault(v => v.PropertyId == prop1.Value)?.Values)
             : null;
-        var order2 = prop2.HasValue && valueOrderObj?[prop2.Value.ToString()] is JsonArray a2
-            ? a2.Select(x => (string)x!).ToList()
+        var order2 = prop2.HasValue && hasCustomOrder
+            ? (valueOrderObj?[prop2.Value.ToString()] is JsonArray a2
+                ? a2.Select(x => (string)x!).ToList()
+                : variations.FirstOrDefault(v => v.PropertyId == prop2.Value)?.Values)
             : null;
 
         int IndexIn(IReadOnlyList<string>? order, string? val)

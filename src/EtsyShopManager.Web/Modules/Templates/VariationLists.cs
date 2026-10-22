@@ -191,35 +191,28 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             templateOrderChanged = commonApplied.Count > 1 && !commonApplied.SequenceEqual(commonTemplate, StringComparer.OrdinalIgnoreCase);
         }
 
-        var inventoryOrderDiffers = false;
-        if (inventory["value_order"]?[link.PropertyId.ToString()] is JsonArray voArr && voArr.Count > 0)
-        {
-            var voList = voArr.Select(x => (string)x!).ToList();
-            var voTemplateOrder = voList.Where(v => templateOrder.Any(t => string.Equals(t, v, StringComparison.OrdinalIgnoreCase))).ToList();
-            var expectedTemplateOrder = templateOrder.Where(t => voList.Any(v => string.Equals(v, t, StringComparison.OrdinalIgnoreCase))).ToList();
-            inventoryOrderDiffers = voTemplateOrder.Count > 1 && !voTemplateOrder.SequenceEqual(expectedTemplateOrder, StringComparer.OrdinalIgnoreCase);
-        }
+        var voList = VariationEditor.GetValueOrder(inventory, link.PropertyId);
+        var existingVoList = voList.Where(v => !newlyAdded.Contains(v, StringComparer.OrdinalIgnoreCase)).ToList();
+        var voTemplateOrder = existingVoList.Where(v => templateOrder.Any(t => string.Equals(t, v, StringComparison.OrdinalIgnoreCase))).ToList();
+        var expectedTemplateOrder = templateOrder.Where(t => existingVoList.Any(v => string.Equals(v, t, StringComparison.OrdinalIgnoreCase))).ToList();
+        var inventoryOrderDiffers = voTemplateOrder.Count > 1 && !voTemplateOrder.SequenceEqual(expectedTemplateOrder, StringComparer.OrdinalIgnoreCase);
+
+        var desiredOrder = VariationEditor.OrderValuesByTemplate(currentListingValues, templateOrder);
 
         if (templateOrderChanged || inventoryOrderDiffers)
         {
-            var templateOrderedOnListing = new List<string>();
-            foreach (var optName in templateOrder)
-            {
-                var matched = currentListingValues.FirstOrDefault(lv => string.Equals(lv, optName, StringComparison.OrdinalIgnoreCase));
-                if (matched is not null && !templateOrderedOnListing.Contains(matched, StringComparer.OrdinalIgnoreCase))
-                {
-                    templateOrderedOnListing.Add(matched);
-                }
-            }
-            var extraValues = currentListingValues
-                .Where(lv => !templateOrderedOnListing.Contains(lv, StringComparer.OrdinalIgnoreCase))
-                .ToList();
-            List<string> reorderedValues = [.. templateOrderedOnListing, .. extraValues];
-
             try
             {
-                inventory = VariationEditor.ReorderValues(inventory, link.PropertyId, reorderedValues);
+                inventory = VariationEditor.ReorderValues(inventory, link.PropertyId, desiredOrder);
                 changes.Add($"Reorders options in {label}");
+            }
+            catch (ArgumentException ex) { notes.Add(ex.Message); }
+        }
+        else if (newlyAdded.Count > 0 && !currentListingValues.SequenceEqual(desiredOrder, StringComparer.Ordinal))
+        {
+            try
+            {
+                inventory = VariationEditor.ReorderValues(inventory, link.PropertyId, desiredOrder);
             }
             catch (ArgumentException ex) { notes.Add(ex.Message); }
         }
@@ -372,11 +365,15 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         return [.. result.OrderByDescending(c => (double)c.InList / c.Values).ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase)];
     }
 
-    /// <summary>Links listing variations to the list, starting from what each listing has now. Returns how many were linked.</summary>
+    /// <summary>
+    /// Links listing variations to the list. Automatically reorders each listing's variation values
+    /// to follow the template option order, saving updated draft inventory if order changes. Returns how many were linked.
+    /// </summary>
     public async Task<int> LinkAsync(int listId, IEnumerable<(int ListingId, long PropertyId)> variations, string? user, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var list = await db.VariationLists.AsNoTracking().FirstAsync(l => l.Id == listId, ct);
+        var templateOrder = list.Options.Select(o => o.Name).ToList();
         var count = 0;
         foreach (var (listingId, propertyId) in variations.Distinct())
         {
@@ -386,6 +383,16 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             if (model.Local(ListingFields.Inventory) is not { } inventory
                 || VariationEditor.Variations(inventory).All(v => v.PropertyId != propertyId)) continue;
             if (await db.ListingVariationLists.AnyAsync(l => l.ListingId == listingId && l.PropertyId == propertyId, ct)) continue;
+
+            var currentValues = VariationEditor.GetValueOrder(inventory, propertyId);
+            var desiredOrder = VariationEditor.OrderValuesByTemplate(currentValues, templateOrder);
+            if (!desiredOrder.SequenceEqual(currentValues, StringComparer.Ordinal))
+            {
+                var reordered = VariationEditor.ReorderValues(inventory, propertyId, desiredOrder);
+                await editor.SaveAsync(listingId, new Dictionary<string, JsonNode?> { [ListingFields.Inventory] = reordered }, user, ct);
+                inventory = reordered;
+            }
+
             db.ListingVariationLists.Add(new ListingVariationList
             {
                 ListingId = listingId, VariationListId = listId, PropertyId = propertyId,
@@ -532,12 +539,26 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         return (new VariationListLinkPreview(inList, variation.Values.Count, warning, plan.Changes, plan.Notes), null);
     }
 
-    /// <summary>Links one variation of a listing to a list, starting from what the listing has. Changes come with the next apply.</summary>
+    /// <summary>
+    /// Links one variation of a listing to a list. Automatically reorders the listing's variation values
+    /// to follow the template option order, saving updated draft inventory if order changes.
+    /// </summary>
     public async Task<string?> LinkVariationAsync(int listId, int listingId, long propertyId, string? user, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var (list, inventory, error) = await LinkSourceAsync(db, listId, listingId, propertyId, ct);
         if (error is not null) return error;
+
+        var currentValues = VariationEditor.GetValueOrder(inventory!, propertyId);
+        var templateOrder = list!.Options.Select(o => o.Name).ToList();
+        var desiredOrder = VariationEditor.OrderValuesByTemplate(currentValues, templateOrder);
+        if (!desiredOrder.SequenceEqual(currentValues, StringComparer.Ordinal))
+        {
+            var reordered = VariationEditor.ReorderValues(inventory!, propertyId, desiredOrder);
+            await editor.SaveAsync(listingId, new Dictionary<string, JsonNode?> { [ListingFields.Inventory] = reordered }, user, ct);
+            inventory = reordered;
+        }
+
         db.ListingVariationLists.Add(new ListingVariationList
         {
             ListingId = listingId, VariationListId = listId, PropertyId = propertyId,

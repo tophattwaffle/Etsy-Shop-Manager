@@ -163,6 +163,7 @@ else
                 @if (_form![ListingFields.Inventory] is { } inventoryNode)
                 {
                     <VariationsEditor Inventory="inventoryNode" Order="VariationEditor.EtsyOrder(l)"
+                                      Links="_links"
                                       @bind-SkuPattern="_skuPattern"
                                       BaseSku="@(l.Skus.FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "")"
                                       InventoryChanged="@(i => Set(ListingFields.Inventory, i))" />
@@ -748,12 +749,13 @@ else
 
     private async Task LinkListAsync(long propertyId)
     {
+        if (Unsaved) await SaveAsync();
         var error = await VariationLists.LinkVariationAsync(_linkPick[propertyId]!.Value, Id, propertyId, await User());
         if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
         var changes = _linkPreview[propertyId].Preview!.Changes.Count;
         _linkPick.Remove(propertyId);
         _linkPreview.Remove(propertyId);
-        _links = await VariationLists.ListingLinksAsync(Id);
+        await LoadAsync();
         Snackbar.Add(changes > 0 ? "Linked. Use Apply template now (or Apply on the template's page) to bring it in line with the template." : "Linked.", Severity.Success);
     }
 
@@ -769,8 +771,9 @@ else
 
     private async Task UnlinkListAsync(EtsyShopManager.Web.Modules.Templates.VariationListLink link)
     {
+        if (Unsaved) await SaveAsync();
         await VariationLists.UnlinkAsync(link.ListId, Id, await User());
-        _links = await VariationLists.ListingLinksAsync(Id);
+        await LoadAsync();
         Snackbar.Add($"Unlinked from {link.ListName}; the values stay as they are.", Severity.Success);
     }
 

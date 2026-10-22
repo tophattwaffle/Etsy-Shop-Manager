@@ -67,6 +67,8 @@ public class BulkEditTests
         Assert.NotNull(new BulkEdit(BulkEditKind.AddTags, Words: [" ", ""]).Problem);
         Assert.NotNull(new BulkEdit(BulkEditKind.Section, PerShop: new Dictionary<int, long?>()).Problem);
         Assert.Null(new BulkEdit(BulkEditKind.Section, PerShop: new Dictionary<int, long?> { [1] = null }).Problem);
+        Assert.NotNull(new BulkEdit(BulkEditKind.ProcessingProfile, PerShop: new Dictionary<int, long?>()).Problem);
+        Assert.Null(new BulkEdit(BulkEditKind.ProcessingProfile, PerShop: new Dictionary<int, long?> { [1] = 601 }).Problem);
     }
 
     [Fact]
@@ -204,4 +206,143 @@ public class BulkEditTests
 
         Assert.False((await ModelAsync(shop, first)).HasDraft);
     }
+
+    [Fact]
+    public async Task Processing_profile_bulk_edit_previews_then_saves_unpushed_draft_inventory()
+    {
+        var (shop, first, second) = await ImportedAsync();
+        using var _ = shop;
+
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            db.ProcessingProfiles.Add(new ProcessingProfile
+            {
+                ShopId = FakeEtsyShop.ShopId,
+                ReadinessStateId = 602,
+                ReadinessState = "made_to_order",
+                MinProcessingDays = 3,
+                MaxProcessingDays = 5,
+                DisplayLabel = "3-5 business days"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var edit = new BulkEdit(BulkEditKind.ProcessingProfile,
+            PerShop: new Dictionary<int, long?> { [FakeEtsyShop.ShopId] = 602 });
+
+        var preview = await Bulk(shop).PreviewAsync([first, second], edit);
+        Assert.Equal(2, preview.Count(r => r.Changes));
+        Assert.Contains("3-5 business days", preview[0].After);
+
+        // Preview saves no draft
+        Assert.False((await ModelAsync(shop, first)).HasDraft);
+
+        var changed = await Bulk(shop).ApplyAsync([first, second], edit, User(Roles.Admin));
+        Assert.Equal([first, second], changed.Order());
+
+        foreach (var id in changed)
+        {
+            var model = await ModelAsync(shop, id);
+            Assert.True(model.HasDraft);
+            Assert.Equal([ListingFields.Inventory], model.PendingFields);
+            var offerings = (model.Local(ListingFields.Inventory)!["products"]?.AsArray() ?? [])
+                .SelectMany(p => p!["offerings"]?.AsArray() ?? []);
+            Assert.All(offerings, o => Assert.Equal(602, (long?)o!["readiness_state_id"]));
+        }
+
+        Assert.Empty(shop.Writes);
+    }
+
+    [Fact]
+    public async Task Pushing_after_processing_profile_bulk_edit_sends_updateListingInventory_with_readiness_state_id()
+    {
+        var (shop, first, _) = await ImportedAsync();
+        using var _s = shop;
+
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            db.ProcessingProfiles.Add(new ProcessingProfile
+            {
+                ShopId = FakeEtsyShop.ShopId,
+                ReadinessStateId = 602,
+                ReadinessState = "made_to_order",
+                MinProcessingDays = 3,
+                MaxProcessingDays = 5,
+                DisplayLabel = "3-5 business days"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var edit = new BulkEdit(BulkEditKind.ProcessingProfile,
+            PerShop: new Dictionary<int, long?> { [FakeEtsyShop.ShopId] = 602 });
+        await Bulk(shop).ApplyAsync([first], edit, User(Roles.Admin));
+
+        var review = Assert.Single(await Bulk(shop).ReviewAsync([first]));
+        Assert.True(review.Preview.CanPush, string.Join("; ", review.Preview.Blockers));
+
+        var result = Assert.Single(await Bulk(shop).PushAsync([first], User(Roles.Admin)));
+        Assert.NotNull(result.PushId);
+
+        await shop.Provider.GetRequiredService<PushListingJob>().HandleAsync(new JobExecutionContext
+        {
+            JobId = 1,
+            JobType = PushListingJob.Type,
+            Attempt = 1,
+            PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PushPayload(result.PushId!.Value), JobJson.Options),
+        }, CancellationToken.None);
+
+        var put = Assert.Single(shop.Writes, w => w.Method == "PUT" && w.Path.EndsWith("/inventory"));
+        Assert.Equal($"/v3/application/listings/1/inventory", put.Path);
+
+        var body = JsonNode.Parse(put.Body)!;
+        var offerings = (body["products"]?.AsArray() ?? []).SelectMany(p => p!["offerings"]?.AsArray() ?? []);
+        Assert.All(offerings, o => Assert.Equal(602, (long?)o!["readiness_state_id"]));
+    }
+
+    [Fact]
+    public async Task Processing_profile_bulk_edit_skips_drifted_inventory()
+    {
+        var (shop, first, second) = await ImportedAsync();
+        using var _ = shop;
+
+        shop.ProcessingProfiles.Add(new JsonObject
+        {
+            ["readiness_state_id"] = 602L,
+            ["readiness_state"] = "made_to_order",
+            ["min_processing_days"] = 3,
+            ["max_processing_days"] = 5,
+            ["processing_days_display_label"] = "3-5 days"
+        });
+
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            db.ProcessingProfiles.Add(new ProcessingProfile
+            {
+                ShopId = FakeEtsyShop.ShopId,
+                ReadinessStateId = 602,
+                ReadinessState = "made_to_order",
+                MinProcessingDays = 3,
+                MaxProcessingDays = 5,
+                DisplayLabel = "3-5 days"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Cause inventory drift on Etsy for first listing
+        shop.ListingJson(1)["inventory"]!["products"]![0]!["offerings"]![0]!["price"]!["amount"] = 8888;
+        shop.ListingJson(1)["last_modified_timestamp"] = 1_760_000_888;
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+
+        var edit = new BulkEdit(BulkEditKind.ProcessingProfile,
+            PerShop: new Dictionary<int, long?> { [FakeEtsyShop.ShopId] = 602 });
+
+        var preview = await Bulk(shop).PreviewAsync([first, second], edit);
+        var rowFirst = preview.Single(r => r.ListingId == first);
+        Assert.False(rowFirst.Changes);
+        Assert.Contains("changed on Etsy", rowFirst.Skipped);
+
+        var changed = await Bulk(shop).ApplyAsync([first, second], edit, User(Roles.Admin));
+        Assert.Equal([second], changed);
+    }
 }
+

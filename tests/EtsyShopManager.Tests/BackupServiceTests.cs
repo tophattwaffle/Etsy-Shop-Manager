@@ -29,6 +29,7 @@ public class BackupServiceTests
     private sealed class InMemorySettingsStore : ISettingsStore
     {
         public Dictionary<string, string?> Settings { get; } = [];
+        public bool ClearCacheCalled { get; set; }
 
         public Task<string?> GetAsync(string key, CancellationToken ct = default) =>
             Task.FromResult(Settings.TryGetValue(key, out var v) ? v : null);
@@ -41,6 +42,8 @@ public class BackupServiceTests
 
         public Task<bool> HasValueAsync(string key, CancellationToken ct = default) =>
             Task.FromResult(Settings.ContainsKey(key) && !string.IsNullOrEmpty(Settings[key]));
+
+        public void ClearCache() => ClearCacheCalled = true;
     }
 
     private sealed class FileBasedTestDbFactory(string connectionString) : IDbContextFactory<AppDbContext>
@@ -497,5 +500,715 @@ public class BackupServiceTests
         var backups = service.ListBackups();
         Assert.Single(backups);
         Assert.Equal("Restorable", backups[0].BackupType);
+    }
+
+    [Theory]
+    [InlineData(@"Dropbox\EtsyBackups")]
+    [InlineData(@"Dropbox - Business\Backups")]
+    [InlineData(@"OneDrive\Backups")]
+    [InlineData(@"OneDrive - Company\Backups")]
+    public async Task Configurable_backup_directory_uses_custom_path_including_dropbox_or_onedrive(string folderName)
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        var customBackupDir = Path.Combine(Path.GetTempPath(), "esm-test-cloud", folderName);
+        if (Directory.Exists(customBackupDir)) Directory.Delete(customBackupDir, recursive: true);
+
+        try
+        {
+            await using (var db = factory.CreateDbContext())
+            {
+                await db.Database.MigrateAsync();
+                db.Shops.Add(new Shop
+                {
+                    EtsyShopId = 1111,
+                    EtsyUserId = 2222,
+                    Name = "Cloud Shop",
+                    CurrencyCode = "USD",
+                    ConnectedAtUtc = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+            }
+
+            await settings.SetAsync(SettingKeys.BackupsDirectory, customBackupDir);
+
+            var service = new BackupService(
+                temp.Options,
+                factory,
+                settings,
+                audit,
+                TimeProvider.System,
+                NullLogger<BackupService>.Instance);
+
+            var resolved = await service.GetBackupsDirectoryAsync();
+            Assert.Equal(Path.GetFullPath(customBackupDir), resolved);
+            Assert.True(Directory.Exists(resolved), "Configured directory must be created.");
+
+            // Create restorable backup
+            var fileName = await service.CreateRestorableBackupAsync(user: "admin");
+            var finalZip = Path.Combine(resolved, fileName);
+            Assert.True(File.Exists(finalZip), "Backup archive must be written to custom directory.");
+            Assert.False(File.Exists(Path.Combine(temp.Options.BackupsDirectory, fileName)), "Backup archive must NOT be in default directory.");
+
+            // List backups
+            var list = service.ListBackups();
+            Assert.Single(list);
+            Assert.Equal(fileName, list[0].FileName);
+
+            // Prune backups
+            var pruned = await service.PruneBackupsAsync(retentionDays: 0, maxCount: 1);
+            Assert.Equal(0, pruned); // Single backup preserved by invariant
+            Assert.True(File.Exists(finalZip));
+        }
+        finally
+        {
+            try { if (Directory.Exists(customBackupDir)) Directory.Delete(customBackupDir, recursive: true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\r\n")]
+    public async Task Configurable_backup_directory_falls_back_to_storage_options_when_blank(string? configuredPath)
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        if (configuredPath is not null)
+        {
+            await settings.SetAsync(SettingKeys.BackupsDirectory, configuredPath);
+        }
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            TimeProvider.System,
+            NullLogger<BackupService>.Instance);
+
+        var resolvedAsync = await service.GetBackupsDirectoryAsync();
+        Assert.Equal(temp.Options.BackupsDirectory, resolvedAsync);
+
+        var resolvedSync = service.GetBackupsDirectory();
+        Assert.Equal(temp.Options.BackupsDirectory, resolvedSync);
+    }
+
+    [Fact]
+    public void ProbeBackupDirectory_validates_syntax_and_writeability()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            TimeProvider.System,
+            NullLogger<BackupService>.Instance);
+
+        // Blank/null probes default directory
+        var defaultProbe = service.ProbeBackupDirectory(null);
+        Assert.True(defaultProbe.Success);
+        Assert.Equal(temp.Options.BackupsDirectory, defaultProbe.ResolvedPath);
+
+        // Valid writable directory
+        var customPath = Path.Combine(Path.GetTempPath(), "esm-probe-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var validProbe = service.ProbeBackupDirectory(customPath);
+            Assert.True(validProbe.Success);
+            Assert.Equal(Path.GetFullPath(customPath), validProbe.ResolvedPath);
+            Assert.True(Directory.Exists(customPath));
+        }
+        finally
+        {
+            try { if (Directory.Exists(customPath)) Directory.Delete(customPath, recursive: true); } catch { }
+        }
+
+        // Environment variable expansion
+        var envProbe = service.ProbeBackupDirectory(@"%TEMP%\esm-probe-env");
+        Assert.True(envProbe.Success);
+        Assert.DoesNotContain("%TEMP%", envProbe.ResolvedPath!);
+
+        // Invalid path syntax
+        var invalidProbe = service.ProbeBackupDirectory("Z:\\invalid<?>path");
+        Assert.False(invalidProbe.Success);
+        Assert.NotNull(invalidProbe.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ValidateBackupArchive_and_Stream_verify_archive_integrity()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.Shops.Add(new Shop { EtsyShopId = 1, EtsyUserId = 2, Name = "VShop", CurrencyCode = "USD" });
+            await db.SaveChangesAsync();
+        }
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            TimeProvider.System,
+            NullLogger<BackupService>.Instance);
+
+        // 1. Valid restorable backup
+        var validZipName = await service.CreateRestorableBackupAsync();
+        var validZipPath = Path.Combine(temp.Options.BackupsDirectory, validZipName);
+
+        var validResult = await service.ValidateBackupArchiveAsync(validZipPath);
+        Assert.True(validResult.IsValid);
+        Assert.Null(validResult.ErrorMessage);
+        Assert.Equal("full_restore", validResult.BackupType);
+        Assert.True(validResult.DbSizeBytes > 0);
+
+        // Stream validation matches
+        await using (var stream = File.OpenRead(validZipPath))
+        {
+            var streamResult = await service.ValidateBackupStreamAsync(stream);
+            Assert.True(streamResult.IsValid);
+            Assert.Equal(validResult.DbSizeBytes, streamResult.DbSizeBytes);
+        }
+
+        // 2. Corrupt zip file
+        var corruptPath = Path.Combine(temp.Options.BackupsDirectory, "backup-corrupt.zip");
+        await File.WriteAllBytesAsync(corruptPath, [1, 2, 3, 4, 5]);
+        var corruptResult = await service.ValidateBackupArchiveAsync(corruptPath);
+        Assert.False(corruptResult.IsValid);
+        Assert.NotNull(corruptResult.ErrorMessage);
+
+        // 3. Listings export (should be rejected as full_restore)
+        var exportName = await service.CreateListingExportAsync();
+        var exportPath = Path.Combine(temp.Options.BackupsDirectory, exportName);
+        var exportResult = await service.ValidateBackupArchiveAsync(exportPath);
+        Assert.False(exportResult.IsValid);
+        Assert.Contains("Only 'full_restore' archives can be restored", exportResult.ErrorMessage!);
+
+        // 4. Missing manifest.json
+        var noManifestPath = Path.Combine(temp.Options.BackupsDirectory, "backup-no-manifest.zip");
+        using (var zip = ZipFile.Open(noManifestPath, ZipArchiveMode.Create))
+        {
+            zip.CreateEntry("dummy.txt");
+        }
+        var noManifestResult = await service.ValidateBackupArchiveAsync(noManifestPath);
+        Assert.False(noManifestResult.IsValid);
+
+        // 5. Path traversal entry
+        var traversalPath = Path.Combine(temp.Options.BackupsDirectory, "backup-traversal.zip");
+        using (var zip = ZipFile.Open(traversalPath, ZipArchiveMode.Create))
+        {
+            zip.CreateEntry("../evil.txt");
+        }
+        var traversalResult = await service.ValidateBackupArchiveAsync(traversalPath);
+        Assert.False(traversalResult.IsValid);
+        Assert.Contains("malicious entry path", traversalResult.ErrorMessage!);
+
+        // 6. Unauthorized entry
+        var unauthorizedPath = Path.Combine(temp.Options.BackupsDirectory, "backup-unauth.zip");
+        using (var zip = ZipFile.Open(unauthorizedPath, ZipArchiveMode.Create))
+        {
+            var manifestEntry = zip.CreateEntry("manifest.json");
+            using (var writer = new StreamWriter(manifestEntry.Open()))
+            {
+                writer.Write("{\"version\":1,\"backup_type\":\"full_restore\"}");
+            }
+            zip.CreateEntry("virus.exe");
+        }
+        var unauthResult = await service.ValidateBackupArchiveAsync(unauthorizedPath);
+        Assert.False(unauthResult.IsValid);
+        Assert.Contains("unauthorized entry", unauthResult.ErrorMessage!);
+    }
+
+    [Fact]
+    public async Task RestoreBackup_creates_safety_backup_and_restores_database_media_and_keys()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        // 1. Initial State: Shop 1, an image, a video, a key
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.Shops.Add(new Shop
+            {
+                Id = 1,
+                EtsyShopId = 100,
+                EtsyUserId = 200,
+                Name = "Original Shop 1",
+                CurrencyCode = "USD",
+                ConnectedAtUtc = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var imgDir = Path.Combine(temp.Options.ImagesDirectory, "orig");
+        Directory.CreateDirectory(imgDir);
+        var origImgFile = Path.Combine(imgDir, "orig-img.jpg");
+        await File.WriteAllBytesAsync(origImgFile, [0xAA, 0xBB, 0xCC]);
+
+        var vidDir = Path.Combine(temp.Options.VideosDirectory, "orig");
+        Directory.CreateDirectory(vidDir);
+        var origVidFile = Path.Combine(vidDir, "orig-vid.mp4");
+        await File.WriteAllBytesAsync(origVidFile, [0x11, 0x22, 0x33]);
+
+        var origKeyFile = Path.Combine(temp.Options.KeysDirectory, "orig-key.xml");
+        await File.WriteAllTextAsync(origKeyFile, "<key>orig</key>");
+
+        var time = new ImmediateTimeProvider
+        {
+            Now = new DateTimeOffset(2026, 10, 21, 10, 0, 0, TimeSpan.Zero)
+        };
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            time,
+            NullLogger<BackupService>.Instance);
+
+        // Create Backup 1 (the archive we will restore later)
+        var backup1FileName = await service.CreateRestorableBackupAsync(user: "setup");
+        var backup1Path = Path.Combine(temp.Options.BackupsDirectory, backup1FileName);
+        Assert.True(File.Exists(backup1Path));
+
+        // 2. Mutate live state: add Shop 2, change Shop 1 name, mutate image file, add new video
+        time.Now = new DateTimeOffset(2026, 10, 22, 10, 0, 0, TimeSpan.Zero);
+        await using (var db = factory.CreateDbContext())
+        {
+            var shop1 = await db.Shops.FirstAsync(s => s.Id == 1);
+            shop1.Name = "Mutated Shop 1";
+            db.Shops.Add(new Shop
+            {
+                Id = 2,
+                EtsyShopId = 555,
+                EtsyUserId = 666,
+                Name = "Mutated Shop 2",
+                CurrencyCode = "USD",
+                ConnectedAtUtc = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await File.WriteAllBytesAsync(origImgFile, [0x99, 0x99, 0x99]); // mutated bytes
+        var newVidFile = Path.Combine(vidDir, "mutated-vid.mp4");
+        await File.WriteAllBytesAsync(newVidFile, [0x88, 0x88]);
+
+        // 3. Restore from Backup 1
+        var restoreResult = await service.RestoreBackupAsync(backup1FileName, user: "admin");
+        Assert.True(restoreResult.Success, restoreResult.ErrorMessage);
+        Assert.NotNull(restoreResult.PreRestoreSafetyBackup);
+        Assert.True(File.Exists(Path.Combine(temp.Options.BackupsDirectory, restoreResult.PreRestoreSafetyBackup)),
+            "Pre-restore safety backup must exist on disk.");
+
+        // 4. Assert live DB was restored to Backup 1 state
+        await using (var db = factory.CreateDbContext())
+        {
+            var shops = await db.Shops.ToListAsync();
+            Assert.Single(shops);
+            Assert.Equal(1, shops[0].Id);
+            Assert.Equal("Original Shop 1", shops[0].Name);
+        }
+
+        // 5. Assert media and keys restored
+        var restoredImgBytes = await File.ReadAllBytesAsync(origImgFile);
+        Assert.Equal([0xAA, 0xBB, 0xCC], restoredImgBytes);
+
+        var restoredKeyText = await File.ReadAllTextAsync(origKeyFile);
+        Assert.Equal("<key>orig</key>", restoredKeyText);
+
+        // 6. Assert settings cache was cleared
+        Assert.True(settings.ClearCacheCalled, "settings.ClearCache() must be called on restore.");
+
+        // 7. Assert audit log contains backup.restored
+        Assert.Contains(audit.Entries, e => e.Action == "backup.restored" && e.Details!.Contains(restoreResult.PreRestoreSafetyBackup));
+    }
+
+    [Fact]
+    public async Task RestoreBackupFromStream_restores_uploaded_zip_stream()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.Shops.Add(new Shop { EtsyShopId = 42, EtsyUserId = 99, Name = "Stream Shop", CurrencyCode = "USD" });
+            await db.SaveChangesAsync();
+        }
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            TimeProvider.System,
+            NullLogger<BackupService>.Instance);
+
+        var backupFileName = await service.CreateRestorableBackupAsync();
+        var backupPath = Path.Combine(temp.Options.BackupsDirectory, backupFileName);
+
+        // Mutate live DB
+        await using (var db = factory.CreateDbContext())
+        {
+            var shop = await db.Shops.FirstAsync();
+            shop.Name = "Changed Before Stream Restore";
+            await db.SaveChangesAsync();
+        }
+
+        // Restore via Stream
+        await using (var fs = File.OpenRead(backupPath))
+        {
+            var result = await service.RestoreBackupFromStreamAsync(fs, backupFileName, user: "stream-admin");
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.NotNull(result.PreRestoreSafetyBackup);
+        }
+
+        // Verify live DB was restored
+        await using (var db = factory.CreateDbContext())
+        {
+            var shop = await db.Shops.FirstAsync();
+            Assert.Equal("Stream Shop", shop.Name);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreBackup_aborts_and_leaves_live_state_intact_if_validation_fails()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.Shops.Add(new Shop { EtsyShopId = 777, EtsyUserId = 888, Name = "Untouched Shop", CurrencyCode = "USD" });
+            await db.SaveChangesAsync();
+        }
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            TimeProvider.System,
+            NullLogger<BackupService>.Instance);
+
+        // Create an export zip (which is not a full_restore backup)
+        var exportName = await service.CreateListingExportAsync();
+
+        // Attempt restore of export zip
+        var result = await service.RestoreBackupAsync(exportName, user: "bad-actor");
+        Assert.False(result.Success);
+        Assert.Contains("Only 'full_restore' archives can be restored", result.ErrorMessage!);
+
+        // Verify live DB is completely untouched
+        await using (var db = factory.CreateDbContext())
+        {
+            var shop = await db.Shops.FirstAsync();
+            Assert.Equal("Untouched Shop", shop.Name);
+        }
+
+        // Verify no backup.restored audit entry was written
+        Assert.DoesNotContain(audit.Entries, e => e.Action == "backup.restored");
+    }
+
+    [Fact]
+    public async Task RestoreBackup_does_not_delete_target_archive_when_max_count_is_reached()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        // Precondition: Set MaxCount = 3, retention days = 365 (to test maxCount constraint exclusively)
+        const int maxCount = 3;
+        await settings.SetAsync(SettingKeys.BackupsMaxCount, maxCount.ToString());
+        await settings.SetAsync(SettingKeys.BackupsRetentionDays, "365");
+
+        var baseTime = new DateTimeOffset(2026, 10, 20, 10, 0, 0, TimeSpan.Zero);
+        var time = new ImmediateTimeProvider { Now = baseTime };
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            time,
+            NullLogger<BackupService>.Instance);
+
+        // 1. Seed initial database state for Backup 1 (the oldest backup, our target to restore)
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.Shops.Add(new Shop
+            {
+                Id = 1,
+                EtsyShopId = 1001,
+                EtsyUserId = 2001,
+                Name = "Oldest Target Shop 1",
+                CurrencyCode = "USD",
+                ConnectedAtUtc = baseTime.UtcDateTime
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Create Backup 1 (T0)
+        var b1FileName = await service.CreateRestorableBackupAsync(user: "setup-b1");
+        var b1Path = Path.Combine(temp.Options.BackupsDirectory, b1FileName);
+        Assert.True(File.Exists(b1Path));
+
+        // Create Backup 2 (T1 = +1h)
+        time.Now = baseTime.AddHours(1);
+        await using (var db = factory.CreateDbContext())
+        {
+            var s = await db.Shops.FirstAsync(s => s.Id == 1);
+            s.Name = "Shop 1 Mutated At T1";
+            await db.SaveChangesAsync();
+        }
+        var b2FileName = await service.CreateRestorableBackupAsync(user: "setup-b2");
+        Assert.True(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b2FileName)));
+
+        // Create Backup 3 (T2 = +2h) -> Reaching exactly MaxCount (3) backups
+        time.Now = baseTime.AddHours(2);
+        await using (var db = factory.CreateDbContext())
+        {
+            var s = await db.Shops.FirstAsync(s => s.Id == 1);
+            s.Name = "Shop 1 Mutated At T2";
+            await db.SaveChangesAsync();
+        }
+        var b3FileName = await service.CreateRestorableBackupAsync(user: "setup-b3");
+        Assert.True(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b3FileName)));
+
+        // Verify Precondition: Exactly MaxCount (3) restorable backups exist on disk
+        var initialBackups = service.ListBackups().Where(b => b.BackupType == "Restorable").ToList();
+        Assert.Equal(maxCount, initialBackups.Count);
+        Assert.Equal(b1FileName, initialBackups.Last().FileName); // b1 is the oldest
+
+        // 2. Mutate live state before restore (T3 = +3h)
+        time.Now = baseTime.AddHours(3);
+        await using (var db = factory.CreateDbContext())
+        {
+            var s = await db.Shops.FirstAsync(s => s.Id == 1);
+            s.Name = "Live Shop Mutated Right Before Restore";
+            db.Shops.Add(new Shop
+            {
+                Id = 2,
+                EtsyShopId = 1002,
+                EtsyUserId = 2002,
+                Name = "Temporary Live Shop 2",
+                CurrencyCode = "USD",
+                ConnectedAtUtc = time.Now.UtcDateTime
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // 3. Action: Invoke RestoreBackupAsync on the oldest backup (b1)
+        var restoreResult = await service.RestoreBackupAsync(b1FileName, user: "admin");
+
+        // 4. Assertion 1: The target backup is NOT deleted during safety backup creation
+        Assert.True(File.Exists(b1Path),
+            $"Target backup archive '{b1FileName}' must NOT be deleted during safety backup creation or retention pruning.");
+
+        // 5. Assertion 2: Restore succeeds with Success == true
+        Assert.True(restoreResult.Success, $"Restore failed with error: {restoreResult.ErrorMessage}");
+        Assert.Null(restoreResult.ErrorMessage);
+
+        // Verify live database state strictly matches Backup 1
+        await using (var db = factory.CreateDbContext())
+        {
+            var shops = await db.Shops.OrderBy(s => s.Id).ToListAsync();
+            Assert.Single(shops);
+            Assert.Equal(1, shops[0].Id);
+            Assert.Equal("Oldest Target Shop 1", shops[0].Name);
+        }
+
+        // 6. Assertion 3: Pre-restore safety backup exists on disk
+        Assert.NotNull(restoreResult.PreRestoreSafetyBackup);
+        var safetyBackupPath = Path.Combine(temp.Options.BackupsDirectory, restoreResult.PreRestoreSafetyBackup);
+        Assert.True(File.Exists(safetyBackupPath),
+            $"Pre-restore safety backup '{restoreResult.PreRestoreSafetyBackup}' must exist on disk.");
+        Assert.NotEqual(b1FileName, restoreResult.PreRestoreSafetyBackup);
+    }
+
+    [Theory]
+    [InlineData("\0")]
+    [InlineData("  \0  ")]
+    [InlineData("C:\\PathWith\0NullChar")]
+    [InlineData("%TEMP%\\esm_probe\0sub")]
+    [InlineData("C:\\invalid|pipe")]
+    [InlineData("C:\\invalid<angle>dir")]
+    [InlineData("C:\\invalid\"quote")]
+    [InlineData("C:\\invalid*wildcard")]
+    [InlineData("C:\\invalid?wildcard")]
+    [InlineData("C:\\invalid\u0001control")]
+    [InlineData("C:\\invalid\u001Fcontrol")]
+    public void ProbeBackupDirectory_rejects_null_bytes_and_invalid_path_characters(string invalidPath)
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            TimeProvider.System,
+            NullLogger<BackupService>.Instance);
+
+        var result = service.ProbeBackupDirectory(invalidPath);
+
+        Assert.False(result.IsValid, $"Probe should reject path with invalid characters: '{invalidPath}' (IsValid was true)");
+        Assert.False(result.Success, $"Probe should reject path with invalid characters: '{invalidPath}' (Success was true)");
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Contains("invalid", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ProbeBackupDirectory_prevents_truncated_directory_creation_on_null_bytes()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            TimeProvider.System,
+            NullLogger<BackupService>.Instance);
+
+        var testBaseDir = Path.Combine(Path.GetTempPath(), "esm-probe-null-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(testBaseDir);
+            var truncatedTarget = Path.Combine(testBaseDir, "truncated_target_dir");
+            var poisonPath = truncatedTarget + "\0poison_suffix";
+
+            var probeResult = service.ProbeBackupDirectory(poisonPath);
+
+            Assert.False(probeResult.IsValid);
+            Assert.False(probeResult.Success);
+            Assert.NotNull(probeResult.ErrorMessage);
+            Assert.Contains("invalid", probeResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+
+            Assert.False(Directory.Exists(truncatedTarget),
+                "Probe must NOT truncate path at null byte and create folder on disk.");
+        }
+        finally
+        {
+            try { if (Directory.Exists(testBaseDir)) Directory.Delete(testBaseDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task PruneBackupsAsync_respects_exclude_file_name()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+        var time = new ImmediateTimeProvider { Now = new DateTimeOffset(2026, 10, 22, 10, 0, 0, TimeSpan.Zero) };
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            time,
+            NullLogger<BackupService>.Instance);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+        }
+
+        // Create 3 backups without pruning
+        var b1 = await service.CreateRestorableBackupAsync(user: "b1", prune: false);
+        time.Now = time.Now.AddMinutes(10);
+        var b2 = await service.CreateRestorableBackupAsync(user: "b2", prune: false);
+        time.Now = time.Now.AddMinutes(10);
+        var b3 = await service.CreateRestorableBackupAsync(user: "b3", prune: false);
+
+        // Prune with maxCount: 1, excluding b1 (the oldest file)
+        var pruned = await service.PruneBackupsAsync(retentionDays: 0, maxCount: 1, excludeFileName: b1);
+
+        // b3 is newest (kept by invariant).
+        // b1 is oldest but excluded (kept).
+        // b2 is candidate (pruned).
+        Assert.Equal(1, pruned);
+        Assert.True(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b3)));
+        Assert.True(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b1)));
+        Assert.False(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b2)));
+    }
+
+    [Fact]
+    public async Task PruneBackupsAsync_respects_exclude_file_names_collection()
+    {
+        using var temp = new TempStorage();
+        var audit = new RecordingAuditLog();
+        var settings = new InMemorySettingsStore();
+        var factory = new FileBasedTestDbFactory(temp.Options.ConnectionString);
+        var time = new ImmediateTimeProvider { Now = new DateTimeOffset(2026, 10, 22, 10, 0, 0, TimeSpan.Zero) };
+
+        var service = new BackupService(
+            temp.Options,
+            factory,
+            settings,
+            audit,
+            time,
+            NullLogger<BackupService>.Instance);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+        }
+
+        var b1 = await service.CreateRestorableBackupAsync(user: "b1", prune: false);
+        time.Now = time.Now.AddMinutes(10);
+        var b2 = await service.CreateRestorableBackupAsync(user: "b2", prune: false);
+        time.Now = time.Now.AddMinutes(10);
+        var b3 = await service.CreateRestorableBackupAsync(user: "b3", prune: false);
+        time.Now = time.Now.AddMinutes(10);
+        var b4 = await service.CreateRestorableBackupAsync(user: "b4", prune: false);
+
+        // Prune with maxCount: 1, excluding b1 and b2
+        var pruned = await service.PruneBackupsAsync(retentionDays: 0, maxCount: 1, excludeFileNames: [b1, b2]);
+
+        // b4 is newest (kept).
+        // b1 and b2 are excluded (kept).
+        // b3 is pruned.
+        Assert.Equal(1, pruned);
+        Assert.True(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b4)));
+        Assert.True(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b1)));
+        Assert.True(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b2)));
+        Assert.False(File.Exists(Path.Combine(temp.Options.BackupsDirectory, b3)));
     }
 }

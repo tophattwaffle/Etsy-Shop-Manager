@@ -1,0 +1,127 @@
+@using EtsyShopManager.Core.Domain
+@using EtsyShopManager.Web.Modules.Listings
+@inject ProcessingProfileService ProfileService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(_isNew ? "New processing profile" : "Edit processing profile")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            Shop: <strong>@ShopName</strong>
+        </MudText>
+
+        <MudStack Spacing="3">
+            <MudSelect T="string" @bind-Value="_readinessState" Label="Readiness state" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@("ready_to_ship")">Ready to ship</MudSelectItem>
+                <MudSelectItem T="string" Value="@("made_to_order")">Made to order</MudSelectItem>
+            </MudSelect>
+
+            <MudGrid Spacing="2">
+                <MudItem xs="6">
+                    <MudNumericField T="int" @bind-Value="_minTime" Label="Min time" Min="1" Max="100" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="6">
+                    <MudNumericField T="int" @bind-Value="_maxTime" Label="Max time" Min="1" Max="100" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            </MudGrid>
+
+            <MudSelect T="string" @bind-Value="_timeUnit" Label="Time unit" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@("days")">Business days</MudSelectItem>
+                <MudSelectItem T="string" Value="@("weeks")">Weeks</MudSelectItem>
+            </MudSelect>
+
+            @if (_error is not null)
+            {
+                <MudText Typo="Typo.body2" Class="error-text">@_error</MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_submitting" OnClick="SubmitAsync">
+            @(_isNew ? "Create profile" : "Update profile")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    [Parameter, EditorRequired] public int ShopId { get; set; }
+    [Parameter] public string ShopName { get; set; } = "";
+    [Parameter] public ProcessingProfileItem? Profile { get; set; }
+
+    private bool _isNew => Profile is null;
+    private string _readinessState = "ready_to_ship";
+    private int _minTime = 1;
+    private int _maxTime = 3;
+    private string _timeUnit = "days";
+    private string? _error;
+    private bool _submitting;
+
+    protected override void OnInitialized()
+    {
+        if (Profile is not null)
+        {
+            _readinessState = Profile.ReadinessState;
+            if (Profile.MinProcessingDays >= 7 && Profile.MinProcessingDays % 7 == 0 &&
+                Profile.MaxProcessingDays >= 7 && Profile.MaxProcessingDays % 7 == 0 &&
+                (Profile.DisplayLabel?.Contains("week", StringComparison.OrdinalIgnoreCase) ?? false))
+            {
+                _timeUnit = "weeks";
+                _minTime = Profile.MinProcessingDays / 7;
+                _maxTime = Profile.MaxProcessingDays / 7;
+            }
+            else
+            {
+                _timeUnit = "days";
+                _minTime = Profile.MinProcessingDays;
+                _maxTime = Profile.MaxProcessingDays;
+            }
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        _error = null;
+        if (_minTime < 1)
+        {
+            _error = "Minimum processing time must be at least 1.";
+            return;
+        }
+        if (_maxTime < _minTime)
+        {
+            _error = "Maximum processing time cannot be less than minimum processing time.";
+            return;
+        }
+
+        _submitting = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var input = new ProcessingProfileInput(_readinessState, _minTime, _maxTime, _timeUnit);
+            if (_isNew)
+            {
+                await ProfileService.CreateAsync(ShopId, input, user);
+                Snackbar.Add("Processing profile created", Severity.Success);
+            }
+            else
+            {
+                await ProfileService.UpdateAsync(ShopId, Profile!.ReadinessStateId, input, user);
+                Snackbar.Add("Processing profile updated", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+}
