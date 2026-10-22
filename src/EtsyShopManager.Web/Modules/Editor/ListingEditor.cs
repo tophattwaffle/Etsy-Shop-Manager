@@ -7,6 +7,7 @@ using EtsyShopManager.Core.Listings;
 using EtsyShopManager.Core.Services;
 using EtsyShopManager.Data;
 using EtsyShopManager.Web.Modules.Listings;
+using EtsyShopManager.Web.Modules.Templates;
 using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Modules.Editor;
@@ -64,7 +65,7 @@ public sealed class ListingEditor(
         {
             foreach (var (key, value) in changes) model.Set(key, value);
             return string.Join(", ", changes.Keys.Select(Label));
-        }, ct);
+        }, ct, descriptionExplicitlyChanged: changes.ContainsKey("description"));
 
     /// <summary>Drops local edits: one field, or all when <paramref name="key"/> is null.</summary>
     public Task DiscardAsync(int listingId, string? key, string? user, CancellationToken ct = default) =>
@@ -72,7 +73,7 @@ public sealed class ListingEditor(
         {
             foreach (var k in key is null ? model.Draft.Select(p => p.Key).ToList() : [key]) model.Discard(k);
             return key is null ? "all edits" : Label(key);
-        }, ct);
+        }, ct, descriptionExplicitlyChanged: key is null || key == "description");
 
     public Task ResolveDriftAsync(int listingId, string key, DriftResolution resolution, string? user, CancellationToken ct = default) =>
         UpdateAsync(listingId, user, "listing.drift-resolved", model =>
@@ -80,17 +81,36 @@ public sealed class ListingEditor(
             if (resolution == DriftResolution.KeepMine) model.KeepMine(key);
             else model.TakeEtsy(key);
             return $"{Label(key)}: {(resolution == DriftResolution.KeepMine ? "kept local" : "took Etsy's")}";
-        }, ct);
+        }, ct, descriptionExplicitlyChanged: key == "description");
 
     private async Task UpdateAsync(int listingId, string? user, string auditAction, Func<ListingEditModel, string> change,
-        CancellationToken ct)
+        CancellationToken ct, bool descriptionExplicitlyChanged = false)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var listing = await db.Listings.Include(l => l.EtsyState).FirstOrDefaultAsync(l => l.Id == listingId, ct)
+        var listing = await db.Listings.Include(l => l.Shop).Include(l => l.EtsyState).FirstOrDefaultAsync(l => l.Id == listingId, ct)
                       ?? throw new InvalidOperationException($"Listing {listingId} not found.");
         var model = Model(listing);
         var details = change(model);
         ListingMapper.Apply(listing, model);
+
+        if (!descriptionExplicitlyChanged)
+        {
+            var descRow = await db.ListingDescriptions.FirstOrDefaultAsync(d => d.ListingId == listingId, ct);
+            if (descRow is not null && PlaceholderEngine.HasPlaceholders(descRow.Source))
+            {
+                var blocks = await db.TextBlocks.AsNoTracking().ToDictionaryAsync(b => b.Slug, b => b.Text, ct);
+                var context = PlaceholderEngine.CreateContext(listing, model, blocks);
+                var (newRendered, _) = PlaceholderEngine.Render(descRow.Source, context);
+                if (newRendered != descRow.Rendered)
+                {
+                    descRow.Rendered = newRendered;
+                    descRow.UpdatedAtUtc = time.GetUtcNow().UtcDateTime;
+                    model.Set("description", newRendered);
+                    ListingMapper.Apply(listing, model);
+                }
+            }
+        }
+
         listing.DraftUpdatedAtUtc = time.GetUtcNow().UtcDateTime;
         listing.DraftUpdatedBy = user;
         await db.SaveChangesAsync(ct);
@@ -139,11 +159,20 @@ public sealed class ListingEditor(
         if (pushInProgress) blockers.Add("A push for this listing is already queued or running.");
 
         var local = model.LocalState();
-        // A text block placeholder left in the text (no block by that name): Etsy would show it as written.
-        if (changes.Any(c => c.Key == "description") && System.Text.RegularExpressions.Regex.Matches((string?)local["description"] ?? "", @"\{\{\s*text\.[^}]*\}\}")
-                is { Count: > 0 } placeholders)
-            blockers.Add($"The description has {string.Join(", ", placeholders.Select(m => m.Value).Distinct())}, which isn't a text template. " +
-                         "Fix the placeholder or create the template.");
+        if (changes.Any(c => c.Key == "description"))
+        {
+            var desc = (string?)local["description"] ?? "";
+            var allPlaceholders = System.Text.RegularExpressions.Regex.Matches(desc, @"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}");
+            var textMatches = allPlaceholders.Where(m => m.Groups[1].Value.StartsWith("text.", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (textMatches.Count > 0)
+                blockers.Add($"The description has {string.Join(", ", textMatches.Select(m => m.Value).Distinct())}, which isn't a text template. " +
+                             "Fix the placeholder or create the template.");
+
+            var unresolvedMatches = allPlaceholders.Where(m => !m.Groups[1].Value.StartsWith("text.", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (unresolvedMatches.Count > 0)
+                blockers.Add($"The description has unresolved placeholder(s): {string.Join(", ", unresolvedMatches.Select(m => m.Value).Distinct())}. " +
+                             "Fix the placeholder or verify the field exists.");
+        }
         if (changes.Any(c => c.Key == "title"))
             blockers.AddRange(ListingTextRules.TitleProblems((string?)local["title"] ?? ""));
         if (changes.Any(c => c.Key == "tags") && local["tags"] is JsonArray tags)
@@ -343,7 +372,7 @@ public sealed class ListingEditor(
             foreach (var field in ListingFields.All.Where(f => f.Editable && old.ContainsKey(f.Key) && CurrentForm(f.Key, old[f.Key])))
                 model.Set(field.Key, old[field.Key]);
             return $"snapshot {snapshotId} from {snapshot.TakenAtUtc.ToString("u", CultureInfo.InvariantCulture)} loaded into the draft";
-        }, ct);
+        }, ct, descriptionExplicitlyChanged: old.ContainsKey("description"));
     }
 
     /// <summary>

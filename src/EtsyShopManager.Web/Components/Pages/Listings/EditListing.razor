@@ -4,6 +4,7 @@
 @using EtsyShopManager.Core.Listings
 @using EtsyShopManager.Web.Modules.Editor
 @using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Templates
 @using Microsoft.EntityFrameworkCore
 @implements IDisposable
 @inject ListingEditor Editor
@@ -164,7 +165,7 @@ else
                         }
                     </MudText>
                 }
-                @if (EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Slugs(_description).Count > 0)
+                @if (PlaceholderEngine.HasPlaceholders(_description))
                 {
                     <MudExpansionPanels Elevation="0" Outlined="true" Class="mt-3">
                         <MudExpansionPanel Text="Shown on Etsy as">
@@ -549,14 +550,23 @@ else
         _ => "changed on Etsy",
     };
 
-    private (string Text, IReadOnlyList<string> Unknown) RenderDescription(string source) =>
-        EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Render(source, s => _allBlocks.FirstOrDefault(b => b.Slug == s)?.Text);
+    private (string Text, IReadOnlyList<string> Unknown) RenderDescription(string source)
+    {
+        if (_form is null || _snapshot is null) return (source, []);
+        var blocks = _allBlocks.ToDictionary(b => b.Slug, b => b.Text);
+        var context = new PlaceholderContext(
+            _snapshot.Listing.Shop ?? new Shop { Name = "" },
+            _form,
+            _snapshot.Listing.Skus,
+            blocks);
+        return PlaceholderEngine.Render(source, context);
+    }
 
     private IReadOnlyList<string> DescriptionUnknown => RenderDescription(_description).Unknown;
 
     private string? DescriptionHelp => DescriptionUnknown.Count > 0
         ? $"No text template called {string.Join(", ", DescriptionUnknown.Select(EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Token))}. Fix the placeholder or create the template."
-        : EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Slugs(_description).Count > 0
+        : PlaceholderEngine.HasPlaceholders(_description)
             ? $"Text templates show as placeholders here and are filled in on Etsy; their text is changed on the template's page. {Pending("description")}"
             : Pending("description");
 
@@ -611,14 +621,33 @@ else
         await LoadAsync();
         _preview = null;
     }
-    private void SetStr(string key, string? v) => Set(key, v is null ? null : JsonValue.Create(v));
+    private void RefreshRenderedDescriptionIfPlaceholders()
+    {
+        if (_form is not null && PlaceholderEngine.HasPlaceholders(_description))
+        {
+            Set("description", JsonValue.Create(RenderDescription(_description).Text));
+        }
+    }
+
+    private void SetStr(string key, string? v)
+    {
+        Set(key, v is null ? null : JsonValue.Create(v));
+        if (key != "description") RefreshRenderedDescriptionIfPlaceholders();
+    }
     private void SetBool(string key, bool v) => Set(key, JsonValue.Create(v));
     private void SetLong(string key, long? v) => Set(key, v is null ? null : JsonValue.Create(v.Value));
-    private void SetDec(string key, decimal? v) => Set(key, v is null ? null : JsonValue.Create(v.Value));
+    private void SetDec(string key, decimal? v)
+    {
+        Set(key, v is null ? null : JsonValue.Create(v.Value));
+        RefreshRenderedDescriptionIfPlaceholders();
+    }
     private void SetPartners(IReadOnlyCollection<long>? ids) => Set("production_partner_ids", new JsonArray([.. (ids ?? []).Select(i => (JsonNode)i)]));
 
-    private void SetList(string key, string? text) =>
+    private void SetList(string key, string? text)
+    {
         Set(key, new JsonArray([.. (text ?? "").Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).Select(t => (JsonNode)t)]));
+        RefreshRenderedDescriptionIfPlaceholders();
+    }
 
     private async Task SetCategory(CategoryOption? c)
     {
