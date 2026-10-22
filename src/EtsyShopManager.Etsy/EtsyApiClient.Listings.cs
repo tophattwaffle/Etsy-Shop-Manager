@@ -11,7 +11,7 @@ public sealed partial class EtsyApiClient
     public const int MaxListingsPageSize = 100;
 
     /// <summary>The includes requested on listing pulls, which save one call per listing for each.</summary>
-    public static readonly string[] ListingIncludes = ["Images", "Inventory", "Personalization"];
+    public static readonly string[] ListingIncludes = ["Images", "Inventory", "Personalization", "Videos"];
 
     /// <summary>One page of a shop's listings in one state, with the raw JSON of each listing.</summary>
     public Task<EtsyRawPage<EtsyListing>> GetListingsByShopAsync(long etsyShopId, string state, int offset, int limit,
@@ -32,6 +32,9 @@ public sealed partial class EtsyApiClient
 
     public async Task<List<EtsyListingImage>> GetListingImagesAsync(long listingId, EtsyAuth auth, CancellationToken ct = default) =>
         (await GetAsync<EtsyPage<EtsyListingImage>>($"/v3/application/listings/{listingId}/images", auth, ct)).Results;
+
+    public async Task<List<EtsyListingVideo>> GetListingVideosAsync(long listingId, EtsyAuth auth, CancellationToken ct = default) =>
+        (await GetAsync<EtsyPage<EtsyListingVideo>>($"/v3/application/listings/{listingId}/videos", auth, ct)).Results;
 
     public Task<EtsyInventory> GetListingInventoryAsync(long listingId, EtsyAuth auth, CancellationToken ct = default) =>
         GetAsync<EtsyInventory>($"/v3/application/listings/{listingId}/inventory", auth, ct);

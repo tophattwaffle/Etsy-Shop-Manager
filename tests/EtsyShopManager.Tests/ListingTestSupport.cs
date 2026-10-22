@@ -98,6 +98,7 @@ internal sealed class FakeEtsyShop : IDisposable
     public ImageDownloader Downloader => Provider.GetRequiredService<ImageDownloader>();
     public TaxonomyImporter Taxonomy => Provider.GetRequiredService<TaxonomyImporter>();
     public ImageStore Store => Provider.GetRequiredService<ImageStore>();
+    public EtsyShopManager.Web.Infrastructure.Storage.VideoStore VideoStore => Provider.GetRequiredService<EtsyShopManager.Web.Infrastructure.Storage.VideoStore>();
 
     public FakeEtsyShop()
     {
@@ -130,6 +131,7 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddHttpClient(EtsyOAuthClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Api);
         services.AddHttpClient(EtsyServiceCollectionExtensions.EtsyImageClientName).ConfigurePrimaryHttpMessageHandler(() => Cdn);
         services.AddSingleton<ImageStore>();
+        services.AddSingleton<EtsyShopManager.Web.Infrastructure.Storage.VideoStore>();
         services.AddSingleton<ListingImporter>();
         services.AddSingleton<ListingImportQueue>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Templates.TextBlockService>();
@@ -230,6 +232,16 @@ internal sealed class FakeEtsyShop : IDisposable
         ["full_width"] = 2000,
         ["full_height"] = 1500,
         ["alt_text"] = $"Photo {rank}",
+    };
+
+    public static JsonObject Video(long listingId, long videoId, string state = "active") => new()
+    {
+        ["video_id"] = videoId,
+        ["height"] = 1080,
+        ["width"] = 1920,
+        ["thumbnail_url"] = $"https://i.etsystatic.com/video/{videoId}/thumb.jpg",
+        ["video_url"] = $"https://v.etsystatic.com/video/{videoId}/video.mp4",
+        ["video_state"] = state,
     };
 
     public static JsonObject Inventory(long listingId, int quantity) => new()
@@ -337,6 +349,12 @@ internal sealed class FakeEtsyShop : IDisposable
             return Page([]);
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/images"))
             return Page(ShownImages(long.Parse(parts[3])).Select(n => (JsonObject)n!.DeepClone()));
+        if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/videos"))
+        {
+            var listId = long.Parse(parts[3]);
+            var listing = Listings.FirstOrDefault(l => (long)l["listing_id"]! == listId);
+            return Page(listing?["videos"]?.AsArray().Select(v => (JsonObject)v!.DeepClone()) ?? []);
+        }
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/inventory"))
             return Json(Inventory(long.Parse(parts[3]), 5));
 
@@ -382,8 +400,16 @@ internal sealed class FakeEtsyShop : IDisposable
 
     private static HttpResponseMessage RespondCdn(HttpRequestMessage req)
     {
+        var path = req.RequestUri!.AbsolutePath;
+        if (path.EndsWith(".mp4") || path.Contains("video"))
+        {
+            var videoBytes = System.Text.Encoding.UTF8.GetBytes("MP4:" + path);
+            var videoResponse = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(videoBytes) };
+            videoResponse.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("video/mp4");
+            return videoResponse;
+        }
         // Distinct bytes per URL, so each image gets its own content hash.
-        var bytes = System.Text.Encoding.UTF8.GetBytes("JPEG:" + req.RequestUri!.AbsolutePath);
+        var bytes = System.Text.Encoding.UTF8.GetBytes("JPEG:" + path);
         var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
         response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/jpeg");
         return response;
@@ -449,6 +475,8 @@ internal sealed class FakeEtsyShop : IDisposable
             var listing = (JsonObject)ListingJson(getId).DeepClone();
             listing.Remove("inventory");
             listing["images"] = new JsonArray([.. ShownImages(getId).Select(n => n!.DeepClone())]);
+            if (ListingJson(getId)["videos"] is JsonArray vArr)
+                listing["videos"] = (JsonArray)vArr.DeepClone();
             return Json(listing);
         }
         // POST /v3/application/shops/42/listings/{id}/images (uploadListingImage), as measured on Etsy (2026-10-17, three
@@ -501,6 +529,40 @@ internal sealed class FakeEtsyShop : IDisposable
             listing["images"] = new JsonArray([.. images]);
             return new HttpResponseMessage(HttpStatusCode.NoContent);
         }
+        // POST /v3/application/shops/42/listings/{id}/videos (uploadListingVideo)
+        if (req.Method == HttpMethod.Post && parts.Length == 7 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "videos")
+        {
+            var multipart = (MultipartFormDataContent)req.Content!;
+            var file = multipart.FirstOrDefault(p => p.Headers.ContentDisposition?.FileName is not null);
+            var fileName = file?.Headers.ContentDisposition?.FileName?.Trim('"') ?? "video.mp4";
+            var fileBytes = file?.ReadAsByteArrayAsync().Result ?? [];
+            Writes.Add(("POST", path, $"video=<file {fileName}, {fileBytes.Length} bytes>"));
+            if (FailWritesWith is { } status) return Failure(status);
+
+            var listingId = long.Parse(parts[5]);
+            var listing = ListingJson(listingId);
+            var videoId = ++_nextEtsyId;
+            var videoObj = Video(listingId, videoId);
+            var videos = listing["videos"] as JsonArray ?? [];
+            videos.Add(videoObj);
+            listing["videos"] = videos;
+            return ScriptedHandler.Json(HttpStatusCode.Created, videoObj.ToJsonString());
+        }
+        // DELETE /v3/application/shops/42/listings/{id}/videos/{videoId} (deleteListingVideo)
+        if (req.Method == HttpMethod.Delete && parts.Length == 8 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "videos")
+        {
+            Writes.Add(("DELETE", path, ""));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            var listingId = long.Parse(parts[5]);
+            var videoId = long.Parse(parts[7]);
+            var listing = ListingJson(listingId);
+            if (listing["videos"] is JsonArray vArr)
+            {
+                var remaining = vArr.Where(v => (long)v!["video_id"]! != videoId).Select(v => v!.DeepClone()).ToArray();
+                listing["videos"] = new JsonArray(remaining);
+            }
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        }
         // PATCH /v3/application/shops/42/listings/{id}
         // POST /v3/application/shops/{shopId}/listings (createDraftListing): a new draft with one product.
         if (req.Method == HttpMethod.Post && parts.Length == 5 && parts[2] == "shops" && parts[4] == "listings")
@@ -514,6 +576,7 @@ internal sealed class FakeEtsyShop : IDisposable
             var draft = Listing(id, form["title"]!, state: "draft", quantity: int.Parse(form["quantity"]!), withImages: false, withInventory: false);
             draft["shop_id"] = long.Parse(parts[3]);
             draft["images"] = new JsonArray();
+            draft["videos"] = new JsonArray();
             draft["price"] = Money(price);
             draft["inventory"] = new JsonObject
             {

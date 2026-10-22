@@ -35,7 +35,7 @@ public sealed record ClonePayload(int CloneId);
 /// order with alt text. Nothing is activated; Etsy charges its listing fee only when the draft is published.
 /// </summary>
 public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, ImageStore images, IJobQueue jobs, ISettingsStore settings,
-    IAuditLog audit, TimeProvider time, ShopDefaultsService? defaultsService = null)
+    IAuditLog audit, TimeProvider time, ShopDefaultsService? defaultsService = null, Infrastructure.Storage.VideoStore? videoStore = null)
 {
     private readonly ShopDefaultsService _defaults = defaultsService ?? new ShopDefaultsService(settings, audit);
 
@@ -67,7 +67,7 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
     public async Task<ClonePlan> PlanAsync(int sourceListingId, CloneSettings choice, CancellationToken ct = default)
     {
         var (source, target, lookups) = await LoadAsync(sourceListingId, choice.TargetShopId, ct);
-        return Plan(source, target, lookups, choice, images.Exists);
+        return Plan(source, target, lookups, choice, file => images.Exists(file) || (videoStore?.Exists(file) ?? false));
     }
 
     public static ClonePlan Plan(Listing source, Shop target, EditorLookups targetLookups, CloneSettings choice, Func<string, bool> fileExists)
@@ -129,6 +129,9 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
             calls.Add($"POST /v3/application/shops/{shop}/listings/(new)/images  image={p.File}, rank={i}, overwrite=false" +
                       (string.IsNullOrEmpty(p.Alt) ? "" : $", alt_text={p.Alt}"));
         if (photos.Count > 1) calls.Add("…then, only if Etsy shows two photos at one position, give each photo its own position (overwrite=false).");
+        var videoFile = VideoFile(source, local);
+        if (!string.IsNullOrEmpty(videoFile) && fileExists(videoFile))
+            calls.Add($"POST /v3/application/shops/{shop}/listings/(new)/videos  video={videoFile}");
         calls.Add("Then the new draft is imported into the app.");
         return new ClonePlan(calls, blockers, warnings);
     }
@@ -173,7 +176,7 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
     internal async Task<(Listing Source, Shop Target, EditorLookups Lookups)> LoadAsync(int sourceListingId, int targetShopId, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var source = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Images).Include(l => l.Products)
+        var source = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Images).Include(l => l.Videos).Include(l => l.Products)
             .ThenInclude(p => p.Offerings).AsSplitQuery().FirstAsync(l => l.Id == sourceListingId, ct);
         var target = await db.Shops.AsNoTracking().Include(s => s.Token).FirstAsync(s => s.Id == targetShopId, ct);
         var lookups = await EditorLookups.LoadAsync(db, targetShopId, [], target.CurrencyCode, ct);
@@ -193,6 +196,17 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
             return (file, (string?)p["alt_text"] ?? "");
         });
 
+    internal static string? VideoFile(Listing source, JsonObject local)
+    {
+        if (local.ContainsKey(ListingFields.Video))
+        {
+            var node = local[ListingFields.Video];
+            if (node is null) return null;
+            if ((string?)node["file_name"] is { Length: > 0 } file) return file;
+        }
+        return source.Videos.FirstOrDefault(v => v.VideoState != "deleted")?.FileName;
+    }
+
     internal static long? ListingReadiness(Listing source, JsonObject local) =>
         source.ReadinessStateId
         ?? local[ListingFields.Inventory]?["products"]?.AsArray().SelectMany(p => p!["offerings"]?.AsArray() ?? [])
@@ -207,7 +221,7 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
 /// <summary>Runs a clone (see <see cref="ListingCloner"/>): one call at a time, stopping at the first one Etsy rejects.</summary>
 public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, ListingCloner cloner, ListingImporter importer,
     ListingImportQueue importQueue, ImageStore images, EtsyApiClient etsy, IAuditLog audit, TimeProvider time,
-    ILogger<ListingCloneJob> logger) : IJobHandler
+    ILogger<ListingCloneJob> logger, Infrastructure.Storage.VideoStore? videoStore = null) : IJobHandler
 {
     public const string Type = "etsy.listing.clone";
     public string JobType => Type;
@@ -338,6 +352,15 @@ public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, L
                         string.IsNullOrEmpty(call.AltText) ? null : call.AltText, auth, ct);
                     log.Add($"Gave photo #{call.ImageId} position {call.Rank}.");
                 }
+            }
+
+            // 4b. Video (if source listing has a video and file exists locally, upload to target listing)
+            var videoFile = ListingCloner.VideoFile(source, local);
+            if (!string.IsNullOrEmpty(videoFile) && videoStore is not null && videoStore.Exists(videoFile))
+            {
+                var videoBytes = await File.ReadAllBytesAsync(videoStore.PathFor(videoFile), ct);
+                await etsy.UploadListingVideoAsync(shop, newEtsyId.Value, videoBytes, videoFile, auth, ct);
+                log.Add($"Uploaded video ({videoFile}).");
             }
 
             // 5. Into the app.

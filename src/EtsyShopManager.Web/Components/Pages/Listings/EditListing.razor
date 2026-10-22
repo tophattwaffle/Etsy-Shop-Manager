@@ -86,48 +86,7 @@ else
 
     @if (_preview is not null)
     {
-        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-                <MudText Typo="Typo.h6">Review changes</MudText>
-                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _preview = null">Keep editing</MudButton>
-            </MudStack>
-            @if (_preview.Changes.Count == 0)
-            {
-                <MudText Typo="Typo.body2" Class="muted">Nothing to push: this listing matches Etsy.</MudText>
-            }
-            else
-            {
-                <MudSimpleTable Dense="true" Class="mt-2">
-                    <thead>
-                        <tr>
-                            <SortHeader Sort="_changeSort" Column="field" Changed="StateHasChanged">Field</SortHeader>
-                            <SortHeader Sort="_changeSort" Column="from" Changed="StateHasChanged">On Etsy now</SortHeader>
-                            <SortHeader Sort="_changeSort" Column="to" Changed="StateHasChanged">After the push</SortHeader>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var c in _changeSort.Apply(_preview.Changes))
-                        {
-                            <tr><td>@c.Label</td><td class="muted">@_lookups.Describe(c.Key, c.From)</td><td>@_lookups.Describe(c.Key, c.To)</td></tr>
-                        }
-                    </tbody>
-                </MudSimpleTable>
-            }
-            @foreach (var b in _preview.Blockers)
-            {
-                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@b</MudAlert>
-            }
-            @foreach (var w in _preview.Warnings)
-            {
-                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@w</MudAlert>
-            }
-            @if (_preview.CanPush)
-            {
-                <MudStack Row="true" Class="mt-3">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PushAsync" Disabled="_pushing">Push to Etsy</MudButton>
-                </MudStack>
-            }
-        </MudPaper>
+        <ListingPreview Preview="_preview" Lookups="_lookups" OnClose="() => _preview = null" OnPush="PushAsync" Pushing="_pushing" />
     }
 
     <MudGrid>
@@ -183,6 +142,16 @@ else
                 </MudText>
                 <PhotosEditor Images="@(_form![ListingFields.Images] as JsonArray ?? [])" Imported="l.Images"
                               ImagesChanged="@(i => Set(ListingFields.Images, i))" />
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Video</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Etsy allows up to 1 video per listing (MP4 or MOV, up to 100 MB). @Pending(ListingFields.Video)
+                </MudText>
+                <VideoEditor Video="@_form![ListingFields.Video]"
+                             Imported="@l.Videos.FirstOrDefault(v => v.VideoState != "deleted")"
+                             VideoChanged="@(v => Set(ListingFields.Video, v))" />
             </MudPaper>
 
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">

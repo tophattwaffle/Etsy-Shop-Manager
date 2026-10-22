@@ -8,10 +8,10 @@ namespace EtsyShopManager.Etsy;
 /// <summary>Listing reads for a single listing, and the write calls (Phase 3).</summary>
 public sealed partial class EtsyApiClient
 {
-    /// <summary>One listing with its images and personalization (inventory needs its own call).</summary>
+    /// <summary>One listing with its images, personalization and videos (inventory needs its own call).</summary>
     public async Task<EtsyRaw<EtsyListing>> GetListingAsync(long listingId, EtsyAuth auth, CancellationToken ct = default)
     {
-        var path = QueryHelpers.AddQueryString($"/v3/application/listings/{listingId}", "includes", "Images,Personalization");
+        var path = QueryHelpers.AddQueryString($"/v3/application/listings/{listingId}", "includes", "Images,Personalization,Videos");
         var element = await GetAsync<JsonElement>(path, auth, ct);
         return new EtsyRaw<EtsyListing>(
             element.Deserialize<EtsyListing>(EtsyJson.Options) ?? throw new JsonException($"Empty listing {listingId}"),
@@ -175,5 +175,33 @@ public sealed partial class EtsyApiClient
         }, auth, ct);
         return await response.Content.ReadFromJsonAsync<EtsyListingImage>(EtsyJson.Options, ct)
                ?? throw new JsonException($"Empty image response for listing {listingId}");
+    }
+
+    /// <summary>uploadListingVideo (POST, multipart) with a video file (part name "video").</summary>
+    public async Task<EtsyListingVideo> UploadListingVideoAsync(long etsyShopId, long listingId, byte[] videoBytes, string fileName,
+        EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(() =>
+        {
+            var file = new ByteArrayContent(videoBytes);
+            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(ext == ".mov" ? "video/quicktime" : "video/mp4");
+            var form = new MultipartFormDataContent
+            {
+                { file, "video", fileName },
+            };
+            var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/application/shops/{etsyShopId}/listings/{listingId}/videos") { Content = form };
+            request.Options.Set(Http.EtsyRetryHandler.NoRetry, true); // never upload a video twice
+            return request;
+        }, auth, ct);
+        return await response.Content.ReadFromJsonAsync<EtsyListingVideo>(EtsyJson.Options, ct)
+               ?? throw new JsonException($"Empty video response for listing {listingId}");
+    }
+
+    /// <summary>deleteListingVideo (DELETE): removes the video from a listing.</summary>
+    public async Task DeleteListingVideoAsync(long etsyShopId, long listingId, long videoId, EtsyAuth auth, CancellationToken ct = default)
+    {
+        using var _ = await SendAsync(() => new HttpRequestMessage(HttpMethod.Delete,
+            $"/v3/application/shops/{etsyShopId}/listings/{listingId}/videos/{videoId}"), auth, ct);
     }
 }

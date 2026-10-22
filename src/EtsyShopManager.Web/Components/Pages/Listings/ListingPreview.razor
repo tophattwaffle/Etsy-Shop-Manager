@@ -1,0 +1,89 @@
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Core.Listings
+@using EtsyShopManager.Web.Modules.Editor
+
+@* The preview of changes before pushing a listing to Etsy. Shows the fields being modified,
+   including video additions, replacements or removals, along with any blockers or warnings. *@
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+        <MudText Typo="Typo.h6">Review changes</MudText>
+        @if (OnClose.HasDelegate)
+        {
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="OnClose">Keep editing</MudButton>
+        }
+    </MudStack>
+
+    @if (Preview.Changes.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted mt-2">Nothing to push: this listing matches Etsy.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Class="mt-2">
+            <thead>
+                <tr>
+                    <SortHeader Sort="_changeSort" Column="field" Changed="StateHasChanged">Field</SortHeader>
+                    <SortHeader Sort="_changeSort" Column="from" Changed="StateHasChanged">On Etsy now</SortHeader>
+                    <SortHeader Sort="_changeSort" Column="to" Changed="StateHasChanged">After the push</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in _changeSort.Apply(Preview.Changes))
+                {
+                    <tr>
+                        <td>@c.Label</td>
+                        <td class="muted">@Describe(c.Key, c.From)</td>
+                        <td>@Describe(c.Key, c.To)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+
+    @foreach (var b in Preview.Blockers)
+    {
+        <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@b</MudAlert>
+    }
+
+    @foreach (var w in Preview.Warnings)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@w</MudAlert>
+    }
+
+    @if (Preview.CanPush && OnPush.HasDelegate)
+    {
+        <MudStack Row="true" Class="mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OnPush" Disabled="Pushing">Push to Etsy</MudButton>
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public PushPreview Preview { get; set; } = null!;
+    [Parameter] public EditorLookups? Lookups { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnPush { get; set; }
+    [Parameter] public bool Pushing { get; set; }
+
+    private TableSort<FieldChange> _changeSort = new();
+
+    protected override void OnParametersSet()
+    {
+        _changeSort = new()
+        {
+            ["field"] = c => c.Label,
+            ["from"] = c => Describe(c.Key, c.From),
+            ["to"] = c => Describe(c.Key, c.To),
+        };
+    }
+
+    private string Describe(string key, JsonNode? value)
+    {
+        if (key == ListingFields.Video)
+        {
+            return ListingEditor.DescribeVideo(value);
+        }
+        return Lookups?.Describe(key, value) ?? value?.ToString() ?? "—";
+    }
+}

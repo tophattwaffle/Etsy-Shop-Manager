@@ -33,7 +33,8 @@ public sealed class ListingEditor(
     ImageStore images,
     IJobQueue jobs,
     IAuditLog audit,
-    TimeProvider time)
+    TimeProvider time,
+    Infrastructure.Storage.VideoStore? videoStore = null)
 {
     public const int MaxTitleLength = 140;
     public const int MaxTags = 13;
@@ -48,6 +49,7 @@ public sealed class ListingEditor(
             .Include(l => l.EtsyState)
             .Include(l => l.Products).ThenInclude(p => p.Offerings)
             .Include(l => l.Images.OrderBy(i => i.Rank))
+            .Include(l => l.Videos)
             .AsSplitQuery()
             .FirstOrDefaultAsync(l => l.Id == listingId, ct);
         if (listing?.EtsyState is null) return null;
@@ -133,7 +135,7 @@ public sealed class ListingEditor(
             && db.Jobs.Any(j => j.Id == p.JobId && (j.Status == JobStatus.Pending || j.Status == JobStatus.Running)), ct);
         var model = Model(listing);
         var properties = await AttributeEditor.LoadAsync(db, (long?)model.Local("taxonomy_id"), ct);
-        return Preview(listing, model, busy, images.Exists, properties);
+        return Preview(listing, model, busy, file => images.Exists(file) || (videoStore?.Exists(file) ?? false), properties);
     }
 
     /// <summary>The preview for a model (pure, for tests and the UI).</summary>
@@ -211,6 +213,32 @@ public sealed class ListingEditor(
             warnings.AddRange(calls.Select(c => c.Describe(listing.Shop?.EtsyShopId ?? 0, listing.EtsyListingId)));
         }
         var shopId = listing.Shop?.EtsyShopId ?? 0;
+        if (changes.Any(c => c.Key == ListingFields.Video))
+        {
+            var localVideo = local[ListingFields.Video];
+            if (localVideo is not null)
+            {
+                if ((string?)localVideo["file_name"] is { Length: > 0 } file && fileExists is not null && !fileExists(file))
+                    blockers.Add("The video file was added here but its file is gone; remove it and add it again.");
+            }
+
+            var etsyVideo = model.Etsy[ListingFields.Video];
+            var fromId = (long?)etsyVideo?["etsy_video_id"];
+            var toFile = (string?)localVideo?["name"] ?? (string?)localVideo?["file_name"];
+
+            if (etsyVideo is not null && localVideo is null)
+            {
+                warnings.Add($"Video: 1 call to Etsy (DELETE /v3/application/shops/{shopId}/listings/{listing.EtsyListingId}/videos/{fromId}) to remove the video.");
+            }
+            else if (etsyVideo is not null && localVideo is not null)
+            {
+                warnings.Add($"Video: 2 calls to Etsy (DELETE existing video #{fromId}, then POST to upload {(toFile is not null ? $"\"{toFile}\"" : "video")}).");
+            }
+            else if (etsyVideo is null && localVideo is not null)
+            {
+                warnings.Add($"Video: 1 call to Etsy (POST /v3/application/shops/{shopId}/listings/{listing.EtsyListingId}/videos) to upload {(toFile is not null ? $"\"{toFile}\"" : "video")}.");
+            }
+        }
         if (changes.Any(c => c.Key == ListingFields.Attributes))
         {
             string Name(long id) => attributeProperties?.FirstOrDefault(p => p.PropertyId == id)?.Label
@@ -388,6 +416,40 @@ public sealed class ListingEditor(
     };
 
     public static string Label(string key) => ListingFields.Find(key)?.Label ?? key;
+
+    public static string DescribeVideo(JsonNode? videoNode)
+    {
+        if (videoNode is null) return "No video";
+        if ((string?)videoNode["name"] is { Length: > 0 } name) return $"New video ({name})";
+        if ((string?)videoNode["file_name"] is { Length: > 0 } file) return $"New video ({file})";
+        if (long.TryParse(videoNode["etsy_video_id"]?.ToString(), out var id) && id > 0)
+        {
+            var state = (string?)videoNode["video_state"];
+            return state is { Length: > 0 } ? $"Etsy video #{id} ({state})" : $"Etsy video #{id}";
+        }
+        return "Video";
+    }
+
+    public static string DescribeVideoChange(JsonNode? from, JsonNode? to)
+    {
+        if (from is null && to is not null)
+        {
+            var name = (string?)to["name"] ?? (string?)to["file_name"] ?? "new video";
+            return $"Add video: {name}";
+        }
+        if (from is not null && to is null)
+        {
+            var id = (long?)from["etsy_video_id"];
+            return id is > 0 ? $"Remove video #{id}" : "Remove video";
+        }
+        if (from is not null && to is not null)
+        {
+            var id = (long?)from["etsy_video_id"];
+            var name = (string?)to["name"] ?? (string?)to["file_name"] ?? "new video";
+            return id is > 0 ? $"Replace video #{id} with {name}" : $"Replace video with {name}";
+        }
+        return "No change";
+    }
 }
 
 public sealed record PushPayload(int PushId);
