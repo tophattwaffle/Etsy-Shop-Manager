@@ -39,8 +39,10 @@ public enum VariationListUseStatus
 public sealed record VariationListPlan(JsonObject Inventory, List<VariationListOption> Applied, IReadOnlyList<string> Changes,
     IReadOnlyList<string> Notes);
 
-public sealed record VariationListUse(int ListingId, string Title, string ShopName, long PropertyId, string VariationName,
-    VariationListUseStatus Status, IReadOnlyList<string> Changes, IReadOnlyList<string> Notes, bool InventoryPending);
+public sealed record VariationListUse(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
+    long PropertyId, string VariationName,
+    VariationListUseStatus Status, IReadOnlyList<string> Changes, IReadOnlyList<string> Notes, bool InventoryPending) : ITemplateListingItem;
 
 public sealed record VariationListSummary(int Id, string Name, int Options, int Enabled, int Listings, int WithChanges, int NeedAttention,
     DateTime UpdatedAtUtc);
@@ -61,8 +63,10 @@ public sealed record VariationListLinkPreview(int InList, int Values, string? Wa
 public sealed record VariationListAddable(int ListingId, string Title, string ShopName, IReadOnlyList<string> Variations);
 
 /// <summary>A listing variation not linked yet whose values are mostly in the list.</summary>
-public sealed record VariationListCandidate(int ListingId, string Title, string ShopName, long PropertyId, string VariationName,
-    int InList, int Values);
+public sealed record VariationListCandidate(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
+    long PropertyId, string VariationName,
+    int InList, int Values) : ITemplateListingItem;
 
 /// <summary>
 /// Shared variation lists (Phase 4, variation templates). A list is a named set of options; a linked listing's variation
@@ -333,12 +337,12 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         var pending = !JsonNode.DeepEquals(inventory, model.Etsy[ListingFields.Inventory]);
         var variation = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId);
         if (model.DriftFields.Contains(ListingFields.Inventory))
-            return new(listing.Id, listing.Title, listing.Shop.Name, link.PropertyId, variation?.Name ?? "", VariationListUseStatus.ChangedOnEtsy, [], [], pending);
+            return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, variation?.Name ?? "", VariationListUseStatus.ChangedOnEtsy, [], [], pending);
         if (variation is null)
-            return new(listing.Id, listing.Title, listing.Shop.Name, link.PropertyId, "", VariationListUseStatus.VariationMissing, [],
+            return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, "", VariationListUseStatus.VariationMissing, [],
                 ["The linked variation isn't on this listing any more. Unlink it, or add the variation back in the editor."], pending);
         var plan = Plan(list, link, inventory);
-        return new(listing.Id, listing.Title, listing.Shop.Name, link.PropertyId, variation.Name ?? "",
+        return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, variation.Name ?? "",
             plan.Changes.Count > 0 ? VariationListUseStatus.HasChanges : VariationListUseStatus.UpToDate, plan.Changes, plan.Notes, pending);
     }
 
@@ -352,7 +356,7 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             .Select(l => (l.ListingId, l.PropertyId)).ToHashSet();
         var names = list.Options.Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var listings = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Shop)
-            .Where(l => l.EtsyState != null && !l.IsMissingOnEtsy).ToListAsync(ct);
+            .Where(l => l.EtsyState != null).ToListAsync(ct);
         var result = new List<VariationListCandidate>();
         foreach (var l in listings)
         {
@@ -362,7 +366,7 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             {
                 var inList = v.Values.Count(names.Contains);
                 if (inList >= MinOverlap && inList * 2 >= v.Values.Count)
-                    result.Add(new VariationListCandidate(l.Id, l.Title, l.Shop.Name, v.PropertyId, v.Name ?? $"Variation {v.PropertyId}", inList, v.Values.Count));
+                    result.Add(new VariationListCandidate(l.Id, l.Title, l.ShopId, l.Shop.Name, l.EtsyListingId, l.State, l.IsMissingOnEtsy, l.Skus, l.Tags, v.PropertyId, v.Name ?? $"Variation {v.PropertyId}", inList, v.Values.Count));
             }
         }
         return [.. result.OrderByDescending(c => (double)c.InList / c.Values).ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase)];

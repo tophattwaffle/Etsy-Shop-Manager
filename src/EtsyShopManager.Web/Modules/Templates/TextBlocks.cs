@@ -22,13 +22,15 @@ public enum TextBlockUseStatus
 }
 
 /// <summary>A listing using a block: where it stands, and its description (as on Etsy) before and after applying the block.</summary>
-public sealed record TextBlockUse(int ListingId, string Title, string ShopName, TextBlockUseStatus Status, string Before, string After,
-    bool DescriptionPending);
+public sealed record TextBlockUse(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
+    TextBlockUseStatus Status, string Before, string After, bool DescriptionPending) : ITemplateListingItem;
 
 public sealed record TextBlockSummary(int Id, string Name, string Slug, int Listings, int WillChange, int NeedAttention, DateTime UpdatedAtUtc);
 
 /// <summary>A listing not using the block whose description already contains its text word for word.</summary>
-public sealed record TextBlockCandidate(int ListingId, string Title, string ShopName);
+public sealed record TextBlockCandidate(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags) : ITemplateListingItem;
 
 /// <summary>What pushing a block's listings would do, per listing (the editor's own review).</summary>
 public sealed record TextBlockPushItem(int ListingId, string Title, string ShopName, PushPreview Preview);
@@ -269,7 +271,8 @@ public sealed class TextBlockService(IDbContextFactory<AppDbContext> dbFactory, 
             var status = model.DriftFields.Contains("description") ? TextBlockUseStatus.ChangedOnEtsy
                 : after == description ? TextBlockUseStatus.UpToDate : TextBlockUseStatus.WillChange;
             foreach (var slug in TextBlockMarkup.Slugs(source).Where(s => blocks.Any(b => b.Slug == s)))
-                result.Add((slug, new TextBlockUse(row.ListingId, row.Listing.Title, row.Listing.Shop.Name, status, description, after, pending), source));
+                result.Add((slug, new TextBlockUse(row.ListingId, row.Listing.Title, row.Listing.ShopId, row.Listing.Shop.Name, row.Listing.EtsyListingId,
+                    row.Listing.State, row.Listing.IsMissingOnEtsy, row.Listing.Skus, row.Listing.Tags, status, description, after, pending), source));
         }
         return result;
     }
@@ -289,9 +292,10 @@ public sealed class TextBlockService(IDbContextFactory<AppDbContext> dbFactory, 
         if (block is null) return [];
         var using_ = (await AllUsesAsync(db, blocks, ct)).Where(u => u.Slug == block.Slug).Select(u => u.Use.ListingId).ToHashSet();
         var listings = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Shop)
-            .Where(l => l.EtsyState != null && !l.IsMissingOnEtsy).ToListAsync(ct);
+            .Where(l => l.EtsyState != null).ToListAsync(ct);
         return [.. listings.Where(l => !using_.Contains(l.Id) && Description(Model(l)).Contains(block.Text, StringComparison.Ordinal))
-            .OrderBy(l => l.Title, StringComparer.OrdinalIgnoreCase).Select(l => new TextBlockCandidate(l.Id, l.Title, l.Shop.Name))];
+            .OrderBy(l => l.Title, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new TextBlockCandidate(l.Id, l.Title, l.ShopId, l.Shop.Name, l.EtsyListingId, l.State, l.IsMissingOnEtsy, l.Skus, l.Tags))];
     }
 
     /// <summary>

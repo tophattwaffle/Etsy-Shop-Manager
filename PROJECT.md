@@ -68,7 +68,7 @@
 | M4 | R3: Field Placeholders | Built-in placeholders, multi-pass engine, nested templates, dynamic editor sync | M1 | DONE |
 | M5 | R4: Variation Reordering & SKU Patterns | Value order in inventory, InventoryWriter order fix, UI/template reordering, SkuPatternResolver | M1 | DONE |
 | M6 | R5: Listing Videos | Etsy client video endpoints, VideoStore, editor UI, push/diff, cloner, FakeEtsyShop mocks | M1 | DONE |
-| M7 | R6: Template Table Listing Filters | Filter controls (search, shop, status) & scoped bulk selection in text/variation/photo templates | M1 | PLANNED |
+| M7 | R6: Template Table Listing Filters | Filter controls (search, shop, status) & scoped bulk selection in text/variation/photo templates | M1 | DONE |
 | M8 | Final Integration & Staging Delivery | Pass 100% E2E tests, Tier 5 hardening, build.ps1 exit 0, deploy-staging.ps1 | M2, M3, M4, M5, M6, M7 | PLANNED |
 
 ## Interface Contracts

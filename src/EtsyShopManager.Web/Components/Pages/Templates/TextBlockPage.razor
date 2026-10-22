@@ -5,7 +5,9 @@
 @page "/text-blocks/{Id:int}"
 @using EtsyShopManager.Web.Modules.Listings
 @using EtsyShopManager.Web.Modules.Templates
+@using EtsyShopManager.Web.Modules.Shops
 @inject TextBlockService Blocks
+@inject ShopService ShopService
 @inject NavigationManager Nav
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
@@ -67,6 +69,31 @@ else
 
     @if (_saved is not null)
     {
+        <MudPaper Class="pa-3 mb-4" Elevation="0" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                <MudTextField T="string" Value="_filterText" ValueChanged="OnFilterTextChanged" Placeholder="Search title, SKU, tag, listing ID..."
+                              Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Class="esm-w-md" aria-label="Search listings" />
+                <MudSelect T="int?" Value="_filterShopId" ValueChanged="OnFilterShopChanged" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                    <MudSelectItem T="int?" Value="@((int?)null)">All shops</MudSelectItem>
+                    @foreach (var s in FilterShops)
+                    {
+                        <MudSelectItem T="int?" Value="@((int?)s.Id)">@s.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" Value="_filterStatus" ValueChanged="OnFilterStatusChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                    <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("draft")">Draft</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("expired")">Expired</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("sold_out")">Sold out</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("inactive")">Inactive</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("missing")">Gone from Etsy</MudSelectItem>
+                </MudSelect>
+            </MudStack>
+        </MudPaper>
+
         <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
                 <MudText Typo="Typo.h6">Listings using this template</MudText>
@@ -89,6 +116,10 @@ else
             {
                 <MudText Typo="Typo.body2" Class="muted">No listings yet. Use it in the listings below, or insert it from a listing's editor.</MudText>
             }
+            else if (VisibleUses.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted">No listings match these filters.</MudText>
+            }
             else
             {
                 <MudSimpleTable Dense="true">
@@ -101,7 +132,7 @@ else
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var u in _useSort.Apply(_uses))
+                        @foreach (var u in _useSort.Apply(VisibleUses))
                         {
                             <tr>
                                 <td><a href="@(_canEdit ? $"listings/{u.ListingId}/edit" : $"listings/{u.ListingId}")">@u.Title</a></td>
@@ -187,27 +218,34 @@ else
                     Their description has the template's text word for word. Using the template there puts its placeholder in place of the
                     text (nothing changes on Etsy); from then on they follow the template.
                 </MudText>
-                <MudSimpleTable Dense="true">
-                    <thead>
-                        <tr>
-                            <th class="esm-col-icon">
-                                <MudCheckBox T="bool" Value="@(_picked.Count == _candidates.Count)" ValueChanged="PickAll" aria-label="Select all" Dense="true" Disabled="!_canEdit" />
-                            </th>
-                            <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
-                            <SortHeader Sort="_candidateSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var c in _candidateSort.Apply(_candidates))
-                        {
+                @if (VisibleCandidates.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">No listings match these filters.</MudText>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true">
+                        <thead>
                             <tr>
-                                <td><MudCheckBox T="bool" Value="@_picked.Contains(c.ListingId)" ValueChanged="@(on => Pick(c.ListingId, on))" aria-label="@($"Link {c.Title}")" Dense="true" Disabled="!_canEdit" /></td>
-                                <td><a href="@($"listings/{c.ListingId}")">@c.Title</a></td>
-                                <td>@c.ShopName</td>
+                                <th class="esm-col-icon">
+                                    <MudCheckBox T="bool?" Value="CandidateHeaderChecked" ValueChanged="@(_ => TogglePickAllVisible())" TriState="true" aria-label="Select all" Dense="true" Disabled="!_canEdit" />
+                                </th>
+                                <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                                <SortHeader Sort="_candidateSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
                             </tr>
-                        }
-                    </tbody>
-                </MudSimpleTable>
+                        </thead>
+                        <tbody>
+                            @foreach (var c in _candidateSort.Apply(VisibleCandidates))
+                            {
+                                <tr>
+                                    <td><MudCheckBox T="bool" Value="@_picked.Contains(c.ListingId)" ValueChanged="@(on => Pick(c.ListingId, on))" aria-label="@($"Link {c.Title}")" Dense="true" Disabled="!_canEdit" /></td>
+                                    <td><a href="@($"listings/{c.ListingId}")">@c.Title</a></td>
+                                    <td>@c.ShopName</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
                 <AuthorizeView Roles="@Roles.Admin">
                     <MudButton Class="mt-3" Variant="Variant.Outlined" Disabled="@(_picked.Count == 0)" OnClick="LinkAsync">
                         Use the template in @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
@@ -225,11 +263,65 @@ else
     private TextBlock? _saved;
     private bool _loaded, _pushing, _canEdit;
     private string _name = "", _text = "", _slug = "";
+    private string? _filterText;
+    private int? _filterShopId;
+    private string _filterStatus = "all";
+    private IReadOnlyList<ShopSummary> _shops = [];
     private IReadOnlyList<TextBlockUse> _uses = [];
     private IReadOnlyList<TextBlockCandidate> _candidates = [];
     private IReadOnlyList<TextBlockPushItem>? _review;
     private readonly HashSet<int> _picked = [];
     private readonly HashSet<int> _open = [];
+
+    private TemplateListingFilter Filter => new()
+    {
+        Text = _filterText,
+        ShopId = _filterShopId,
+        Status = _filterStatus,
+    };
+
+    private IReadOnlyList<TextBlockUse> VisibleUses =>
+        [.. _uses.Where(u => TemplateFilterMatcher.Matches(u, Filter))];
+
+    private IReadOnlyList<TextBlockCandidate> VisibleCandidates =>
+        [.. _candidates.Where(c => TemplateFilterMatcher.Matches(c, Filter))];
+
+    private record ShopOption(int Id, string Name);
+
+    private IEnumerable<ShopOption> FilterShops =>
+        _shops.Select(s => new ShopOption(s.Id, s.Name))
+            .Concat(_uses.Select(u => new ShopOption(u.ShopId, u.ShopName)))
+            .Concat(_candidates.Select(c => new ShopOption(c.ShopId, c.ShopName)))
+            .DistinctBy(s => s.Id)
+            .OrderBy(s => s.Name);
+
+    private bool? CandidateHeaderChecked
+    {
+        get
+        {
+            var visible = VisibleCandidates.Select(c => c.ListingId).ToList();
+            if (visible.Count == 0) return false;
+            var pickedCount = visible.Count(_picked.Contains);
+            if (pickedCount == 0) return false;
+            if (pickedCount == visible.Count) return true;
+            return null;
+        }
+    }
+
+    private void TogglePickAllVisible()
+    {
+        var visible = VisibleCandidates.Select(c => c.ListingId).ToList();
+        if (visible.Count == 0) return;
+        var allPicked = visible.All(_picked.Contains);
+        if (allPicked)
+            _picked.ExceptWith(visible);
+        else
+            _picked.UnionWith(visible);
+    }
+
+    private void OnFilterTextChanged(string? val) => _filterText = val;
+    private void OnFilterShopChanged(int? val) => _filterShopId = val;
+    private void OnFilterStatusChanged(string val) => _filterStatus = val;
 
     private bool Dirty => _saved is null
         ? _name.Trim().Length > 0 || _text.Trim().Length > 0
@@ -277,6 +369,7 @@ else
 
     private async Task LoadAsync()
     {
+        try { _shops = await ShopService.ListAsync(); } catch { _shops = []; }
         if (Id is { } id)
         {
             _saved = await Blocks.GetAsync(id);
@@ -318,12 +411,6 @@ else
     private void Pick(int listingId, bool on)
     {
         if (on) _picked.Add(listingId); else _picked.Remove(listingId);
-    }
-
-    private void PickAll(bool on)
-    {
-        _picked.Clear();
-        if (on) _picked.UnionWith(_candidates.Select(c => c.ListingId));
     }
 
     private async Task SaveAsync()
