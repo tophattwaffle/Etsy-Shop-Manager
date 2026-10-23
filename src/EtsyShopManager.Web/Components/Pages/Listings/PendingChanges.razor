@@ -75,9 +75,10 @@ else
                 {
                     var warnings = row.Preview.Warnings;
                     <tr style="@ShopStyle(row.ShopId)" class="@RowClass(row)"
-                        @onclick="@(() => { if (row.CanPush) Select(row.ListingId, !_selected.Contains(row.ListingId)); })">
-                        <td class="lp-list-check" @onclick:stopPropagation="true">
-                            <MudCheckBox T="bool" Value="@_selected.Contains(row.ListingId)" ValueChanged="@(v => Select(row.ListingId, v))"
+                        @onclick="@((MouseEventArgs e) => HandleRowClick(row.ListingId, e))">
+                        <td class="lp-list-check" @onclick:stopPropagation="true"
+                            @onclick="@((MouseEventArgs e) => HandleRowClick(row.ListingId, e))">
+                            <MudCheckBox T="bool" Value="@_selected.Contains(row.ListingId)"
                                          Disabled="@(!row.CanPush)" Size="Size.Small" Dense="true" aria-label="@($"Select {row.Title}")" />
                         </td>
                         <td class="lp-list-photo">
@@ -186,6 +187,14 @@ else
 
     private static string Count(int n, string one, string many) => $"{n:N0} {(n == 1 ? one : many)}";
 
+    private readonly RangeSelection<int> _range = new();
+
+    private void HandleRowClick(int listingId, MouseEventArgs e)
+    {
+        var visible = _rows is null ? [] : _sort.Apply(_rows).Select(r => r.ListingId).ToList();
+        _range.HandleClick(listingId, e.ShiftKey, visible, _selected, canSelect: id => Ready.Any(r => r.ListingId == id));
+    }
+
     private void Select(int id, bool selected)
     {
         if (selected) _selected.Add(id);
@@ -195,6 +204,7 @@ else
     private void SelectAll(bool selected)
     {
         foreach (var row in Ready) Select(row.ListingId, selected);
+        _range.Reset();
     }
 
     private void ToggleAll() => SelectAll(!AllSelected);

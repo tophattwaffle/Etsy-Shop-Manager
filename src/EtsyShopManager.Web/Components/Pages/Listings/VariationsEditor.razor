@@ -8,11 +8,13 @@
 <div class="esm-variations">
     @foreach (var v in _variations)
     {
+        var locked = IsOrderLocked(v.PropertyId);
         <div class="esm-variation">
             <div class="esm-variation-head">
                 @if (v.IsCustom)
                 {
-                    <MudTextField T="string" Value="@v.Name" ValueChanged="@(n => Apply(i => VariationEditor.RenameVariation(i, v.PropertyId, n)))"
+                    <MudTextField T="string" Value="@v.Name" ValueChanged="@(n => RenameVariationName(v.PropertyId, n))"
+                                  Disabled="@locked"
                                   Label="Variation name" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm" />
                 }
                 else
@@ -27,7 +29,8 @@
                 <MudCheckBox T="bool" Value="@Varies(VariationEditor.ProcessingOnProperty, v)" Dense="true" Label="Processing varies"
                              ValueChanged="@(on => Apply(i => VariationEditor.SetVaries(i, VariationEditor.ProcessingOnProperty, v.PropertyId, on)))" />
                 <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
-                           OnClick="@(() => Apply(i => VariationEditor.RemoveVariation(i, v.PropertyId)))">Remove variation</MudButton>
+                           Disabled="@locked"
+                           OnClick="@(() => RemoveVariation(v.PropertyId))">Remove variation</MudButton>
             </div>
 
             <div class="esm-variation-values">
@@ -35,8 +38,7 @@
                 {
                     var idx = i;
                     var value = v.Values[idx];
-                    var locked = IsOrderLocked(v.PropertyId);
-                    @if (_renaming == (v.PropertyId, value))
+                    @if (!locked && _renaming == (v.PropertyId, value))
                     {
                         <MudTextField T="string" @bind-Value="_renameText" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
                                       aria-label="@($"New name for {value}")" Immediate="true" OnKeyDown="@(e => OnRenameKey(e, v.PropertyId, value))" />
@@ -52,16 +54,20 @@
                                                aria-label="@($"Move {value} earlier")"
                                                OnClick="@(() => MoveValue(v.PropertyId, idx, -1))" />
                             }
-                            @if (v.Values.Count > 1)
+                            @if (!locked && v.Values.Count > 1)
                             {
                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
                                          OnClick="@(() => StartRename(v.PropertyId, value))"
-                                         OnClose="@(_ => Apply(i => VariationEditor.RemoveValue(i, v.PropertyId, value)))">@value</MudChip>
+                                         OnClose="@(_ => Apply(i => VariationEditor.RemoveValue(i, v.PropertyId, value, LockedPropertyIds)))">@value</MudChip>
                             }
-                            else
+                            else if (!locked)
                             {
                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
                                          OnClick="@(() => StartRename(v.PropertyId, value))">@value</MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@value</MudChip>
                             }
                             @if (!locked && v.Values.Count > 1)
                             {
@@ -81,9 +87,11 @@
             }
             <div class="esm-variation-add">
                 <MudTextField T="string" Value="@NewValue(v.PropertyId)" ValueChanged="@(t => _newValues[v.PropertyId] = t)" Immediate="true"
-                              Placeholder="@($"Add to {v.Name}")" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
+                              Placeholder="@(locked ? "Values controlled by template" : $"Add to {v.Name}")"
+                              Disabled="@locked" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
                               OnKeyDown="@(e => OnAddKey(e, v.PropertyId))" aria-label="@($"New value for {v.Name}")" />
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@string.IsNullOrWhiteSpace(NewValue(v.PropertyId))"
+                <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                           Disabled="@(locked || string.IsNullOrWhiteSpace(NewValue(v.PropertyId)))"
                            OnClick="@(() => AddValue(v.PropertyId))">Add</MudButton>
             </div>
         </div>
@@ -177,8 +185,23 @@
 
     private string? NewValue(long propertyId) => _newValues.GetValueOrDefault(propertyId);
 
+    private IEnumerable<long>? LockedPropertyIds => Links?.Select(l => l.PropertyId);
+
     private VariationListLink? GetLink(long propertyId) => Links?.FirstOrDefault(l => l.PropertyId == propertyId);
-    private bool IsOrderLocked(long propertyId) => GetLink(propertyId) is not null;
+    private bool IsLocked(long propertyId) => GetLink(propertyId) is not null;
+    private bool IsOrderLocked(long propertyId) => IsLocked(propertyId);
+
+    private async Task RenameVariationName(long propertyId, string newName)
+    {
+        if (IsLocked(propertyId)) return;
+        await Apply(i => VariationEditor.RenameVariation(i, propertyId, newName, LockedPropertyIds));
+    }
+
+    private async Task RemoveVariation(long propertyId)
+    {
+        if (IsLocked(propertyId)) return;
+        await Apply(i => VariationEditor.RemoveVariation(i, propertyId, LockedPropertyIds));
+    }
 
     private async Task OnPatternChanged(string? value)
     {
@@ -216,7 +239,7 @@
         var item = values[currentIndex];
         values.RemoveAt(currentIndex);
         values.Insert(targetIndex, item);
-        await Apply(i => VariationEditor.ReorderValues(i, propertyId, values));
+        await Apply(i => VariationEditor.ReorderValues(i, propertyId, values, LockedPropertyIds));
     }
 
     private async Task Apply(Func<JsonObject, JsonObject> change)
@@ -231,31 +254,39 @@
         {
             _error = ex.Message;
         }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
     }
 
     private async Task AddValue(long propertyId)
     {
+        if (IsLocked(propertyId)) return;
         var text = NewValue(propertyId);
         var pattern = Pattern;
         var baseSku = BaseSku;
-        await Apply(i => VariationEditor.AddValue(i, propertyId, text ?? "", pattern, baseSku));
+        await Apply(i => VariationEditor.AddValue(i, propertyId, text ?? "", pattern, baseSku, LockedPropertyIds));
         if (_error is null) _newValues[propertyId] = null;
     }
 
     private async Task OnAddKey(KeyboardEventArgs e, long propertyId)
     {
+        if (IsLocked(propertyId)) return;
         if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(NewValue(propertyId))) await AddValue(propertyId);
     }
 
     private void StartRename(long propertyId, string value)
     {
+        if (IsLocked(propertyId)) return;
         _renaming = (propertyId, value);
         _renameText = value;
     }
 
     private async Task Rename(long propertyId, string value)
     {
-        await Apply(i => VariationEditor.RenameValue(i, propertyId, value, _renameText ?? ""));
+        if (IsLocked(propertyId)) return;
+        await Apply(i => VariationEditor.RenameValue(i, propertyId, value, _renameText ?? "", LockedPropertyIds));
         if (_error is null) _renaming = null;
     }
 

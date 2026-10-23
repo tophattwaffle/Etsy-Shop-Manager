@@ -121,23 +121,32 @@
             <MudSelectItem T="string" Value="@("inactive")">Inactive</MudSelectItem>
             <MudSelectItem T="string" Value="@("missing")">Gone from Etsy</MudSelectItem>
         </MudSelect>
+        <MudSelect T="string" Value="_filterProfile" ValueChanged="OnFilterProfileChanged" Label="Current profile" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-md">
+            <MudSelectItem T="string" Value="@("all")">All profiles</MudSelectItem>
+            <MudSelectItem T="string" Value="@("none")">No profile</MudSelectItem>
+            <MudSelectItem T="string" Value="@("varies")">Varies by variation</MudSelectItem>
+            @foreach (var p in AvailableFilterProfiles)
+            {
+                <MudSelectItem T="string" Value="@p.ReadinessStateId.ToString()">@(p.DisplayLabel ?? $"{p.ReadinessState} (#{p.ReadinessStateId})")</MudSelectItem>
+            }
+        </MudSelect>
     </MudStack>
 
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudCheckBox T="bool?" Value="CandidateHeaderChecked" ValueChanged="@(_ => TogglePickAllVisible())" TriState="true" aria-label="Select all" Dense="true" />
-            <MudText Typo="Typo.body2">@_picked.Count.ToString("N0") selected</MudText>
+            <MudText Typo="Typo.body2">@_picked.Count.ToString("N0") selected (@VisibleCandidates.Count.ToString("N0") visible)</MudText>
             @if (VisibleCandidates.Count > 0 && _picked.Count < VisibleCandidates.Count)
             {
                 <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllVisible">Select all @VisibleCandidates.Count.ToString("N0") matching</MudButton>
             }
             @if (_picked.Count > 0)
             {
-                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _picked.Clear()">Clear selection</MudButton>
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ClearPicked">Clear selection</MudButton>
             }
         </MudStack>
-        <MudButton Variant="Variant.Outlined" Disabled="@(_picked.Count == 0 || _applyProfileId is null || _busy)" OnClick="PreviewBulkApplyAsync">
-            Preview @_picked.Count.ToString("N0") listing@(_picked.Count == 1 ? "" : "s")
+        <MudButton Variant="Variant.Outlined" Disabled="@(TargetCount == 0 || _applyProfileId is null || _busy)" OnClick="PreviewBulkApplyAsync">
+            Preview @TargetCount.ToString("N0") listing@(TargetCount == 1 ? "" : "s")
         </MudButton>
     </MudStack>
 
@@ -162,8 +171,8 @@
                 {
                     var isPicked = _picked.Contains(c.ListingId);
                     <tr>
-                        <td>
-                            <MudCheckBox T="bool" Value="isPicked" ValueChanged="@(v => TogglePick(c.ListingId, v))" Dense="true" aria-label="@($"Select {c.Title}")" />
+                        <td @onclick="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))">
+                            <MudCheckBox T="bool" Value="isPicked" Dense="true" aria-label="@($"Select {c.Title}")" />
                         </td>
                         <td><a href="@($"listings/{c.ListingId}/edit")">@c.Title</a></td>
                         <td>@c.ShopName</td>
@@ -297,6 +306,25 @@
     private string? _filterText;
     private int? _filterShopId;
     private string _filterStatus = "all";
+    private string _filterProfile = "all";
+    private List<ProcessingProfileItem> _allProfiles = [];
+
+    private IEnumerable<ProcessingProfileItem> AvailableFilterProfiles
+    {
+        get
+        {
+            var profiles = _filterShopId.HasValue
+                ? _allProfiles.Where(p => p.ShopId == _filterShopId.Value)
+                : _allProfiles;
+
+            return profiles
+                .GroupBy(p => p.ReadinessStateId)
+                .Select(g => g.First())
+                .OrderBy(p => p.DisplayLabel ?? p.ReadinessState);
+        }
+    }
+
+    private int TargetCount => _picked.Intersect(VisibleCandidates.Select(c => c.ListingId)).Count();
 
     private IReadOnlyList<ProcessingProfileApplyRow>? _previewRows;
     private int? _savedCount;
@@ -348,6 +376,7 @@
             Text = _filterText,
             ShopId = _filterShopId,
             Status = _filterStatus,
+            ProcessingProfile = _filterProfile,
         })).ToList();
 
     private bool? CandidateHeaderChecked
@@ -381,9 +410,10 @@
         _loading = true;
         try
         {
+            _allProfiles = (await ProfileService.ListAsync((int?)null)).ToList();
             if (_selectedShopId.HasValue)
             {
-                _profiles = (await ProfileService.ListAsync(_selectedShopId.Value)).ToList();
+                _profiles = _allProfiles.Where(p => p.ShopId == _selectedShopId.Value).ToList();
             }
             else
             {
@@ -415,12 +445,25 @@
     private void OnFilterShopChanged(int? shopId)
     {
         _filterShopId = shopId;
+        if (_filterProfile != "all" && _filterProfile != "none" && _filterProfile != "varies")
+        {
+            if (!AvailableFilterProfiles.Any(p => p.ReadinessStateId.ToString() == _filterProfile))
+            {
+                _filterProfile = "all";
+            }
+        }
         _previewRows = null;
     }
 
     private void OnFilterStatusChanged(string status)
     {
         _filterStatus = status;
+        _previewRows = null;
+    }
+
+    private void OnFilterProfileChanged(string profile)
+    {
+        _filterProfile = profile;
         _previewRows = null;
     }
 
@@ -436,6 +479,22 @@
         _previewRows = null;
     }
 
+    private readonly RangeSelection<int> _range = new();
+
+    private void HandleCandidateClick(int listingId, MouseEventArgs e)
+    {
+        var visible = _candidateSort.Apply(VisibleCandidates).Select(x => x.ListingId).ToList();
+        _range.HandleClick(listingId, e.ShiftKey, visible, _picked);
+        _previewRows = null;
+    }
+
+    private void ClearPicked()
+    {
+        _picked.Clear();
+        _range.Reset();
+        _previewRows = null;
+    }
+
     private void TogglePick(int listingId, bool picked)
     {
         if (picked) _picked.Add(listingId);
@@ -446,6 +505,7 @@
     private void SelectAllVisible()
     {
         foreach (var c in VisibleCandidates) _picked.Add(c.ListingId);
+        _range.Reset();
         _previewRows = null;
     }
 
@@ -461,6 +521,7 @@
         {
             foreach (var id in visibleIds) _picked.Add(id);
         }
+        _range.Reset();
         _previewRows = null;
     }
 
@@ -501,10 +562,12 @@
     private async Task PreviewBulkApplyAsync()
     {
         if (_applyProfileId is null || _picked.Count == 0) return;
+        var targetIds = _picked.Intersect(VisibleCandidates.Select(c => c.ListingId)).ToList();
+        if (targetIds.Count == 0) return;
         _busy = true;
         try
         {
-            _previewRows = await ProfileService.PreviewBulkApplyAsync(_applyProfileId.Value, _picked);
+            _previewRows = await ProfileService.PreviewBulkApplyAsync(_applyProfileId.Value, targetIds);
         }
         catch (Exception ex)
         {
@@ -519,11 +582,13 @@
     private async Task CommitEditsAsync()
     {
         if (_applyProfileId is null || _picked.Count == 0) return;
+        var targetIds = _picked.Intersect(VisibleCandidates.Select(c => c.ListingId)).ToList();
+        if (targetIds.Count == 0) return;
         _busy = true;
         try
         {
             var user = (await AuthState).User.Identity?.Name;
-            var changed = await ProfileService.ApplyAsync(_applyProfileId.Value, _picked, user);
+            var changed = await ProfileService.ApplyAsync(_applyProfileId.Value, targetIds, user);
             _savedCount = changed.Count;
             _savedListingIds = changed;
             _previewRows = null;

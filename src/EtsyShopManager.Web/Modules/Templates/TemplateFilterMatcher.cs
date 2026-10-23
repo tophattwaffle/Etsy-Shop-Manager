@@ -1,3 +1,5 @@
+using EtsyShopManager.Web.Modules.Listings;
+
 namespace EtsyShopManager.Web.Modules.Templates;
 
 /// <summary>
@@ -24,6 +26,7 @@ public sealed record TemplateListingFilter
     public string? Text { get; init; }
     public int? ShopId { get; init; }
     public string Status { get; init; } = "all";
+    public string? ProcessingProfile { get; init; }
 }
 
 /// <summary>
@@ -63,6 +66,38 @@ public static class TemplateFilterMatcher
 
             if (!matchesEtsyId && !matchesTitle && !matchesSku && !matchesTag)
                 return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.ProcessingProfile) && !string.Equals(filter.ProcessingProfile.Trim(), "all", StringComparison.OrdinalIgnoreCase))
+        {
+            if (item is not ProcessingProfileCandidate candidate)
+                return false;
+
+            var profileFilter = filter.ProcessingProfile.Trim();
+            if (string.Equals(profileFilter, "varies", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profileFilter, "Varies by variation", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!(candidate.VariesByVariation || string.Equals(candidate.CurrentProfileName, "Varies by variation", StringComparison.OrdinalIgnoreCase)))
+                    return false;
+            }
+            else if (string.Equals(profileFilter, "none", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(profileFilter, "No profile", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(profileFilter, "no_profile", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(profileFilter, "—", StringComparison.OrdinalIgnoreCase))
+            {
+                if (candidate.VariesByVariation || candidate.CurrentReadinessStateId != null)
+                    return false;
+            }
+            else if (long.TryParse(profileFilter, out var targetId))
+            {
+                if (candidate.VariesByVariation || (candidate.CurrentReadinessStateId != targetId && !string.Equals(candidate.CurrentProfileName, profileFilter, StringComparison.OrdinalIgnoreCase)))
+                    return false;
+            }
+            else
+            {
+                if (candidate.VariesByVariation || !string.Equals(candidate.CurrentProfileName, profileFilter, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
         }
 
         return true;

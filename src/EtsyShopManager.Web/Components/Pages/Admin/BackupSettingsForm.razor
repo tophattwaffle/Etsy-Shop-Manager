@@ -1,7 +1,9 @@
 @using EtsyShopManager.Core.Configuration
 @using EtsyShopManager.Core.Domain
 @using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Data
 @using EtsyShopManager.Web.Infrastructure.Backups
+@using Microsoft.EntityFrameworkCore
 @implements IDisposable
 @inject BackupService Backups
 @inject ISettingsStore Settings
@@ -10,6 +12,8 @@
 @inject IAuditLog Audit
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject TimeProvider Time
 
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Backups & export</MudText>
@@ -278,6 +282,41 @@
             await Settings.SetAsync(SettingKeys.BackupsRetentionDays, d.ToString(), updatedBy: user);
             await Settings.SetAsync(SettingKeys.BackupsMaxCount, c.ToString(), updatedBy: user);
             await Settings.SetAsync(SettingKeys.BackupsDirectory, dirValue, updatedBy: user);
+
+            var scheduleChanged = h != _savedScheduleHours;
+            await using (var db = await DbFactory.CreateDbContextAsync())
+            {
+                var state = await db.RecurringJobs.FindAsync(["Scheduled backup"]);
+                var interval = TimeSpan.FromHours(h);
+                var now = Time.GetUtcNow().UtcDateTime;
+                if (state is null)
+                {
+                    state = new RecurringJobState
+                    {
+                        Name = "Scheduled backup",
+                        LastEnqueuedAtUtc = now - interval + TimeSpan.FromHours(1)
+                    };
+                    db.RecurringJobs.Add(state);
+                }
+                else if (state.LastJobId is null)
+                {
+                    // Fresh install, never enqueued: maintain initial delay of 1 hour
+                    state.LastEnqueuedAtUtc = now - interval + TimeSpan.FromHours(1);
+                }
+                else if (scheduleChanged)
+                {
+                    // Previously run and interval was changed: leave LastEnqueuedAtUtc as actual last
+                    // run time so RecurringJobScheduler fires at lastEnqueued + newInterval.
+                    // Clamp to now if timestamp was somehow in the future.
+                    if (state.LastEnqueuedAtUtc > now)
+                    {
+                        state.LastEnqueuedAtUtc = now;
+                    }
+                }
+                // If schedule interval was not changed, state.LastEnqueuedAtUtc is left untouched.
+
+                await db.SaveChangesAsync();
+            }
 
             await Audit.WriteAsync("settings.backups", "Setting", "Backups",
                 $"Schedule: {h}h, Retention: {d}d, Max: {c}, Directory: {dirValue ?? "default"}", user);

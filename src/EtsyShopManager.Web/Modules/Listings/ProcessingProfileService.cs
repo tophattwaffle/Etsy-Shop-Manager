@@ -80,7 +80,8 @@ public sealed record ProcessingProfileCandidate(
     IReadOnlyList<string> Skus,
     IReadOnlyList<string> Tags,
     long? CurrentReadinessStateId,
-    string CurrentProfileName) : ITemplateListingItem;
+    string CurrentProfileName,
+    bool VariesByVariation = false) : ITemplateListingItem;
 
 /// <summary>
 /// Manages Etsy processing profiles (readiness state definitions): listing, creation, updates, and bulk application
@@ -95,24 +96,38 @@ public sealed class ProcessingProfileService(
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
-    public async Task<IReadOnlyList<ProcessingProfileItem>> ListAsync(int shopId, CancellationToken ct = default)
+    public Task<IReadOnlyList<ProcessingProfileItem>> ListAsync(int shopId, CancellationToken ct = default) =>
+        ListAsync((int?)shopId, ct);
+
+    public async Task<IReadOnlyList<ProcessingProfileItem>> ListAsync(int? shopId = null, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        var profiles = await db.ProcessingProfiles.AsNoTracking()
-            .Where(p => p.ShopId == shopId)
+        var query = db.ProcessingProfiles.AsNoTracking();
+        if (shopId.HasValue)
+            query = query.Where(p => p.ShopId == shopId.Value);
+
+        var profiles = await query
             .OrderBy(p => p.MinProcessingDays)
             .ThenBy(p => p.MaxProcessingDays)
             .ToListAsync(ct);
 
         // Deduplicated listing usage: count a listing at most once per profile it uses
-        var directListings = await db.Listings.AsNoTracking()
-            .Where(l => l.ShopId == shopId && !l.IsMissingOnEtsy && l.ReadinessStateId != null)
+        var directQuery = db.Listings.AsNoTracking()
+            .Where(l => !l.IsMissingOnEtsy && l.ReadinessStateId != null);
+        if (shopId.HasValue)
+            directQuery = directQuery.Where(l => l.ShopId == shopId.Value);
+
+        var directListings = await directQuery
             .Select(l => new { ListingId = l.Id, ReadinessStateId = l.ReadinessStateId!.Value })
             .ToListAsync(ct);
 
-        var offeringListings = await db.ListingOfferings.AsNoTracking()
-            .Where(o => o.Product.Listing.ShopId == shopId && !o.Product.Listing.IsMissingOnEtsy && o.ReadinessStateId != null)
+        var offeringQuery = db.ListingOfferings.AsNoTracking()
+            .Where(o => !o.Product.Listing.IsMissingOnEtsy && o.ReadinessStateId != null);
+        if (shopId.HasValue)
+            offeringQuery = offeringQuery.Where(o => o.Product.Listing.ShopId == shopId.Value);
+
+        var offeringListings = await offeringQuery
             .Select(o => new { ListingId = o.Product.ListingId, ReadinessStateId = o.ReadinessStateId!.Value })
             .ToListAsync(ct);
 
@@ -331,10 +346,44 @@ public sealed class ProcessingProfileService(
             if (!lookups.TryGetValue(l.ShopId, out var names))
                 lookups[l.ShopId] = names = await EditorLookups.LoadAsync(db, l.ShopId, [], l.CurrencyCode, ct);
 
-            var readyId = l.ReadinessStateId ?? l.Products.SelectMany(p => p.Offerings).Select(o => o.ReadinessStateId).FirstOrDefault(id => id != null);
-            var readyName = readyId.HasValue
-                ? names.ProcessingProfiles.GetValueOrDefault(readyId.Value, $"#{readyId.Value}")
-                : "—";
+            // Inspect active offerings across active products on each listing
+            var distinctOfferingIds = l.Products
+                .Where(p => !p.IsDeleted)
+                .SelectMany(p => p.Offerings.Where(o => !o.IsDeleted && o.ReadinessStateId != null))
+                .Select(o => o.ReadinessStateId!.Value)
+                .Distinct()
+                .ToList();
+
+            long? readyId;
+            string readyName;
+            bool varies;
+
+            if (distinctOfferingIds.Count > 1)
+            {
+                readyId = null;
+                readyName = "Varies by variation";
+                varies = true;
+            }
+            else if (distinctOfferingIds.Count == 1)
+            {
+                var singleId = distinctOfferingIds[0];
+                readyId = singleId;
+                readyName = names.ProcessingProfiles.GetValueOrDefault(singleId, $"#{singleId}");
+                varies = false;
+            }
+            else if (l.ReadinessStateId.HasValue)
+            {
+                var singleId = l.ReadinessStateId.Value;
+                readyId = singleId;
+                readyName = names.ProcessingProfiles.GetValueOrDefault(singleId, $"#{singleId}");
+                varies = false;
+            }
+            else
+            {
+                readyId = null;
+                readyName = "No profile";
+                varies = false;
+            }
 
             candidates.Add(new ProcessingProfileCandidate(
                 l.Id,
@@ -347,7 +396,8 @@ public sealed class ProcessingProfileService(
                 l.Skus ?? [],
                 l.Tags ?? [],
                 readyId,
-                readyName
+                readyName,
+                varies
             ));
         }
 

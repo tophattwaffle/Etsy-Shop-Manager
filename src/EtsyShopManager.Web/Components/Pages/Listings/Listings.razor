@@ -87,7 +87,7 @@
                             }
                             @if (_selected.Count > 0)
                             {
-                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _selected.Clear()">Clear selection</MudButton>
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ClearSelection">Clear selection</MudButton>
                             }
                         </span>
                     </div>
@@ -219,11 +219,12 @@
                             {
                                 @* While selecting, a click anywhere on the row (title included) ticks it instead of opening the listing. *@
                                 <tr style="@ShopStyle(row.ShopId)" class="@RowClass(row.Id)"
-                                    @onclick="@(() => { if (_selecting) Select(row.Id, !_selected.Contains(row.Id)); })">
+                                    @onclick="@((MouseEventArgs e) => { if (_selecting) HandleRowClick(row.Id, e); })">
                                     @if (_selecting)
                                     {
-                                        <td class="lp-list-check" @onclick:stopPropagation="true">
-                                            <MudCheckBox T="bool" Value="@_selected.Contains(row.Id)" ValueChanged="@(v => Select(row.Id, v))"
+                                        <td class="lp-list-check" @onclick:stopPropagation="true"
+                                            @onclick="@((MouseEventArgs e) => HandleRowClick(row.Id, e))">
+                                            <MudCheckBox T="bool" Value="@_selected.Contains(row.Id)"
                                                          Size="Size.Small" Dense="true" aria-label="@($"Select {row.Title}")" />
                                         </td>
                                     }
@@ -597,10 +598,25 @@
             Severity.Info);
     }
 
+    private readonly RangeSelection<int> _range = new();
+
     private void ToggleSelecting()
     {
         _selecting = !_selecting;
         if (!_selecting) (_bulkEnabled, _bulkThreshold, _bulkRefillTo, _bulkError) = (null, null, null, null);
+        _range.Reset();
+    }
+
+    private void HandleRowClick(int id, MouseEventArgs e)
+    {
+        var visible = (_rows ?? []).Select(r => r.Id).ToList();
+        _range.HandleClick(id, e.ShiftKey, visible, _selected);
+    }
+
+    private void ClearSelection()
+    {
+        _selected.Clear();
+        _range.Reset();
     }
 
     private void Select(int id, bool selected)
@@ -617,10 +633,14 @@
     private void SelectPage(bool selected)
     {
         foreach (var row in _rows ?? []) Select(row.Id, selected);
+        _range.Reset();
     }
 
-    private async Task SelectAllMatchingAsync() =>
+    private async Task SelectAllMatchingAsync()
+    {
         _selected.UnionWith(await Queries.SearchIdsAsync(CurrentFilter()));
+        _range.Reset();
+    }
 
     private static string BulkKindLabel(BulkEditKind? kind) => kind switch
     {

@@ -232,7 +232,9 @@ else
                         @foreach (var c in _candidateSort.Apply(VisibleCandidates))
                         {
                             <tr>
-                                <td><MudCheckBox T="bool" Value="@_picked.Contains(c.ListingId)" ValueChanged="@(on => Pick(c.ListingId, on))" aria-label="@($"Link {c.Title}")" Dense="true" Disabled="!_canEdit" /></td>
+                                <td @onclick="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))">
+                                    <MudCheckBox T="bool" Value="@_picked.Contains(c.ListingId)" aria-label="@($"Link {c.Title}")" Dense="true" Disabled="!_canEdit" />
+                                </td>
                                 <td><a href="@($"listings/{c.ListingId}")">@c.Title</a></td>
                                 <td>@c.ShopName</td>
                                 <td>@(c.HasPhoto ? "Yes" : "—")</td>
@@ -306,6 +308,15 @@ else
         }
     }
 
+    private readonly RangeSelection<int> _range = new();
+
+    private void HandleCandidateClick(int listingId, MouseEventArgs e)
+    {
+        if (!_canEdit) return;
+        var visible = _candidateSort.Apply(VisibleCandidates).Select(c => c.ListingId).ToList();
+        _range.HandleClick(listingId, e.ShiftKey, visible, _picked);
+    }
+
     private void TogglePickAllVisible()
     {
         var visible = VisibleCandidates.Select(c => c.ListingId).ToList();
@@ -315,6 +326,7 @@ else
             _picked.ExceptWith(visible);
         else
             _picked.UnionWith(visible);
+        _range.Reset();
     }
 
     private void OnFilterTextChanged(string? val) => _filterText = val;
@@ -381,6 +393,7 @@ else
             _uses = await Templates.UsesAsync(id);
             _candidates = await Templates.CandidatesAsync(id);
             _picked.Clear();
+            _range.Reset();
             _picked.UnionWith(_candidates.Where(c => c.HasPhoto).Select(c => c.ListingId));
         }
         _loaded = true;

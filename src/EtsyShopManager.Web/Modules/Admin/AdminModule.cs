@@ -21,6 +21,7 @@ public sealed class AdminModule : IModule
         {
             InitialDelay = TimeSpan.FromHours(1),
             IntervalSettingKey = SettingKeys.BackupsScheduleIntervalHours,
+            IntervalUnit = IntervalUnit.Hours,
             MinInterval = TimeSpan.FromHours(1),
         });
     }

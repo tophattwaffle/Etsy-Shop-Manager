@@ -113,10 +113,42 @@ public static class VariationEditor
     }
 
     /// <summary>
+    /// Checks whether a variation is linked to a variation template and locked against manual structural modifications.
+    /// </summary>
+    public static bool IsLocked(long propertyId, IEnumerable<VariationListLink>? links) =>
+        links?.Any(l => l.PropertyId == propertyId) == true;
+
+    /// <summary>
+    /// Checks whether a variation's property ID is in a set of locked property IDs.
+    /// </summary>
+    public static bool IsLocked(long propertyId, IEnumerable<long>? lockedPropertyIds) =>
+        lockedPropertyIds?.Contains(propertyId) == true;
+
+    /// <summary>
+    /// Asserts that a variation is not locked against manual structural modifications.
+    /// Throws <see cref="InvalidOperationException"/> if the property ID is found in <paramref name="lockedPropertyIds"/>.
+    /// </summary>
+    public static void AssertNotLocked(long propertyId, IEnumerable<long>? lockedPropertyIds)
+    {
+        if (lockedPropertyIds != null && lockedPropertyIds.Contains(propertyId))
+        {
+            throw new InvalidOperationException($"Variation {propertyId} is linked to a variation template and its structure is locked.");
+        }
+    }
+
+    /// <summary>
+    /// Asserts that a variation is not locked against manual structural modifications.
+    /// Throws <see cref="InvalidOperationException"/> if the property ID is linked in <paramref name="links"/>.
+    /// </summary>
+    public static void AssertNotLocked(long propertyId, IEnumerable<VariationListLink>? links) =>
+        AssertNotLocked(propertyId, links?.Select(l => l.PropertyId));
+
+    /// <summary>
     /// Reorders the values of a variation, updating value_order and sorting products in grid order.
     /// </summary>
-    public static JsonObject ReorderValues(JsonNode inventory, long propertyId, IReadOnlyList<string> newOrder)
+    public static JsonObject ReorderValues(JsonNode inventory, long propertyId, IReadOnlyList<string> newOrder, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var variation = Find(inv, propertyId);
         var currentValues = variation.Values;
@@ -137,8 +169,12 @@ public static class VariationEditor
         return Canonical(inv);
     }
 
-    public static JsonObject AddValue(JsonNode inventory, long propertyId, string value, string? skuPattern = null, string? baseSku = null)
+    public static JsonObject ReorderValues(JsonNode inventory, long propertyId, IReadOnlyList<string> newOrder, IEnumerable<VariationListLink>? links) =>
+        ReorderValues(inventory, propertyId, newOrder, links?.Select(l => l.PropertyId));
+
+    public static JsonObject AddValue(JsonNode inventory, long propertyId, string value, string? skuPattern = null, string? baseSku = null, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var text = Clean(value, "The value");
         var variation = Find(inv, propertyId);
@@ -186,6 +222,9 @@ public static class VariationEditor
         }
         return Canonical(inv);
     }
+
+    public static JsonObject AddValue(JsonNode inventory, long propertyId, string value, IEnumerable<VariationListLink>? links) =>
+        AddValue(inventory, propertyId, value, null, null, links?.Select(l => l.PropertyId));
 
     /// <summary>
     /// Applies pricing to newly added options on a listing when price varies by that variation.
@@ -244,8 +283,9 @@ public static class VariationEditor
             .Order()];
     }
 
-    public static JsonObject RemoveValue(JsonNode inventory, long propertyId, string value)
+    public static JsonObject RemoveValue(JsonNode inventory, long propertyId, string value, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var variation = Find(inv, propertyId);
         if (!variation.Values.Contains(value, StringComparer.Ordinal))
@@ -261,8 +301,12 @@ public static class VariationEditor
         return Canonical(inv);
     }
 
-    public static JsonObject RenameValue(JsonNode inventory, long propertyId, string value, string newValue)
+    public static JsonObject RemoveValue(JsonNode inventory, long propertyId, string value, IEnumerable<VariationListLink>? links) =>
+        RemoveValue(inventory, propertyId, value, links?.Select(l => l.PropertyId));
+
+    public static JsonObject RenameValue(JsonNode inventory, long propertyId, string value, string newValue, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var variation = Find(inv, propertyId);
         var text = Clean(newValue, "The value");
@@ -288,6 +332,9 @@ public static class VariationEditor
         }
         return Canonical(inv);
     }
+
+    public static JsonObject RenameValue(JsonNode inventory, long propertyId, string value, string newValue, IEnumerable<VariationListLink>? links) =>
+        RenameValue(inventory, propertyId, value, newValue, links?.Select(l => l.PropertyId));
 
     /// <summary>Adds a variation (an Etsy custom one) with its values; every existing combination gets each value.</summary>
     public static JsonObject AddVariation(JsonNode inventory, string name, IEnumerable<string> values)
@@ -333,8 +380,9 @@ public static class VariationEditor
     /// Removes a variation: each remaining combination keeps the first of the products it merges (its price, processing,
     /// availability and SKU), and nothing varies by the removed variation any more.
     /// </summary>
-    public static JsonObject RemoveVariation(JsonNode inventory, long propertyId)
+    public static JsonObject RemoveVariation(JsonNode inventory, long propertyId, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         Find(inv, propertyId);
         var kept = Products(inv).GroupBy(p => OtherKey(p, propertyId)).Select(g => g.First()).ToList();
@@ -353,8 +401,12 @@ public static class VariationEditor
         return Canonical(inv);
     }
 
-    public static JsonObject RenameVariation(JsonNode inventory, long propertyId, string name)
+    public static JsonObject RemoveVariation(JsonNode inventory, long propertyId, IEnumerable<VariationListLink>? links) =>
+        RemoveVariation(inventory, propertyId, links?.Select(l => l.PropertyId));
+
+    public static JsonObject RenameVariation(JsonNode inventory, long propertyId, string name, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var variation = Find(inv, propertyId);
         if (!variation.IsCustom) throw new ArgumentException($"{Label(variation)} is one of Etsy's own variations; its name can't be changed.");
@@ -365,6 +417,9 @@ public static class VariationEditor
             pv["property_name"] = label;
         return Canonical(inv);
     }
+
+    public static JsonObject RenameVariation(JsonNode inventory, long propertyId, string name, IEnumerable<VariationListLink>? links) =>
+        RenameVariation(inventory, propertyId, name, links?.Select(l => l.PropertyId));
 
     /// <summary>
     /// Sets whether the price (<see cref="PriceOnProperty"/>) or processing (<see cref="ProcessingOnProperty"/>) varies
