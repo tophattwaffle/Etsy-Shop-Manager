@@ -63,6 +63,8 @@ public sealed class SettingsStore(
 
     public async Task<bool> HasValueAsync(string key, CancellationToken ct = default) =>
         !string.IsNullOrEmpty(await GetAsync(key, ct));
+
+    public void ClearCache() => _cache.Clear();
 }
 
 /// <summary>Reads the Etsy keystring and shared secret from settings.</summary>

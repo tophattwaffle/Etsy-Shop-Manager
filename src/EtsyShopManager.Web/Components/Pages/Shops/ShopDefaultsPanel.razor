@@ -1,0 +1,164 @@
+@namespace EtsyShopManager.Web.Components.Pages
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Shops
+@using Microsoft.EntityFrameworkCore
+@inject ShopService Shops
+@inject ShopAccentService Accents
+@inject ShopDefaultsService DefaultsService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ISnackbar Snackbar
+
+@* Per-shop default profiles (shipping, processing, returns, section), pre-filled when creating new listings
+   or cloning across shops. *@
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Shop defaults</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Default shipping profile, processing profile, return policy and section pre-filled when creating a new listing
+        or cloning across shops.
+    </MudText>
+
+    @if (_shops is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_shops.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">Connect a shop to configure its defaults.</MudText>
+    }
+    else
+    {
+        <div class="esm-shop-colors">
+            @foreach (var s in _shops)
+            {
+                var color = _accents.GetValueOrDefault(s.Id);
+                var row = _rows.GetValueOrDefault(s.Id);
+                var lookups = _lookups.GetValueOrDefault(s.Id);
+
+                <div class="esm-shop-default-card pa-3 mb-3 esm-paper-box" style="@($"--shop: {color ?? "var(--esm-line)"}")">
+                    <div class="d-flex align-center gap-2 mb-3">
+                        <span class="lp-shopmark">
+                            @if (s.IconUrl is { Length: > 0 })
+                            {
+                                <img src="@ShopIconCache.UrlFor(s.Id)" alt="" />
+                            }
+                            else
+                            {
+                                @s.Name[..1].ToUpperInvariant()
+                            }
+                        </span>
+                        <div class="esm-shop-color-name">@s.Name</div>
+                    </div>
+
+                    @if (row is not null && lookups is not null)
+                    {
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6" md="3">
+                                <MudSelect T="long?" Value="row.Current.ShippingProfileId"
+                                           ValueChanged="v => OnChanged(s.Id, row.Current with { ShippingProfileId = v })"
+                                           Label="Default shipping" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                    <MudSelectItem T="long?" Value="@((long?)null)">None</MudSelectItem>
+                                    @foreach (var (id, name) in lookups.ShippingProfiles)
+                                    {
+                                        <MudSelectItem T="long?" Value="@((long?)id)">@name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" sm="6" md="3">
+                                <MudSelect T="long?" Value="row.Current.ReadinessStateId"
+                                           ValueChanged="v => OnChanged(s.Id, row.Current with { ReadinessStateId = v })"
+                                           Label="Default processing" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                    <MudSelectItem T="long?" Value="@((long?)null)">None</MudSelectItem>
+                                    @foreach (var (id, name) in lookups.ProcessingProfiles)
+                                    {
+                                        <MudSelectItem T="long?" Value="@((long?)id)">@name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" sm="6" md="3">
+                                <MudSelect T="long?" Value="row.Current.ReturnPolicyId"
+                                           ValueChanged="v => OnChanged(s.Id, row.Current with { ReturnPolicyId = v })"
+                                           Label="Default return policy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                    <MudSelectItem T="long?" Value="@((long?)null)">None</MudSelectItem>
+                                    @foreach (var (id, name) in lookups.ReturnPolicies)
+                                    {
+                                        <MudSelectItem T="long?" Value="@((long?)id)">@name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" sm="6" md="3">
+                                <MudSelect T="long?" Value="row.Current.ShopSectionId"
+                                           ValueChanged="v => OnChanged(s.Id, row.Current with { ShopSectionId = v })"
+                                           Label="Default shop section" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                    <MudSelectItem T="long?" Value="@((long?)null)">None</MudSelectItem>
+                                    @foreach (var (id, name) in lookups.Sections)
+                                    {
+                                        <MudSelectItem T="long?" Value="@((long?)id)">@name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                        </MudGrid>
+
+                        <AuthorizeView Roles="@Roles.Admin" Context="auth">
+                            <div class="mt-2 d-flex justify-end">
+                                <SaveButtons Size="Size.Small" Text="Save defaults" Changed="row.IsDirty"
+                                             OnSave="() => SaveAsync(s, row)" OnCancel="() => Revert(row)" />
+                            </div>
+                        </AuthorizeView>
+                    }
+                </div>
+            }
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<ShopSummary>? _shops;
+    private Dictionary<int, string> _accents = [];
+    private readonly Dictionary<int, DefaultRowState> _rows = [];
+    private readonly Dictionary<int, EditorLookups> _lookups = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _shops = (await Shops.ListAsync(includeInactive: false)).ToList();
+        _accents = await Accents.GetEffectiveAsync(_shops.Select(s => s.Id));
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        foreach (var s in _shops)
+        {
+            var def = await DefaultsService.GetAsync(s.Id) ?? new ShopDefaults(null, null, null, null);
+            _rows[s.Id] = new DefaultRowState(def);
+            _lookups[s.Id] = await EditorLookups.LoadAsync(db, s.Id, [], null);
+        }
+    }
+
+    private void OnChanged(int shopId, ShopDefaults updated)
+    {
+        if (_rows.TryGetValue(shopId, out var row))
+        {
+            row.Current = updated;
+        }
+    }
+
+    private void Revert(DefaultRowState row)
+    {
+        row.Current = row.Saved;
+    }
+
+    private async Task SaveAsync(ShopSummary shop, DefaultRowState row)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        await DefaultsService.SaveAsync(shop.Id, row.Current, user);
+        row.Saved = row.Current;
+        Snackbar.Add($"Saved defaults for {shop.Name}", Severity.Success);
+    }
+
+    private sealed class DefaultRowState(ShopDefaults initial)
+    {
+        public ShopDefaults Current { get; set; } = initial;
+        public ShopDefaults Saved { get; set; } = initial;
+        public bool IsDirty => Current != Saved;
+    }
+}

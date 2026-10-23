@@ -29,13 +29,16 @@ public enum PhotoTemplateUseStatus
 /// <param name="Uploads">Per template id, the template image added as a new photo.</param>
 public sealed record PhotoTemplatePlan(JsonArray Images, IReadOnlyDictionary<int, string> Changes, IReadOnlyDictionary<int, string> Uploads, bool TooMany);
 
-public sealed record PhotoTemplateUse(int ListingId, string Title, string ShopName, PhotoTemplateUseStatus Status, string? Change, bool PhotosPending);
+public sealed record PhotoTemplateUse(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
+    PhotoTemplateUseStatus Status, string? Change, bool PhotosPending) : ITemplateListingItem;
 
 public sealed record PhotoTemplateSummary(int Id, string Name, string FileName, int RankFromEnd, int Listings, int WithChanges, int NeedAttention,
     DateTime UpdatedAtUtc);
 
 /// <param name="HasPhoto">The listing already has a photo with the template's alt text (it becomes the template's photo when linked).</param>
-public sealed record PhotoTemplateCandidate(int ListingId, string Title, string ShopName, bool HasPhoto);
+public sealed record PhotoTemplateCandidate(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags, bool HasPhoto) : ITemplateListingItem;
 
 /// <summary>
 /// Photo templates (Phase 4, photo templates). A template is one image with fixed alt text and a position counted from the
@@ -194,7 +197,8 @@ public sealed class PhotoTemplateService(IDbContextFactory<AppDbContext> dbFacto
                     ? local.Any(p => (string?)p!["file_name"] == mine.Template.FileName) ? PhotoTemplateUseStatus.WaitingForPush : PhotoTemplateUseStatus.UpToDate
                     : plan.TooMany ? PhotoTemplateUseStatus.TooManyPhotos : PhotoTemplateUseStatus.HasChanges;
             }
-            result.Add(new PhotoTemplateUse(listing.Id, listing.Title, listing.Shop.Name, status, change, pending));
+            result.Add(new PhotoTemplateUse(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId,
+                listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, status, change, pending));
         }
         return [.. result.OrderBy(u => u.Status == PhotoTemplateUseStatus.UpToDate).ThenBy(u => u.Title, StringComparer.OrdinalIgnoreCase)];
     }
@@ -219,8 +223,9 @@ public sealed class PhotoTemplateService(IDbContextFactory<AppDbContext> dbFacto
         if (template is null) return [];
         var linked = await db.ListingPhotoTemplates.Where(l => l.PhotoTemplateId == templateId).Select(l => l.ListingId).ToListAsync(ct);
         var listings = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Shop)
-            .Where(l => !linked.Contains(l.Id) && l.EtsyState != null && !l.IsMissingOnEtsy).ToListAsync(ct);
-        return [.. listings.Select(l => new PhotoTemplateCandidate(l.Id, l.Title, l.Shop.Name, HasPhoto(l, template.AltText)))
+            .Where(l => !linked.Contains(l.Id) && l.EtsyState != null).ToListAsync(ct);
+        return [.. listings.Select(l => new PhotoTemplateCandidate(l.Id, l.Title, l.ShopId, l.Shop.Name, l.EtsyListingId,
+                l.State, l.IsMissingOnEtsy, l.Skus, l.Tags, HasPhoto(l, template.AltText)))
             .OrderByDescending(c => c.HasPhoto).ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase)];
     }
 

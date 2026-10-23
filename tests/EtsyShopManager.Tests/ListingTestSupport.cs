@@ -94,10 +94,40 @@ internal sealed class FakeEtsyShop : IDisposable
 
     public RecordingPublisher Events { get; } = new();
 
+    /// <summary>Readiness state definitions (processing profiles) per shop.</summary>
+    public Dictionary<long, List<JsonObject>> ProcessingProfilesByShop { get; } = [];
+
+    /// <summary>Convenience accessor for the default shop's processing profiles.</summary>
+    public List<JsonObject> ProcessingProfiles => ProcessingProfilesFor(EtsyShopId);
+
+    /// <summary>Gets or initializes the mutable processing profiles list for a given Etsy shop.</summary>
+    public List<JsonObject> ProcessingProfilesFor(long etsyShopId)
+    {
+        if (!ProcessingProfilesByShop.TryGetValue(etsyShopId, out var list))
+        {
+            list = etsyShopId == EtsyShopId
+                ? [
+                    new JsonObject
+                    {
+                        ["readiness_state_id"] = 601L,
+                        ["readiness_state"] = "made_to_order",
+                        ["min_processing_days"] = 1,
+                        ["max_processing_days"] = 3,
+                        ["processing_days_display_label"] = "1-3 days",
+                    }
+                  ]
+                : [];
+            ProcessingProfilesByShop[etsyShopId] = list;
+        }
+        return list;
+    }
+
     public ListingImporter Importer => Provider.GetRequiredService<ListingImporter>();
     public ImageDownloader Downloader => Provider.GetRequiredService<ImageDownloader>();
     public TaxonomyImporter Taxonomy => Provider.GetRequiredService<TaxonomyImporter>();
     public ImageStore Store => Provider.GetRequiredService<ImageStore>();
+    public EtsyShopManager.Web.Infrastructure.Storage.VideoStore VideoStore => Provider.GetRequiredService<EtsyShopManager.Web.Infrastructure.Storage.VideoStore>();
+    public EtsyShopManager.Web.Modules.Listings.ProcessingProfileService ProcessingProfilesService => Provider.GetRequiredService<EtsyShopManager.Web.Modules.Listings.ProcessingProfileService>();
 
     public FakeEtsyShop()
     {
@@ -130,6 +160,7 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddHttpClient(EtsyOAuthClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Api);
         services.AddHttpClient(EtsyServiceCollectionExtensions.EtsyImageClientName).ConfigurePrimaryHttpMessageHandler(() => Cdn);
         services.AddSingleton<ImageStore>();
+        services.AddSingleton<EtsyShopManager.Web.Infrastructure.Storage.VideoStore>();
         services.AddSingleton<ListingImporter>();
         services.AddSingleton<ListingImportQueue>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Templates.TextBlockService>();
@@ -149,11 +180,10 @@ internal sealed class FakeEtsyShop : IDisposable
         services.AddSingleton<EtsyShopManager.Web.Modules.Stock.StockRefiller>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Stock.RefillQueue>();
         services.AddTransient<EtsyShopManager.Web.Modules.Editor.PushListingJob>();
-        services.AddSingleton<EtsyShopManager.Web.Modules.Editor.PhotoOrderTester>();
-        services.AddTransient<EtsyShopManager.Web.Modules.Editor.PhotoOrderTestJob>();
         services.AddSingleton<EtsyShopManager.Core.Services.ISettingsStore, InMemorySettings>();
         services.AddSingleton<EtsyShopManager.Web.Modules.Editor.ListingCloner>();
         services.AddTransient<EtsyShopManager.Web.Modules.Editor.ListingCloneJob>();
+        services.AddSingleton<EtsyShopManager.Web.Modules.Listings.ProcessingProfileService>();
         Provider = services.BuildServiceProvider();
 
         using var db = Db.CreateDbContext();
@@ -230,6 +260,16 @@ internal sealed class FakeEtsyShop : IDisposable
         ["full_width"] = 2000,
         ["full_height"] = 1500,
         ["alt_text"] = $"Photo {rank}",
+    };
+
+    public static JsonObject Video(long listingId, long videoId, string state = "active") => new()
+    {
+        ["video_id"] = videoId,
+        ["height"] = 1080,
+        ["width"] = 1920,
+        ["thumbnail_url"] = $"https://i.etsystatic.com/video/{videoId}/thumb.jpg",
+        ["video_url"] = $"https://v.etsystatic.com/video/{videoId}/video.mp4",
+        ["video_state"] = state,
     };
 
     public static JsonObject Inventory(long listingId, int quantity) => new()
@@ -337,6 +377,12 @@ internal sealed class FakeEtsyShop : IDisposable
             return Page([]);
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/images"))
             return Page(ShownImages(long.Parse(parts[3])).Select(n => (JsonObject)n!.DeepClone()));
+        if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/videos"))
+        {
+            var listId = long.Parse(parts[3]);
+            var listing = Listings.FirstOrDefault(l => (long)l["listing_id"]! == listId);
+            return Page(listing?["videos"]?.AsArray().Select(v => (JsonObject)v!.DeepClone()) ?? []);
+        }
         if (path.StartsWith("/v3/application/listings/") && path.EndsWith("/inventory"))
             return Json(Inventory(long.Parse(parts[3]), 5));
 
@@ -348,11 +394,8 @@ internal sealed class FakeEtsyShop : IDisposable
                 ["is_deleted"] = false, ["shipping_profile_destinations"] = new JsonArray(new JsonObject()),
                 ["shipping_profile_upgrades"] = new JsonArray(),
             }]),
-            _ when path == $"{shop}/readiness-state-definitions" => Page([new JsonObject
-            {
-                ["readiness_state_id"] = 601, ["readiness_state"] = "made_to_order", ["min_processing_days"] = 1,
-                ["max_processing_days"] = 3, ["processing_days_display_label"] = "1-3 days",
-            }]),
+            _ when parts.Length == 5 && parts[2] == "shops" && parts[4] == "readiness-state-definitions" && long.TryParse(parts[3], out var rShopId) => Page(ProcessingProfilesFor(rShopId)),
+            _ when path == $"{shop}/readiness-state-definitions" => Page(ProcessingProfilesFor(EtsyShopId)),
             _ when path == $"{shop}/policies/return" => Page([new JsonObject
             {
                 ["return_policy_id"] = 701, ["accepts_returns"] = true, ["accepts_exchanges"] = false, ["return_deadline"] = 30,
@@ -382,8 +425,16 @@ internal sealed class FakeEtsyShop : IDisposable
 
     private static HttpResponseMessage RespondCdn(HttpRequestMessage req)
     {
+        var path = req.RequestUri!.AbsolutePath;
+        if (path.EndsWith(".mp4") || path.Contains("video"))
+        {
+            var videoBytes = System.Text.Encoding.UTF8.GetBytes("MP4:" + path);
+            var videoResponse = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(videoBytes) };
+            videoResponse.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("video/mp4");
+            return videoResponse;
+        }
         // Distinct bytes per URL, so each image gets its own content hash.
-        var bytes = System.Text.Encoding.UTF8.GetBytes("JPEG:" + req.RequestUri!.AbsolutePath);
+        var bytes = System.Text.Encoding.UTF8.GetBytes("JPEG:" + path);
         var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
         response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/jpeg");
         return response;
@@ -449,6 +500,8 @@ internal sealed class FakeEtsyShop : IDisposable
             var listing = (JsonObject)ListingJson(getId).DeepClone();
             listing.Remove("inventory");
             listing["images"] = new JsonArray([.. ShownImages(getId).Select(n => n!.DeepClone())]);
+            if (ListingJson(getId)["videos"] is JsonArray vArr)
+                listing["videos"] = (JsonArray)vArr.DeepClone();
             return Json(listing);
         }
         // POST /v3/application/shops/42/listings/{id}/images (uploadListingImage), as measured on Etsy (2026-10-17, three
@@ -501,6 +554,102 @@ internal sealed class FakeEtsyShop : IDisposable
             listing["images"] = new JsonArray([.. images]);
             return new HttpResponseMessage(HttpStatusCode.NoContent);
         }
+        // POST /v3/application/shops/42/listings/{id}/videos (uploadListingVideo)
+        if (req.Method == HttpMethod.Post && parts.Length == 7 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "videos")
+        {
+            var multipart = (MultipartFormDataContent)req.Content!;
+            var file = multipart.FirstOrDefault(p => p.Headers.ContentDisposition?.FileName is not null);
+            var fileName = file?.Headers.ContentDisposition?.FileName?.Trim('"') ?? "video.mp4";
+            var fileBytes = file?.ReadAsByteArrayAsync().Result ?? [];
+            Writes.Add(("POST", path, $"video=<file {fileName}, {fileBytes.Length} bytes>"));
+            if (FailWritesWith is { } status) return Failure(status);
+
+            var listingId = long.Parse(parts[5]);
+            var listing = ListingJson(listingId);
+            var videoId = ++_nextEtsyId;
+            var videoObj = Video(listingId, videoId);
+            var videos = listing["videos"] as JsonArray ?? [];
+            videos.Add(videoObj);
+            listing["videos"] = videos;
+            return ScriptedHandler.Json(HttpStatusCode.Created, videoObj.ToJsonString());
+        }
+        // DELETE /v3/application/shops/42/listings/{id}/videos/{videoId} (deleteListingVideo)
+        if (req.Method == HttpMethod.Delete && parts.Length == 8 && parts[2] == "shops" && parts[4] == "listings" && parts[6] == "videos")
+        {
+            Writes.Add(("DELETE", path, ""));
+            if (FailWritesWith is { } status) return new HttpResponseMessage(status);
+            var listingId = long.Parse(parts[5]);
+            var videoId = long.Parse(parts[7]);
+            var listing = ListingJson(listingId);
+            if (listing["videos"] is JsonArray vArr)
+            {
+                var remaining = vArr.Where(v => (long)v!["video_id"]! != videoId).Select(v => v!.DeepClone()).ToArray();
+                listing["videos"] = new JsonArray(remaining);
+            }
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        }
+        // POST /v3/application/shops/{shopId}/readiness-state-definitions (CreateProcessingProfile)
+        if (req.Method == HttpMethod.Post && parts.Length == 5 && parts[2] == "shops" && parts[4] == "readiness-state-definitions")
+        {
+            var body = req.Content!.ReadAsStringAsync().Result;
+            Writes.Add(("POST", path, body));
+            if (FailWritesWith is { } status) return Failure(status);
+
+            var form = System.Web.HttpUtility.ParseQueryString(body);
+            var shopId = long.Parse(parts[3]);
+            var minTime = int.Parse(form["min_processing_time"] ?? "1");
+            var maxTime = int.Parse(form["max_processing_time"] ?? "3");
+            var unit = form["processing_time_unit"] ?? "days";
+            var state = form["readiness_state"] ?? "made_to_order";
+            var minDays = unit == "weeks" ? minTime * 7 : minTime;
+            var maxDays = unit == "weeks" ? maxTime * 7 : maxTime;
+            var label = unit == "weeks"
+                ? (minTime == maxTime ? $"{minTime} week" : $"{minTime}-{maxTime} weeks")
+                : (minTime == maxTime ? $"{minTime} business day" : $"{minTime}-{maxTime} business days");
+
+            var profile = new JsonObject
+            {
+                ["readiness_state_id"] = ++_nextEtsyId,
+                ["readiness_state"] = state,
+                ["min_processing_days"] = minDays,
+                ["max_processing_days"] = maxDays,
+                ["processing_days_display_label"] = label,
+            };
+
+            ProcessingProfilesFor(shopId).Add(profile);
+            return ScriptedHandler.Json(HttpStatusCode.Created, profile.ToJsonString());
+        }
+
+        // PUT /v3/application/shops/{shopId}/readiness-state-definitions/{id} (UpdateProcessingProfile)
+        if (req.Method == HttpMethod.Put && parts.Length == 6 && parts[2] == "shops" && parts[4] == "readiness-state-definitions"
+            && long.TryParse(parts[5], out var profileId))
+        {
+            var body = req.Content!.ReadAsStringAsync().Result;
+            Writes.Add(("PUT", path, body));
+            if (FailWritesWith is { } status) return Failure(status);
+
+            var form = System.Web.HttpUtility.ParseQueryString(body);
+            var shopId = long.Parse(parts[3]);
+            var profile = ProcessingProfilesFor(shopId).FirstOrDefault(p => long.Parse(p["readiness_state_id"]!.ToString()) == profileId);
+            if (profile is null) return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            var minTime = form["min_processing_time"] is { } minStr ? int.Parse(minStr) : int.Parse(profile["min_processing_days"]!.ToString());
+            var maxTime = form["max_processing_time"] is { } maxStr ? int.Parse(maxStr) : int.Parse(profile["max_processing_days"]!.ToString());
+            var unit = form["processing_time_unit"] ?? "days";
+            var minDays = unit == "weeks" ? minTime * 7 : minTime;
+            var maxDays = unit == "weeks" ? maxTime * 7 : maxTime;
+            var label = unit == "weeks"
+                ? (minTime == maxTime ? $"{minTime} week" : $"{minTime}-{maxTime} weeks")
+                : (minTime == maxTime ? $"{minTime} business day" : $"{minTime}-{maxTime} business days");
+
+            if (form["readiness_state"] is { } state) profile["readiness_state"] = state;
+            profile["min_processing_days"] = minDays;
+            profile["max_processing_days"] = maxDays;
+            profile["processing_days_display_label"] = label;
+
+            return ScriptedHandler.Json(HttpStatusCode.OK, profile.ToJsonString());
+        }
+
         // PATCH /v3/application/shops/42/listings/{id}
         // POST /v3/application/shops/{shopId}/listings (createDraftListing): a new draft with one product.
         if (req.Method == HttpMethod.Post && parts.Length == 5 && parts[2] == "shops" && parts[4] == "listings")
@@ -514,6 +663,7 @@ internal sealed class FakeEtsyShop : IDisposable
             var draft = Listing(id, form["title"]!, state: "draft", quantity: int.Parse(form["quantity"]!), withImages: false, withInventory: false);
             draft["shop_id"] = long.Parse(parts[3]);
             draft["images"] = new JsonArray();
+            draft["videos"] = new JsonArray();
             draft["price"] = Money(price);
             draft["inventory"] = new JsonObject
             {

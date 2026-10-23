@@ -1,0 +1,40 @@
+@namespace EtsyShopManager.Web.Components.Shared
+
+<span class="mud-checkbox mud-input-content-placement-end @(Disabled ? "mud-disabled" : "")"
+      @onclick="OnClick" @onclick:stopPropagation="true">
+    <span class="mud-button-root mud-icon-button @(Disabled ? "mud-disabled" : (Value ? "mud-primary-text" : "mud-default-text")) hover:mud-default-hover mud-checkbox-dense mud-ripple mud-ripple-checkbox @(Value ? "mud-checkbox-true" : "mud-checkbox-false")">
+        <input type="checkbox"
+               class="mud-checkbox-input"
+               checked="@Value"
+               disabled="@Disabled"
+               aria-label="@AriaLabel"
+               tabindex="0" />
+        <svg class="mud-icon-root mud-svg-icon mud-icon-size-medium" focusable="false" viewBox="0 0 24 24" aria-hidden="true" role="img">
+            <path d="M0 0h24v24H0z" fill="none"></path>
+            @if (Value)
+            {
+                <path d="M19 3H5c-1.11 0-2-.9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"></path>
+            }
+            else
+            {
+                <path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"></path>
+            }
+        </svg>
+    </span>
+</span>
+
+@code {
+    [Parameter] public bool Value { get; set; }
+    [Parameter] public EventCallback<MouseEventArgs> Clicked { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private async Task OnClick(MouseEventArgs e)
+    {
+        if (Disabled) return;
+        if (Clicked.HasDelegate)
+        {
+            await Clicked.InvokeAsync(e);
+        }
+    }
+}

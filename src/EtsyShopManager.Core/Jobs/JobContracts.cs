@@ -64,6 +64,13 @@ public static class JobJson
 public sealed class JobPermanentFailureException(string message, Exception? inner = null)
     : Exception(message, inner);
 
+/// <summary>Unit used when parsing recurring job interval settings.</summary>
+public enum IntervalUnit
+{
+    Seconds,
+    Hours,
+}
+
 /// <summary>A job enqueued on a fixed interval by the recurring scheduler.</summary>
 public sealed record RecurringJobDefinition(string Name, string JobType, TimeSpan Interval)
 {
@@ -73,18 +80,36 @@ public sealed record RecurringJobDefinition(string Name, string JobType, TimeSpa
     public TimeSpan InitialDelay { get; init; } = TimeSpan.FromMinutes(1);
 
     /// <summary>
-    /// Optional app setting (whole seconds) that overrides <see cref="Interval"/>, so it can be changed in the UI
+    /// Optional app setting that overrides <see cref="Interval"/>, so it can be changed in the UI
     /// without a restart. Values below <see cref="MinInterval"/> are raised to it.
     /// </summary>
     public string? IntervalSettingKey { get; init; }
 
     public TimeSpan MinInterval { get; init; } = TimeSpan.FromSeconds(30);
 
+    public IntervalUnit IntervalUnit { get; init; } = IntervalUnit.Seconds;
+
     /// <summary>The interval to use, given the current value of <see cref="IntervalSettingKey"/> (if any).</summary>
-    public TimeSpan EffectiveInterval(string? settingValue) =>
-        int.TryParse(settingValue, out var seconds) && seconds > 0
-            ? TimeSpan.FromSeconds(Math.Max(seconds, MinInterval.TotalSeconds))
-            : Interval;
+    public TimeSpan EffectiveInterval(string? settingValue)
+    {
+        if (!int.TryParse(settingValue, out var units) || units <= 0)
+            return Interval;
+
+        var unit = IntervalUnit;
+        if (unit == IntervalUnit.Seconds && IntervalSettingKey is not null &&
+            IntervalSettingKey.EndsWith("Hours", StringComparison.OrdinalIgnoreCase))
+        {
+            unit = IntervalUnit.Hours;
+        }
+
+        var duration = unit switch
+        {
+            IntervalUnit.Hours => TimeSpan.FromHours(units),
+            _ => TimeSpan.FromSeconds(units),
+        };
+
+        return duration < MinInterval ? MinInterval : duration;
+    }
 }
 
 /// <summary>Wakes the job processor when new work is enqueued.</summary>

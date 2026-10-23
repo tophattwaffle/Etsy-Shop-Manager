@@ -9,6 +9,8 @@ using EtsyShopManager.Data;
 using EtsyShopManager.Etsy;
 using EtsyShopManager.Etsy.Models;
 using EtsyShopManager.Web.Modules.Listings;
+using EtsyShopManager.Web.Modules.Shops;
+using EtsyShopManager.Web.Modules.Templates;
 using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Modules.Editor;
@@ -33,8 +35,10 @@ public sealed record ClonePayload(int CloneId);
 /// order with alt text. Nothing is activated; Etsy charges its listing fee only when the draft is published.
 /// </summary>
 public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, ImageStore images, IJobQueue jobs, ISettingsStore settings,
-    IAuditLog audit, TimeProvider time)
+    IAuditLog audit, TimeProvider time, ShopDefaultsService? defaultsService = null, Infrastructure.Storage.VideoStore? videoStore = null)
 {
+    private readonly ShopDefaultsService _defaults = defaultsService ?? new ShopDefaultsService(settings, audit);
+
     public static string LastChoiceKey(int shopId) => $"Clone.LastChoice.{shopId}";
 
     /// <summary>What the clone dialog starts with for a target shop.</summary>
@@ -46,17 +50,24 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
         if (source.ShopId == targetShopId)
             return new CloneSettings(targetShopId, Title(local), (long?)local["shipping_profile_id"], ListingReadiness(source, local),
                 (long?)local["return_policy_id"], (long?)local["shop_section_id"]);
+
+        var defaults = await _defaults.GetAsync(targetShopId, ct);
         var last = await settings.GetAsync(LastChoiceKey(targetShopId), ct) is { } json
             ? JsonSerializer.Deserialize<CloneSettings>(json) : null;
-        return new CloneSettings(targetShopId, Title(local), last?.ShippingProfileId, last?.ReadinessStateId, last?.ReturnPolicyId,
-            last?.ShopSectionId);
+        return new CloneSettings(
+            targetShopId,
+            Title(local),
+            defaults?.ShippingProfileId ?? last?.ShippingProfileId,
+            defaults?.ReadinessStateId ?? last?.ReadinessStateId,
+            defaults?.ReturnPolicyId ?? last?.ReturnPolicyId,
+            defaults?.ShopSectionId ?? last?.ShopSectionId);
     }
 
     /// <summary>The review: every call the clone makes, what blocks it and what to know.</summary>
     public async Task<ClonePlan> PlanAsync(int sourceListingId, CloneSettings choice, CancellationToken ct = default)
     {
         var (source, target, lookups) = await LoadAsync(sourceListingId, choice.TargetShopId, ct);
-        return Plan(source, target, lookups, choice, images.Exists);
+        return Plan(source, target, lookups, choice, file => images.Exists(file) || (videoStore?.Exists(file) ?? false));
     }
 
     public static ClonePlan Plan(Listing source, Shop target, EditorLookups targetLookups, CloneSettings choice, Func<string, bool> fileExists)
@@ -118,6 +129,9 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
             calls.Add($"POST /v3/application/shops/{shop}/listings/(new)/images  image={p.File}, rank={i}, overwrite=false" +
                       (string.IsNullOrEmpty(p.Alt) ? "" : $", alt_text={p.Alt}"));
         if (photos.Count > 1) calls.Add("…then, only if Etsy shows two photos at one position, give each photo its own position (overwrite=false).");
+        var videoFile = VideoFile(source, local);
+        if (!string.IsNullOrEmpty(videoFile) && fileExists(videoFile))
+            calls.Add($"POST /v3/application/shops/{shop}/listings/(new)/videos  video={videoFile}");
         calls.Add("Then the new draft is imported into the app.");
         return new ClonePlan(calls, blockers, warnings);
     }
@@ -162,7 +176,7 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
     internal async Task<(Listing Source, Shop Target, EditorLookups Lookups)> LoadAsync(int sourceListingId, int targetShopId, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var source = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Images).Include(l => l.Products)
+        var source = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Images).Include(l => l.Videos).Include(l => l.Products)
             .ThenInclude(p => p.Offerings).AsSplitQuery().FirstAsync(l => l.Id == sourceListingId, ct);
         var target = await db.Shops.AsNoTracking().Include(s => s.Token).FirstAsync(s => s.Id == targetShopId, ct);
         var lookups = await EditorLookups.LoadAsync(db, targetShopId, [], target.CurrencyCode, ct);
@@ -182,6 +196,17 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
             return (file, (string?)p["alt_text"] ?? "");
         });
 
+    internal static string? VideoFile(Listing source, JsonObject local)
+    {
+        if (local.ContainsKey(ListingFields.Video))
+        {
+            var node = local[ListingFields.Video];
+            if (node is null) return null;
+            if ((string?)node["file_name"] is { Length: > 0 } file) return file;
+        }
+        return source.Videos.FirstOrDefault(v => v.VideoState != "deleted")?.FileName;
+    }
+
     internal static long? ListingReadiness(Listing source, JsonObject local) =>
         source.ReadinessStateId
         ?? local[ListingFields.Inventory]?["products"]?.AsArray().SelectMany(p => p!["offerings"]?.AsArray() ?? [])
@@ -196,7 +221,7 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
 /// <summary>Runs a clone (see <see cref="ListingCloner"/>): one call at a time, stopping at the first one Etsy rejects.</summary>
 public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, ListingCloner cloner, ListingImporter importer,
     ListingImportQueue importQueue, ImageStore images, EtsyApiClient etsy, IAuditLog audit, TimeProvider time,
-    ILogger<ListingCloneJob> logger) : IJobHandler
+    ILogger<ListingCloneJob> logger, Infrastructure.Storage.VideoStore? videoStore = null) : IJobHandler
 {
     public const string Type = "etsy.listing.clone";
     public string JobType => Type;
@@ -237,8 +262,28 @@ public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, L
             var auth = EtsyAuth.ForShop(target.Id);
             var shop = target.EtsyShopId;
 
+            ListingDescription? sourceDesc;
+            string? targetRendered = null;
+            await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            {
+                sourceDesc = await db.ListingDescriptions.AsNoTracking().FirstOrDefaultAsync(d => d.ListingId == clone.SourceListingId, ct);
+                if (sourceDesc is not null)
+                {
+                    var textBlocks = await db.TextBlocks.AsNoTracking().ToDictionaryAsync(b => b.Slug, b => b.Text, ct);
+                    var targetLocal = local.DeepClone().AsObject();
+                    targetLocal["title"] = choice.Title;
+                    var targetContext = new PlaceholderContext(target, targetLocal, source.Skus, textBlocks);
+                    (targetRendered, _) = PlaceholderEngine.Render(sourceDesc.Source, targetContext);
+                }
+            }
+
             // 1. The draft with the listing fields.
             var form = ListingFormMapper.ToForm(local, CopiedFields).ToList();
+            if (targetRendered is not null)
+            {
+                form.RemoveAll(kv => kv.Key == "description");
+                form.Add(new("description", targetRendered));
+            }
             form.Add(new("title", choice.Title));
             form.Add(new("price", BasePrice(source, local).ToString(CultureInfo.InvariantCulture)));
             form.Add(new("quantity", Math.Max(1, source.Quantity).ToString(CultureInfo.InvariantCulture)));
@@ -309,9 +354,31 @@ public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, L
                 }
             }
 
+            // 4b. Video (if source listing has a video and file exists locally, upload to target listing)
+            var videoFile = ListingCloner.VideoFile(source, local);
+            if (!string.IsNullOrEmpty(videoFile) && videoStore is not null && videoStore.Exists(videoFile))
+            {
+                var videoBytes = await File.ReadAllBytesAsync(videoStore.PathFor(videoFile), ct);
+                await etsy.UploadListingVideoAsync(shop, newEtsyId.Value, videoBytes, videoFile, auth, ct);
+                log.Add($"Uploaded video ({videoFile}).");
+            }
+
             // 5. Into the app.
             var newId = await importer.ImportNewListingAsync(target.Id, newEtsyId.Value, ct);
             log.Add("Imported the new draft into the app.");
+            if (sourceDesc is not null && targetRendered is not null)
+            {
+                await using var db = await dbFactory.CreateDbContextAsync(ct);
+                var newDesc = new ListingDescription
+                {
+                    ListingId = newId,
+                    Source = sourceDesc.Source,
+                    Rendered = targetRendered,
+                    UpdatedAtUtc = time.GetUtcNow().UtcDateTime,
+                };
+                db.ListingDescriptions.Add(newDesc);
+                await db.SaveChangesAsync(ct);
+            }
             // The draft's photos are new image rows: fetch their files now (as an import does), so the Listings page shows them.
             await importQueue.DownloadImagesAsync(target.Id, "clone", $"job:{context.JobId}", ct);
             await SaveAsync(cloneId, log, newEtsyId, newId, ListingCloneStatus.Succeeded);

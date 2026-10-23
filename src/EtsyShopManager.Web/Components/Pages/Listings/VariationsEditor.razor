@@ -1,5 +1,6 @@
 @using System.Text.Json.Nodes
 @using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Templates
 
 @* The variations of a listing being edited: their values, names, and what the price and processing vary by. Every
    change goes back to the editor as a new local inventory (nothing is sent to Etsy until a reviewed push). *@
@@ -7,11 +8,13 @@
 <div class="esm-variations">
     @foreach (var v in _variations)
     {
+        var locked = IsOrderLocked(v.PropertyId);
         <div class="esm-variation">
             <div class="esm-variation-head">
                 @if (v.IsCustom)
                 {
-                    <MudTextField T="string" Value="@v.Name" ValueChanged="@(n => Apply(i => VariationEditor.RenameVariation(i, v.PropertyId, n)))"
+                    <MudTextField T="string" Value="@v.Name" ValueChanged="@(n => RenameVariationName(v.PropertyId, n))"
+                                  Disabled="@locked"
                                   Label="Variation name" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm" />
                 }
                 else
@@ -26,38 +29,69 @@
                 <MudCheckBox T="bool" Value="@Varies(VariationEditor.ProcessingOnProperty, v)" Dense="true" Label="Processing varies"
                              ValueChanged="@(on => Apply(i => VariationEditor.SetVaries(i, VariationEditor.ProcessingOnProperty, v.PropertyId, on)))" />
                 <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
-                           OnClick="@(() => Apply(i => VariationEditor.RemoveVariation(i, v.PropertyId)))">Remove variation</MudButton>
+                           Disabled="@locked"
+                           OnClick="@(() => RemoveVariation(v.PropertyId))">Remove variation</MudButton>
             </div>
 
             <div class="esm-variation-values">
-                @foreach (var value in v.Values)
+                @for (var i = 0; i < v.Values.Count; i++)
                 {
-                    @if (_renaming == (v.PropertyId, value))
+                    var idx = i;
+                    var value = v.Values[idx];
+                    @if (!locked && _renaming == (v.PropertyId, value))
                     {
                         <MudTextField T="string" @bind-Value="_renameText" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
                                       aria-label="@($"New name for {value}")" Immediate="true" OnKeyDown="@(e => OnRenameKey(e, v.PropertyId, value))" />
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Rename(v.PropertyId, value))">Rename</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _renaming = null)">Cancel</MudButton>
                     }
-                    else if (v.Values.Count > 1)
-                    {
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
-                                 OnClick="@(() => StartRename(v.PropertyId, value))"
-                                 OnClose="@(_ => Apply(i => VariationEditor.RemoveValue(i, v.PropertyId, value)))">@value</MudChip>
-                    }
                     else
                     {
-                        @* The last value can't be removed; remove the variation instead. *@
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
-                                 OnClick="@(() => StartRename(v.PropertyId, value))">@value</MudChip>
+                        <div class="d-inline-flex align-center mr-1 mb-1">
+                            @if (!locked && v.Values.Count > 1)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Disabled="@(idx == 0)"
+                                               aria-label="@($"Move {value} earlier")"
+                                               OnClick="@(() => MoveValue(v.PropertyId, idx, -1))" />
+                            }
+                            @if (!locked && v.Values.Count > 1)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
+                                         OnClick="@(() => StartRename(v.PropertyId, value))"
+                                         OnClose="@(_ => Apply(i => VariationEditor.RemoveValue(i, v.PropertyId, value, LockedPropertyIds)))">@value</MudChip>
+                            }
+                            else if (!locked)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Select to rename"
+                                         OnClick="@(() => StartRename(v.PropertyId, value))">@value</MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@value</MudChip>
+                            }
+                            @if (!locked && v.Values.Count > 1)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" Disabled="@(idx == v.Values.Count - 1)"
+                                               aria-label="@($"Move {value} later")"
+                                               OnClick="@(() => MoveValue(v.PropertyId, idx, 1))" />
+                            }
+                        </div>
                     }
                 }
             </div>
+            @if (GetLink(v.PropertyId) is { } link)
+            {
+                <MudText Typo="Typo.caption" Class="muted mt-1 d-block">
+                    Value order is controlled by template @link.ListName.
+                </MudText>
+            }
             <div class="esm-variation-add">
                 <MudTextField T="string" Value="@NewValue(v.PropertyId)" ValueChanged="@(t => _newValues[v.PropertyId] = t)" Immediate="true"
-                              Placeholder="@($"Add to {v.Name}")" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
+                              Placeholder="@(locked ? "Values controlled by template" : $"Add to {v.Name}")"
+                              Disabled="@locked" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm"
                               OnKeyDown="@(e => OnAddKey(e, v.PropertyId))" aria-label="@($"New value for {v.Name}")" />
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@string.IsNullOrWhiteSpace(NewValue(v.PropertyId))"
+                <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                           Disabled="@(locked || string.IsNullOrWhiteSpace(NewValue(v.PropertyId)))"
                            OnClick="@(() => AddValue(v.PropertyId))">Add</MudButton>
             </div>
         </div>
@@ -78,6 +112,34 @@
         </div>
     }
 
+    <MudPaper Class="pa-3 mt-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.subtitle2" Class="mb-1">SKU pattern</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Use tokens like <code>{listing.sku}</code> or variation names like
+            @foreach (var v in _variations)
+            {
+                <code>@($"{{{SkuPatternResolver.NormalizePropertyName(v.Name ?? $"variation{v.PropertyId}")}}}")</code>
+                @(" ")
+            }
+            to generate SKUs across variation combinations.
+        </MudText>
+        <div class="d-flex align-center gap-2 flex-wrap">
+            <MudTextField T="string" Value="@Pattern" ValueChanged="@OnPatternChanged"
+                          Label="SKU pattern (e.g. {listing.sku}-{size}-{color})"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-md"
+                          Immediate="true" />
+            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                       Disabled="@string.IsNullOrWhiteSpace(Pattern)"
+                       OnClick="ApplySkuPattern">Apply Pattern to SKUs</MudButton>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(Pattern) && _variations.Count > 0)
+        {
+            <MudText Typo="Typo.caption" Class="muted mt-2 d-block">
+                Preview: @SampleSku()
+            </MudText>
+        }
+    </MudPaper>
+
     @if (_error is not null)
     {
         <MudText Typo="Typo.body2" Class="error-text">@_error</MudText>
@@ -94,22 +156,97 @@
     /// <summary>Etsy's order of the variations (see VariationEditor.EtsyOrder), so they show as buyers see them.</summary>
     [Parameter] public IReadOnlyList<long>? Order { get; set; }
 
+    /// <summary>Links to variation templates for locking manual value reordering.</summary>
+    [Parameter] public IReadOnlyList<VariationListLink>? Links { get; set; }
+
+    /// <summary>The listing's SKU pattern (e.g. "{listing.sku}-{size}-{color}").</summary>
+    [Parameter] public string? SkuPattern { get; set; }
+
+    /// <summary>Invoked when the SKU pattern changes.</summary>
+    [Parameter] public EventCallback<string?> SkuPatternChanged { get; set; }
+
+    /// <summary>The listing's base SKU.</summary>
+    [Parameter] public string? BaseSku { get; set; }
+
     private IReadOnlyList<Variation> _variations = [];
     private readonly Dictionary<long, string?> _newValues = [];
     private (long PropertyId, string Value)? _renaming;
     private string? _renameText, _newName, _newVariationValues, _error;
+    private string? _localPattern;
 
-    protected override void OnParametersSet() => _variations = VariationEditor.Variations(Inventory, Order);
+    private string Pattern => _localPattern ?? SkuPattern ?? (string?)Inventory["sku_pattern"] ?? "";
+
+    protected override void OnParametersSet()
+    {
+        _variations = VariationEditor.Variations(Inventory, Order);
+    }
 
     private bool Varies(string key, Variation v) => (Inventory[key]?.AsArray() ?? []).Any(x => (long)x! == v.PropertyId);
 
     private string? NewValue(long propertyId) => _newValues.GetValueOrDefault(propertyId);
 
-    private async Task Apply(Func<JsonNode, JsonObject> change)
+    private IEnumerable<long>? LockedPropertyIds => Links?.Select(l => l.PropertyId);
+
+    private VariationListLink? GetLink(long propertyId) => Links?.FirstOrDefault(l => l.PropertyId == propertyId);
+    private bool IsLocked(long propertyId) => GetLink(propertyId) is not null;
+    private bool IsOrderLocked(long propertyId) => IsLocked(propertyId);
+
+    private async Task RenameVariationName(long propertyId, string newName)
+    {
+        if (IsLocked(propertyId)) return;
+        await Apply(i => VariationEditor.RenameVariation(i, propertyId, newName, LockedPropertyIds));
+    }
+
+    private async Task RemoveVariation(long propertyId)
+    {
+        if (IsLocked(propertyId)) return;
+        await Apply(i => VariationEditor.RemoveVariation(i, propertyId, LockedPropertyIds));
+    }
+
+    private async Task OnPatternChanged(string? value)
+    {
+        _localPattern = value;
+        await SkuPatternChanged.InvokeAsync(value);
+    }
+
+    private async Task ApplySkuPattern()
+    {
+        var pattern = Pattern;
+        if (string.IsNullOrWhiteSpace(pattern)) return;
+        var baseSku = BaseSku ?? (string?)Inventory["base_sku"] ?? "";
+        await Apply(i => SkuPatternResolver.ApplyPattern(i, pattern, baseSku));
+    }
+
+    private string SampleSku()
+    {
+        var pattern = Pattern;
+        if (string.IsNullOrWhiteSpace(pattern)) return "";
+        var baseSku = BaseSku ?? (string?)Inventory["base_sku"] ?? "SKU";
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var v in _variations)
+        {
+            values[v.Name ?? $"variation{v.PropertyId}"] = v.Values.FirstOrDefault() ?? "1";
+        }
+        return SkuPatternResolver.GenerateSku(pattern, baseSku, values);
+    }
+
+    private async Task MoveValue(long propertyId, int currentIndex, int direction)
+    {
+        if (IsOrderLocked(propertyId)) return;
+        var targetIndex = currentIndex + direction;
+        var values = VariationEditor.GetValueOrder(Inventory, propertyId).ToList();
+        if (targetIndex < 0 || targetIndex >= values.Count) return;
+        var item = values[currentIndex];
+        values.RemoveAt(currentIndex);
+        values.Insert(targetIndex, item);
+        await Apply(i => VariationEditor.ReorderValues(i, propertyId, values, LockedPropertyIds));
+    }
+
+    private async Task Apply(Func<JsonObject, JsonObject> change)
     {
         try
         {
-            var inventory = change(Inventory);
+            var inventory = change((JsonObject)Inventory.DeepClone());
             _error = null;
             await InventoryChanged.InvokeAsync(inventory);
         }
@@ -117,29 +254,39 @@
         {
             _error = ex.Message;
         }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
     }
 
     private async Task AddValue(long propertyId)
     {
+        if (IsLocked(propertyId)) return;
         var text = NewValue(propertyId);
-        await Apply(i => VariationEditor.AddValue(i, propertyId, text ?? ""));
+        var pattern = Pattern;
+        var baseSku = BaseSku;
+        await Apply(i => VariationEditor.AddValue(i, propertyId, text ?? "", pattern, baseSku, LockedPropertyIds));
         if (_error is null) _newValues[propertyId] = null;
     }
 
     private async Task OnAddKey(KeyboardEventArgs e, long propertyId)
     {
+        if (IsLocked(propertyId)) return;
         if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(NewValue(propertyId))) await AddValue(propertyId);
     }
 
     private void StartRename(long propertyId, string value)
     {
+        if (IsLocked(propertyId)) return;
         _renaming = (propertyId, value);
         _renameText = value;
     }
 
     private async Task Rename(long propertyId, string value)
     {
-        await Apply(i => VariationEditor.RenameValue(i, propertyId, value, _renameText ?? ""));
+        if (IsLocked(propertyId)) return;
+        await Apply(i => VariationEditor.RenameValue(i, propertyId, value, _renameText ?? "", LockedPropertyIds));
         if (_error is null) _renaming = null;
     }
 

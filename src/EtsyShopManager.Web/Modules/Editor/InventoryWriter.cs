@@ -70,18 +70,23 @@ public static class InventoryWriter
     {
         var etsyProducts = etsy.Products.Where(p => !p.IsDeleted).ToList();
         var etsyByKey = etsyProducts.GroupBy(p => ProductKey(p.PropertyValues)).ToDictionary(g => g.Key, g => g.First());
-        var etsyOrder = etsyProducts.Select((p, i) => (Key: ProductKey(p.PropertyValues), i)).GroupBy(x => x.Key)
-            .ToDictionary(g => g.Key, g => g.First().i);
         var local = (localInventory["products"]?.AsArray() ?? []).Select(p => p!).ToList();
         var newStock = NewCombinationStock(etsy);
         // Etsy's order of the variations is the order buyers pick them in; managed state sorts them by id. A new one goes last.
         var propertyOrder = etsyProducts.SelectMany(p => p.PropertyValues).Select(v => v.PropertyId).Distinct().ToList();
         int Position(JsonNode? v) => propertyOrder.IndexOf((long)v!["property_id"]!) is var at and >= 0 ? at : propertyOrder.Count;
 
-        // Existing combinations in Etsy's order (which is the order buyers see the values in), then new ones.
-        var ordered = local.Select((p, i) => (Product: p, Key: ProductKey(p), i))
-            .OrderBy(x => etsyOrder.TryGetValue(x.Key, out var at) ? at : etsyProducts.Count + x.i)
-            .ToList();
+        var hasCustomValueOrder = localInventory["value_order"] is JsonObject vo && vo.Any(kv => kv.Value is JsonArray arr && arr.Count > 0);
+        var etsyOrder = etsyProducts.Select((p, i) => (Key: ProductKey(p.PropertyValues), i)).GroupBy(x => x.Key)
+            .ToDictionary(g => g.Key, g => g.First().i);
+
+        // Order products following the local product grid sequence when custom value_order is present,
+        // otherwise retain Etsy's product order.
+        var ordered = hasCustomValueOrder
+            ? local.Select((p, i) => (Product: p, Key: ProductKey(p), i)).ToList()
+            : local.Select((p, i) => (Product: p, Key: ProductKey(p), i))
+                .OrderBy(x => etsyOrder.TryGetValue(x.Key, out var at) ? at : etsyProducts.Count + x.i)
+                .ToList();
 
         return new EtsyInventoryUpdate
         {

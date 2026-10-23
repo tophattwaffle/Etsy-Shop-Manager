@@ -22,13 +22,15 @@ public enum TextBlockUseStatus
 }
 
 /// <summary>A listing using a block: where it stands, and its description (as on Etsy) before and after applying the block.</summary>
-public sealed record TextBlockUse(int ListingId, string Title, string ShopName, TextBlockUseStatus Status, string Before, string After,
-    bool DescriptionPending);
+public sealed record TextBlockUse(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
+    TextBlockUseStatus Status, string Before, string After, bool DescriptionPending) : ITemplateListingItem;
 
 public sealed record TextBlockSummary(int Id, string Name, string Slug, int Listings, int WillChange, int NeedAttention, DateTime UpdatedAtUtc);
 
 /// <summary>A listing not using the block whose description already contains its text word for word.</summary>
-public sealed record TextBlockCandidate(int ListingId, string Title, string ShopName);
+public sealed record TextBlockCandidate(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags) : ITemplateListingItem;
 
 /// <summary>What pushing a block's listings would do, per listing (the editor's own review).</summary>
 public sealed record TextBlockPushItem(int ListingId, string Title, string ShopName, PushPreview Preview);
@@ -161,10 +163,11 @@ public sealed class TextBlockService(IDbContextFactory<AppDbContext> dbFactory, 
         if (!TextBlockMarkup.IsValidSlug(slug) || slug.Length > MaxSlugLength)
             return (null, $"The placeholder name can only have lowercase letters, numbers and single hyphens (up to {MaxSlugLength}), like \"pla-care\".");
         if (text.Length == 0) return (null, "The template needs some text.");
-        if (TextBlockMarkup.Slugs(text).Count > 0) return (null, "A template can't contain another template's placeholder.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         if (await db.TextBlocks.AnyAsync(b => b.Id != id && b.Name == name, ct)) return (null, $"There's already a template called \"{name}\".");
         if (await db.TextBlocks.AnyAsync(b => b.Id != id && b.Slug == slug, ct)) return (null, $"Another template already uses {TextBlockMarkup.Token(slug)}.");
+        var existingBlocks = await db.TextBlocks.AsNoTracking().Where(b => id == null || b.Id != id.Value).ToDictionaryAsync(b => b.Slug, b => b.Text, ct);
+        if (PlaceholderEngine.HasCircularReference(slug, text, existingBlocks)) return (null, "Template contains circular template references.");
         var now = time.GetUtcNow().UtcDateTime;
         var block = id is { } existing ? await db.TextBlocks.FirstOrDefaultAsync(b => b.Id == existing, ct) : null;
         if (id is not null && block is null) return (null, "That template no longer exists.");
@@ -218,13 +221,15 @@ public sealed class TextBlockService(IDbContextFactory<AppDbContext> dbFactory, 
         source = (source ?? "").Replace("\r\n", "\n");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var blocks = await db.TextBlocks.AsNoTracking().ToListAsync(ct);
-        var bySlug = blocks.ToDictionary(b => b.Slug);
-        var (rendered, unknown) = TextBlockMarkup.Render(source, s => bySlug.GetValueOrDefault(s)?.Text);
-        var listing = await db.Listings.AsNoTracking().Include(l => l.EtsyState).FirstAsync(l => l.Id == listingId, ct);
-        if (rendered != Description(Model(listing)))
+        var blockDict = blocks.ToDictionary(b => b.Slug, b => b.Text);
+        var listing = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Shop).FirstAsync(l => l.Id == listingId, ct);
+        var model = Model(listing);
+        var context = PlaceholderEngine.CreateContext(listing, model, blockDict);
+        var (rendered, unknown) = PlaceholderEngine.Render(source, context);
+        if (rendered != Description(model))
             await editor.SaveAsync(listingId, new Dictionary<string, JsonNode?> { ["description"] = rendered }, user, ct);
         var row = await db.ListingDescriptions.FirstOrDefaultAsync(d => d.ListingId == listingId, ct);
-        if (TextBlockMarkup.Slugs(source).Count == 0)
+        if (!PlaceholderEngine.HasPlaceholders(source))
         {
             if (row is not null) db.ListingDescriptions.Remove(row);
         }
@@ -253,18 +258,21 @@ public sealed class TextBlockService(IDbContextFactory<AppDbContext> dbFactory, 
     {
         var rows = await db.ListingDescriptions.AsNoTracking().Include(d => d.Listing).ThenInclude(l => l.EtsyState)
             .Include(d => d.Listing).ThenInclude(l => l.Shop).ToListAsync(ct);
+        var blockDict = blocks.ToDictionary(b => b.Slug, b => b.Text);
         var result = new List<(string, TextBlockUse, string)>();
         foreach (var row in rows.Where(r => r.Listing.EtsyState is not null))
         {
             var model = Model(row.Listing);
             var description = Description(model);
             var source = Source(row, description, blocks);
-            var after = TextBlockMarkup.Render(source, blocks);
+            var context = PlaceholderEngine.CreateContext(row.Listing, model, blockDict);
+            var (after, _) = PlaceholderEngine.Render(source, context);
             var pending = !JsonNode.DeepEquals(model.Local("description"), model.Etsy["description"]);
             var status = model.DriftFields.Contains("description") ? TextBlockUseStatus.ChangedOnEtsy
                 : after == description ? TextBlockUseStatus.UpToDate : TextBlockUseStatus.WillChange;
             foreach (var slug in TextBlockMarkup.Slugs(source).Where(s => blocks.Any(b => b.Slug == s)))
-                result.Add((slug, new TextBlockUse(row.ListingId, row.Listing.Title, row.Listing.Shop.Name, status, description, after, pending), source));
+                result.Add((slug, new TextBlockUse(row.ListingId, row.Listing.Title, row.Listing.ShopId, row.Listing.Shop.Name, row.Listing.EtsyListingId,
+                    row.Listing.State, row.Listing.IsMissingOnEtsy, row.Listing.Skus, row.Listing.Tags, status, description, after, pending), source));
         }
         return result;
     }
@@ -284,9 +292,10 @@ public sealed class TextBlockService(IDbContextFactory<AppDbContext> dbFactory, 
         if (block is null) return [];
         var using_ = (await AllUsesAsync(db, blocks, ct)).Where(u => u.Slug == block.Slug).Select(u => u.Use.ListingId).ToHashSet();
         var listings = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Shop)
-            .Where(l => l.EtsyState != null && !l.IsMissingOnEtsy).ToListAsync(ct);
+            .Where(l => l.EtsyState != null).ToListAsync(ct);
         return [.. listings.Where(l => !using_.Contains(l.Id) && Description(Model(l)).Contains(block.Text, StringComparison.Ordinal))
-            .OrderBy(l => l.Title, StringComparer.OrdinalIgnoreCase).Select(l => new TextBlockCandidate(l.Id, l.Title, l.Shop.Name))];
+            .OrderBy(l => l.Title, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new TextBlockCandidate(l.Id, l.Title, l.ShopId, l.Shop.Name, l.EtsyListingId, l.State, l.IsMissingOnEtsy, l.Skus, l.Tags))];
     }
 
     /// <summary>

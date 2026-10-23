@@ -18,6 +18,7 @@ public sealed class StorageOptions
 
     public string DatabasePath => Path.Combine(ResolvedRoot, "etsyshopmanager.db");
     public string ImagesDirectory => Path.Combine(ResolvedRoot, "images");
+    public string VideosDirectory => Path.Combine(ResolvedRoot, "videos");
     public string KeysDirectory => Path.Combine(ResolvedRoot, "keys");
     public string BackupsDirectory => Path.Combine(ResolvedRoot, "backups");
     public string LogsDirectory => Path.Combine(ResolvedRoot, "logs");
@@ -40,7 +41,7 @@ public sealed class StorageOptions
 
     public void EnsureDirectories()
     {
-        foreach (var dir in new[] { ResolvedRoot, ImagesDirectory, KeysDirectory, BackupsDirectory, LogsDirectory })
+        foreach (var dir in new[] { ResolvedRoot, ImagesDirectory, VideosDirectory, KeysDirectory, BackupsDirectory, LogsDirectory })
             Directory.CreateDirectory(dir);
     }
 }

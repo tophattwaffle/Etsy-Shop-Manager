@@ -28,6 +28,7 @@ public class Listing
 
     /// <summary>All SKUs on the listing's products (Etsy's "skus"), for search.</summary>
     public List<string> Skus { get; set; } = [];
+    public string? SkuPattern { get; set; }
     public List<string> Tags { get; set; } = [];
     public List<string> Materials { get; set; } = [];
     public List<string> Styles { get; set; } = [];
@@ -105,6 +106,7 @@ public class Listing
     public bool HasDrift { get; set; }
 
     public List<ListingImage> Images { get; set; } = [];
+    public List<ListingVideo> Videos { get; set; } = [];
     public List<ListingProduct> Products { get; set; } = [];
     public ListingEtsyState? EtsyState { get; set; }
 }
@@ -170,6 +172,24 @@ public class ListingImage
     public string? SourceThumbUrl { get; set; }
 
     /// <summary>Content-hashed file names in the image store; null until downloaded.</summary>
+    public string? FileName { get; set; }
+    public string? ThumbFileName { get; set; }
+    public long? ByteSize { get; set; }
+    public DateTime? DownloadedAtUtc { get; set; }
+    public string? DownloadError { get; set; }
+}
+
+public class ListingVideo
+{
+    public int Id { get; set; }
+    public int ListingId { get; set; }
+    public Listing Listing { get; set; } = null!;
+    public long EtsyVideoId { get; set; }
+    public int? Height { get; set; }
+    public int? Width { get; set; }
+    public string? VideoState { get; set; }
+    public string SourceUrl { get; set; } = "";
+    public string? SourceThumbUrl { get; set; }
     public string? FileName { get; set; }
     public string? ThumbFileName { get; set; }
     public long? ByteSize { get; set; }

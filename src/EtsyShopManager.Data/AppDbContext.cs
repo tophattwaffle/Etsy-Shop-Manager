@@ -19,6 +19,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Listing> Listings => Set<Listing>();
     public DbSet<ListingEtsyState> ListingEtsyStates => Set<ListingEtsyState>();
     public DbSet<ListingImage> ListingImages => Set<ListingImage>();
+    public DbSet<ListingVideo> ListingVideos => Set<ListingVideo>();
     public DbSet<ListingProduct> ListingProducts => Set<ListingProduct>();
     public DbSet<ListingOffering> ListingOfferings => Set<ListingOffering>();
     public DbSet<ShopSyncState> ShopSyncStates => Set<ShopSyncState>();
@@ -121,6 +122,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Title).HasMaxLength(400);
             e.Property(x => x.CurrencyCode).HasMaxLength(8);
             e.Property(x => x.LastSeenRunId).HasMaxLength(64);
+            e.Property(x => x.SkuPattern).HasMaxLength(200);
             e.Property(x => x.ItemWeight).HasConversion<double?>();
             e.Property(x => x.ItemLength).HasConversion<double?>();
             e.Property(x => x.ItemWidth).HasConversion<double?>();
@@ -130,6 +132,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.HasOne(x => x.EtsyState).WithOne(s => s.Listing).HasForeignKey<ListingEtsyState>(s => s.ListingId)
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasMany(x => x.Images).WithOne(i => i.Listing).HasForeignKey(i => i.ListingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.Videos).WithOne(v => v.Listing).HasForeignKey(v => v.ListingId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(x => x.Products).WithOne(p => p.Listing).HasForeignKey(p => p.ListingId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -149,6 +152,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.HasIndex(x => x.ThumbFileName);
             e.Property(x => x.FileName).HasMaxLength(100);
             e.Property(x => x.ThumbFileName).HasMaxLength(100);
+        });
+
+        b.Entity<ListingVideo>(e =>
+        {
+            e.HasIndex(x => new { x.ListingId, x.EtsyVideoId }).IsUnique();
+            e.HasIndex(x => x.EtsyVideoId);
+            e.HasIndex(x => x.FileName);
+            e.Property(x => x.FileName).HasMaxLength(100);
+            e.Property(x => x.ThumbFileName).HasMaxLength(100);
+            e.Property(x => x.VideoState).HasMaxLength(50);
         });
 
         b.Entity<ListingProduct>(e =>

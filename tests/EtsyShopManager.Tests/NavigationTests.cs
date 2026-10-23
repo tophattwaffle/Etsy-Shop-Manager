@@ -22,9 +22,9 @@ public class NavigationTests
     [Fact]
     public void Top_level_sidebar_has_one_Templates_entry_and_admin_pages_sit_under_Settings()
     {
-        Assert.Equal(["Dashboard", "Orders", "Packing slips", "Listings", "Templates", "Lookups", "Order colors"],
+        Assert.Equal(["Dashboard", "Orders", "Packing slips", "Listings", "Templates", "Processing profiles", "Lookups", "Order colors"],
             Registry.NavItems.Where(i => i.Group is null).Select(i => i.Title));
-        Assert.Equal(["Shops", "General", "Jobs", "Users", "Audit log", "API keys", "Etsy writes", "Photo order test"],
+        Assert.Equal(["Shops", "General", "Jobs", "Users", "Audit log", "API keys", "Etsy writes"],
             Registry.NavItems.Where(i => i.Group == NavGroups.Settings).Select(i => i.Title));
         Assert.All(Registry.NavItems.Where(i => i.Roles == Roles.Admin), i => Assert.Equal(NavGroups.Settings, i.Group));
     }

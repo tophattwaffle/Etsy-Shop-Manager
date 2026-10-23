@@ -6,6 +6,7 @@ public interface ISettingsStore
     Task<string?> GetAsync(string key, CancellationToken ct = default);
     Task SetAsync(string key, string? value, bool encrypt = false, string? updatedBy = null, CancellationToken ct = default);
     Task<bool> HasValueAsync(string key, CancellationToken ct = default);
+    void ClearCache() { }
 }
 
 public interface IAuditLog

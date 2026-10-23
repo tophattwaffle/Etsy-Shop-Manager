@@ -23,6 +23,18 @@ public static class SettingKeys
 
     /// <summary>Seconds between order polls (default 300, as the old HA integration used).</summary>
     public const string OrdersPollIntervalSeconds = "Orders.PollIntervalSeconds";
+
+    /// <summary>Hours between scheduled backup job runs (default 24).</summary>
+    public const string BackupsScheduleIntervalHours = "Backups.ScheduleIntervalHours";
+
+    /// <summary>Days to retain restorable backups before pruning (default 30, 0 = keep indefinitely).</summary>
+    public const string BackupsRetentionDays = "Backups.RetentionDays";
+
+    /// <summary>Maximum number of restorable backups to keep (default 10, 0 = unlimited).</summary>
+    public const string BackupsMaxCount = "Backups.MaxCount";
+
+    /// <summary>Configured backup directory path (null or empty = default under Storage:DataRoot).</summary>
+    public const string BackupsDirectory = "Backups.Directory";
 }
 
 /// <summary>Who changed what. Written for user, settings and shop changes.</summary>

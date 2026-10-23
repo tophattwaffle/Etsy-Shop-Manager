@@ -39,8 +39,10 @@ public enum VariationListUseStatus
 public sealed record VariationListPlan(JsonObject Inventory, List<VariationListOption> Applied, IReadOnlyList<string> Changes,
     IReadOnlyList<string> Notes);
 
-public sealed record VariationListUse(int ListingId, string Title, string ShopName, long PropertyId, string VariationName,
-    VariationListUseStatus Status, IReadOnlyList<string> Changes, IReadOnlyList<string> Notes, bool InventoryPending);
+public sealed record VariationListUse(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
+    long PropertyId, string VariationName,
+    VariationListUseStatus Status, IReadOnlyList<string> Changes, IReadOnlyList<string> Notes, bool InventoryPending) : ITemplateListingItem;
 
 public sealed record VariationListSummary(int Id, string Name, int Options, int Enabled, int Listings, int WithChanges, int NeedAttention,
     DateTime UpdatedAtUtc);
@@ -61,8 +63,10 @@ public sealed record VariationListLinkPreview(int InList, int Values, string? Wa
 public sealed record VariationListAddable(int ListingId, string Title, string ShopName, IReadOnlyList<string> Variations);
 
 /// <summary>A listing variation not linked yet whose values are mostly in the list.</summary>
-public sealed record VariationListCandidate(int ListingId, string Title, string ShopName, long PropertyId, string VariationName,
-    int InList, int Values);
+public sealed record VariationListCandidate(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
+    string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
+    long PropertyId, string VariationName,
+    int InList, int Values) : ITemplateListingItem;
 
 /// <summary>
 /// Shared variation lists (Phase 4, variation templates). A list is a named set of options; a linked listing's variation
@@ -85,7 +89,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     /// values (Etsy shows new values last).
     /// </summary>
     public static VariationListPlan Plan(VariationList list, ListingVariationList link, JsonNode localInventory,
-        VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest, decimal? customPrice = null)
+        VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest, decimal? customPrice = null,
+        string? skuPattern = null, string? baseSku = null)
     {
         var inventory = (JsonObject)localInventory.DeepClone();
         var changes = new List<string>();
@@ -94,6 +99,9 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         var label = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId)?.Name ?? "the variation";
         string? Has(string name) => VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId)?
             .Values.FirstOrDefault(v => string.Equals(v, name, StringComparison.OrdinalIgnoreCase));
+
+        var pattern = skuPattern ?? (string?)localInventory["sku_pattern"] ?? link.Listing?.SkuPattern;
+        var baseSkuVal = baseSku ?? (string?)localInventory["base_sku"] ?? link.Listing?.Skus.FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "";
 
         // Removals: options in AppliedOptions no longer in the template (R1).
         var removedFromTemplate = link.AppliedOptions.Where(b => list.Options.All(o => o.Id != b.Id)).ToList();
@@ -134,7 +142,7 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
                 if (!option.Enabled || Has(option.Name) is not null) continue;
                 try
                 {
-                    inventory = VariationEditor.AddValue(inventory, link.PropertyId, option.Name);
+                    inventory = VariationEditor.AddValue(inventory, link.PropertyId, option.Name, pattern, baseSkuVal);
                     changes.Add($"Adds {option.Name}");
                     newlyAdded.Add(option.Name);
                 }
@@ -167,6 +175,46 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         if (newlyAdded.Count > 0)
         {
             inventory = VariationEditor.ApplyOptionPricing(inventory, link.PropertyId, newlyAdded, strategy, customPrice);
+        }
+
+        var currentListingValues = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId)?.Values ?? [];
+
+        // Compare order of enabled template options
+        var templateOrder = list.Options.Where(o => o.Enabled).Select(o => o.Name).ToList();
+        var appliedOrder = link.AppliedOptions.Where(o => o.Enabled).Select(o => o.Name).ToList();
+
+        var templateOrderChanged = false;
+        if (appliedOrder.Count > 1)
+        {
+            var commonApplied = appliedOrder.Where(a => templateOrder.Any(t => string.Equals(t, a, StringComparison.OrdinalIgnoreCase))).ToList();
+            var commonTemplate = templateOrder.Where(t => appliedOrder.Any(a => string.Equals(a, t, StringComparison.OrdinalIgnoreCase))).ToList();
+            templateOrderChanged = commonApplied.Count > 1 && !commonApplied.SequenceEqual(commonTemplate, StringComparer.OrdinalIgnoreCase);
+        }
+
+        var voList = VariationEditor.GetValueOrder(inventory, link.PropertyId);
+        var existingVoList = voList.Where(v => !newlyAdded.Contains(v, StringComparer.OrdinalIgnoreCase)).ToList();
+        var voTemplateOrder = existingVoList.Where(v => templateOrder.Any(t => string.Equals(t, v, StringComparison.OrdinalIgnoreCase))).ToList();
+        var expectedTemplateOrder = templateOrder.Where(t => existingVoList.Any(v => string.Equals(v, t, StringComparison.OrdinalIgnoreCase))).ToList();
+        var inventoryOrderDiffers = voTemplateOrder.Count > 1 && !voTemplateOrder.SequenceEqual(expectedTemplateOrder, StringComparer.OrdinalIgnoreCase);
+
+        var desiredOrder = VariationEditor.OrderValuesByTemplate(currentListingValues, templateOrder);
+
+        if (templateOrderChanged || inventoryOrderDiffers)
+        {
+            try
+            {
+                inventory = VariationEditor.ReorderValues(inventory, link.PropertyId, desiredOrder);
+                changes.Add($"Reorders options in {label}");
+            }
+            catch (ArgumentException ex) { notes.Add(ex.Message); }
+        }
+        else if (newlyAdded.Count > 0 && !currentListingValues.SequenceEqual(desiredOrder, StringComparer.Ordinal))
+        {
+            try
+            {
+                inventory = VariationEditor.ReorderValues(inventory, link.PropertyId, desiredOrder);
+            }
+            catch (ArgumentException ex) { notes.Add(ex.Message); }
         }
 
         // What the listing now reflects: retained removed options plus each list option it has, under the name it has it.
@@ -282,12 +330,12 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         var pending = !JsonNode.DeepEquals(inventory, model.Etsy[ListingFields.Inventory]);
         var variation = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId);
         if (model.DriftFields.Contains(ListingFields.Inventory))
-            return new(listing.Id, listing.Title, listing.Shop.Name, link.PropertyId, variation?.Name ?? "", VariationListUseStatus.ChangedOnEtsy, [], [], pending);
+            return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, variation?.Name ?? "", VariationListUseStatus.ChangedOnEtsy, [], [], pending);
         if (variation is null)
-            return new(listing.Id, listing.Title, listing.Shop.Name, link.PropertyId, "", VariationListUseStatus.VariationMissing, [],
+            return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, "", VariationListUseStatus.VariationMissing, [],
                 ["The linked variation isn't on this listing any more. Unlink it, or add the variation back in the editor."], pending);
         var plan = Plan(list, link, inventory);
-        return new(listing.Id, listing.Title, listing.Shop.Name, link.PropertyId, variation.Name ?? "",
+        return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, variation.Name ?? "",
             plan.Changes.Count > 0 ? VariationListUseStatus.HasChanges : VariationListUseStatus.UpToDate, plan.Changes, plan.Notes, pending);
     }
 
@@ -301,7 +349,7 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             .Select(l => (l.ListingId, l.PropertyId)).ToHashSet();
         var names = list.Options.Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var listings = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Shop)
-            .Where(l => l.EtsyState != null && !l.IsMissingOnEtsy).ToListAsync(ct);
+            .Where(l => l.EtsyState != null).ToListAsync(ct);
         var result = new List<VariationListCandidate>();
         foreach (var l in listings)
         {
@@ -311,17 +359,21 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             {
                 var inList = v.Values.Count(names.Contains);
                 if (inList >= MinOverlap && inList * 2 >= v.Values.Count)
-                    result.Add(new VariationListCandidate(l.Id, l.Title, l.Shop.Name, v.PropertyId, v.Name ?? $"Variation {v.PropertyId}", inList, v.Values.Count));
+                    result.Add(new VariationListCandidate(l.Id, l.Title, l.ShopId, l.Shop.Name, l.EtsyListingId, l.State, l.IsMissingOnEtsy, l.Skus, l.Tags, v.PropertyId, v.Name ?? $"Variation {v.PropertyId}", inList, v.Values.Count));
             }
         }
         return [.. result.OrderByDescending(c => (double)c.InList / c.Values).ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase)];
     }
 
-    /// <summary>Links listing variations to the list, starting from what each listing has now. Returns how many were linked.</summary>
+    /// <summary>
+    /// Links listing variations to the list. Automatically reorders each listing's variation values
+    /// to follow the template option order, saving updated draft inventory if order changes. Returns how many were linked.
+    /// </summary>
     public async Task<int> LinkAsync(int listId, IEnumerable<(int ListingId, long PropertyId)> variations, string? user, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var list = await db.VariationLists.AsNoTracking().FirstAsync(l => l.Id == listId, ct);
+        var templateOrder = list.Options.Select(o => o.Name).ToList();
         var count = 0;
         foreach (var (listingId, propertyId) in variations.Distinct())
         {
@@ -331,6 +383,16 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             if (model.Local(ListingFields.Inventory) is not { } inventory
                 || VariationEditor.Variations(inventory).All(v => v.PropertyId != propertyId)) continue;
             if (await db.ListingVariationLists.AnyAsync(l => l.ListingId == listingId && l.PropertyId == propertyId, ct)) continue;
+
+            var currentValues = VariationEditor.GetValueOrder(inventory, propertyId);
+            var desiredOrder = VariationEditor.OrderValuesByTemplate(currentValues, templateOrder);
+            if (!desiredOrder.SequenceEqual(currentValues, StringComparer.Ordinal))
+            {
+                var reordered = VariationEditor.ReorderValues(inventory, propertyId, desiredOrder);
+                await editor.SaveAsync(listingId, new Dictionary<string, JsonNode?> { [ListingFields.Inventory] = reordered }, user, ct);
+                inventory = reordered;
+            }
+
             db.ListingVariationLists.Add(new ListingVariationList
             {
                 ListingId = listingId, VariationListId = listId, PropertyId = propertyId,
@@ -477,12 +539,26 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         return (new VariationListLinkPreview(inList, variation.Values.Count, warning, plan.Changes, plan.Notes), null);
     }
 
-    /// <summary>Links one variation of a listing to a list, starting from what the listing has. Changes come with the next apply.</summary>
+    /// <summary>
+    /// Links one variation of a listing to a list. Automatically reorders the listing's variation values
+    /// to follow the template option order, saving updated draft inventory if order changes.
+    /// </summary>
     public async Task<string?> LinkVariationAsync(int listId, int listingId, long propertyId, string? user, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var (list, inventory, error) = await LinkSourceAsync(db, listId, listingId, propertyId, ct);
         if (error is not null) return error;
+
+        var currentValues = VariationEditor.GetValueOrder(inventory!, propertyId);
+        var templateOrder = list!.Options.Select(o => o.Name).ToList();
+        var desiredOrder = VariationEditor.OrderValuesByTemplate(currentValues, templateOrder);
+        if (!desiredOrder.SequenceEqual(currentValues, StringComparer.Ordinal))
+        {
+            var reordered = VariationEditor.ReorderValues(inventory!, propertyId, desiredOrder);
+            await editor.SaveAsync(listingId, new Dictionary<string, JsonNode?> { [ListingFields.Inventory] = reordered }, user, ct);
+            inventory = reordered;
+        }
+
         db.ListingVariationLists.Add(new ListingVariationList
         {
             ListingId = listingId, VariationListId = listId, PropertyId = propertyId,

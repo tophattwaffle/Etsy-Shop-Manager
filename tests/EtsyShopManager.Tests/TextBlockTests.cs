@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using EtsyShopManager.Core.Domain;
 using EtsyShopManager.Core.Jobs;
 using EtsyShopManager.Web.Modules.Editor;
+using EtsyShopManager.Web.Modules.Listings;
 using EtsyShopManager.Web.Modules.Templates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -190,5 +191,151 @@ public class TextBlockTests
             [(LineDiff.Kind.Gap, ""), (LineDiff.Kind.Same, "d"), (LineDiff.Kind.Removed, "e"), (LineDiff.Kind.Added, "E"), (LineDiff.Kind.Same, "f")],
             diff.Select(l => (l.Kind, l.Text)));
         Assert.Empty(LineDiff.Compare("same", "same"));
+    }
+
+    [Fact]
+    public async Task Builtin_placeholders_preserved_in_ListingDescription_even_without_text_templates()
+    {
+        var (shop, ids) = await SetupAsync();
+        using var _ = shop;
+
+        const string source = "Welcome to {{shop.name}}!\nItem: {{listing.title}}.\nCheck it out!";
+        var unknown = await Blocks(shop).SaveDescriptionAsync(ids[4], source, "tophattwaffle");
+        Assert.Empty(unknown);
+
+        // Verify row is preserved in DB and not deleted by pruning bug
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var row = await db.ListingDescriptions.SingleOrDefaultAsync(d => d.ListingId == ids[4]);
+            Assert.NotNull(row);
+            Assert.Equal(source, row.Source);
+            Assert.Equal("Welcome to TestShop!\nItem: Plain vase.\nCheck it out!", row.Rendered);
+        }
+
+        // Verify draft description has rendered text
+        Assert.Equal("Welcome to TestShop!\nItem: Plain vase.\nCheck it out!", await DescriptionAsync(shop, ids[4]));
+        Assert.Equal(source, await Blocks(shop).SourceAsync(ids[4]));
+
+        // Push to Etsy
+        await PushAsync(shop, ids[4]);
+        var patch = Assert.Single(shop.Writes);
+        Assert.DoesNotContain("%7B%7B", patch.Body); // Etsy never sees placeholders
+        Assert.Contains("Welcome+to+TestShop%21", patch.Body);
+        Assert.Contains("Item%3A+Plain+vase.", patch.Body);
+
+        // After push: source is still preserved
+        Assert.Equal(source, await Blocks(shop).SourceAsync(ids[4]));
+    }
+
+    [Fact]
+    public async Task Editing_listing_title_dynamically_updates_rendered_description_in_draft_and_preserves_source()
+    {
+        var (shop, ids) = await SetupAsync();
+        using var _ = shop;
+
+        const string source = "Created by {{shop.name}}: {{listing.title}}";
+        await Blocks(shop).SaveDescriptionAsync(ids[4], source, "tophattwaffle");
+
+        // Now edit the title in ListingEditor
+        await Editor(shop).SaveAsync(ids[4], new Dictionary<string, JsonNode?> { ["title"] = "Deluxe Plain Vase" }, "tophattwaffle");
+
+        // The draft description should have automatically re-rendered with the new title
+        Assert.Equal("Created by TestShop: Deluxe Plain Vase", await DescriptionAsync(shop, ids[4]));
+
+        // The stored ListingDescription row must have re-rendered text while preserving the raw source
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var row = await db.ListingDescriptions.SingleAsync(d => d.ListingId == ids[4]);
+            Assert.Equal(source, row.Source);
+            Assert.Equal("Created by TestShop: Deluxe Plain Vase", row.Rendered);
+        }
+    }
+
+    [Fact]
+    public async Task Circular_template_references_are_rejected_in_SaveAsync()
+    {
+        var (shop, _) = await SetupAsync();
+        using var _ = shop;
+
+        // Save first block
+        var (idA, errA) = await Blocks(shop).SaveAsync(null, "Block A", "block-a", "Hello {{text.block-b}}", "tophattwaffle");
+        Assert.Null(errA);
+        Assert.NotNull(idA);
+
+        // Try to save second block referencing first -> cycle!
+        var (idB, errB) = await Blocks(shop).SaveAsync(null, "Block B", "block-b", "World {{text.block-a}}", "tophattwaffle");
+        Assert.Null(idB);
+        Assert.Equal("Template contains circular template references.", errB);
+    }
+
+    [Fact]
+    public async Task Push_is_blocked_when_unresolved_placeholders_exist_in_description()
+    {
+        var (shop, ids) = await SetupAsync();
+        using var _ = shop;
+
+        // Save description with unresolved built-in placeholder
+        var unknown = await Blocks(shop).SaveDescriptionAsync(ids[4], "Hello {{shop.invalid_field}} and {{listing.unknown_field}}", "tophattwaffle");
+        Assert.Equal(["shop.invalid_field", "listing.unknown_field"], unknown);
+
+        var preview = await Editor(shop).PreviewAsync(ids[4]);
+        Assert.False(preview.CanPush);
+        Assert.Contains(preview.Blockers, b => b.Contains("The description has unresolved placeholder(s): {{shop.invalid_field}}, {{listing.unknown_field}}. Fix the placeholder or verify the field exists."));
+
+        var (pushId, blockers) = await Editor(shop).RequestPushAsync(ids[4], "tophattwaffle");
+        Assert.Null(pushId);
+        Assert.NotEmpty(blockers);
+    }
+
+    [Fact]
+    public async Task Cloner_copies_ListingDescription_and_resolves_placeholders_for_target_shop_and_title()
+    {
+        var (shop, ids) = await SetupAsync();
+        using var _ = shop;
+
+        // Ensure images exist in image store so cloner plan can succeed
+        var store = shop.Provider.GetRequiredService<ImageStore>();
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            foreach (var img in await db.ListingImages.Where(i => i.ListingId == ids[4]).ToListAsync())
+                img.FileName = await store.SaveAsync([1, 2, (byte)img.Rank], ".jpg");
+            await db.SaveChangesAsync();
+        }
+
+        const string source = "Welcome to {{shop.name}}!\nFeaturing: {{listing.title}}";
+        await Blocks(shop).SaveDescriptionAsync(ids[4], source, "tophattwaffle");
+
+        var cloner = shop.Provider.GetRequiredService<ListingCloner>();
+        var choice = await cloner.DefaultsAsync(ids[4], FakeEtsyShop.ShopId);
+        choice = choice with { Title = "Cloned Plain Vase" };
+
+        var (cloneId, blockers) = await cloner.RequestAsync(ids[4], choice, "tophattwaffle");
+        Assert.Empty(blockers);
+        Assert.NotNull(cloneId);
+
+        var cloneJob = shop.Provider.GetRequiredService<ListingCloneJob>();
+        await cloneJob.HandleAsync(new JobExecutionContext
+        {
+            JobId = 1,
+            JobType = ListingCloneJob.Type,
+            Attempt = 1,
+            PayloadJson = System.Text.Json.JsonSerializer.Serialize(new ClonePayload(cloneId.Value), JobJson.Options),
+        }, CancellationToken.None);
+
+        // Check Etsy write body for createDraftListing
+        var createWrite = shop.Writes.First(w => w.Method == "POST" && w.Path.Contains("/listings"));
+        var query = System.Web.HttpUtility.ParseQueryString(createWrite.Body);
+        Assert.Equal("Welcome to TestShop!\nFeaturing: Cloned Plain Vase", query["description"]);
+
+        // Check cloned listing in DB
+        await using var checkDb = shop.Db.CreateDbContext();
+        var cloneRow = await checkDb.ListingClones.SingleAsync(c => c.Id == cloneId.Value);
+        Assert.Equal(ListingCloneStatus.Succeeded, cloneRow.Status);
+        Assert.NotNull(cloneRow.NewListingId);
+
+        var clonedDesc = await checkDb.ListingDescriptions.SingleOrDefaultAsync(d => d.ListingId == cloneRow.NewListingId);
+        Assert.NotNull(clonedDesc);
+        Assert.Equal(source, clonedDesc.Source);
+        Assert.Equal("Welcome to TestShop!\nFeaturing: Cloned Plain Vase", clonedDesc.Rendered);
     }
 }

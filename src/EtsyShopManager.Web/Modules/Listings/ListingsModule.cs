@@ -21,6 +21,7 @@ public sealed class ListingsModule : IModule
         services.AddSingleton<ListingImportQueue>();
         services.AddSingleton<ListingQueries>();
         services.AddSingleton<ShopIconCache>();
+        services.AddSingleton<ProcessingProfileService>();
 
         services.AddJobHandler<ImportShopListingsJob>();
         services.AddJobHandler<ImportShopLookupsJob>();
@@ -69,6 +70,7 @@ public sealed class ListingsModule : IModule
     public IEnumerable<NavItem> NavItems =>
     [
         new("Listings", "listings", Icons.Material.Filled.Inventory2, Order: 20),
+        new("Processing profiles", "processing-profiles", Icons.Material.Filled.Schedule, Order: 28),
         new("Lookups", "lookups", Icons.Material.Filled.ListAlt, Order: 30),
     ];
 }

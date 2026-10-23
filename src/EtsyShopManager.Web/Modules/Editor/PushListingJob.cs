@@ -32,7 +32,8 @@ public sealed class PushListingJob(
     IDomainEventPublisher events,
     IAuditLog audit,
     TimeProvider time,
-    ILogger<PushListingJob> logger) : IJobHandler
+    ILogger<PushListingJob> logger,
+    Infrastructure.Storage.VideoStore? videoStore = null) : IJobHandler
 {
     public const string Type = "etsy.listing.push";
     public string JobType => Type;
@@ -40,7 +41,7 @@ public sealed class PushListingJob(
 
     /// <summary>Fields written by their own calls rather than updateListing.</summary>
     private static readonly HashSet<string> SeparateCalls =
-        [ListingFields.Inventory, ListingFields.Images, ListingFields.Attributes, ListingFields.Personalization];
+        [ListingFields.Inventory, ListingFields.Images, ListingFields.Video, ListingFields.Attributes, ListingFields.Personalization];
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
@@ -80,7 +81,9 @@ public sealed class PushListingJob(
         ListingEditModel model;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            listing = await db.Listings.AsNoTracking().Include(l => l.Shop).ThenInclude(s => s.Token).Include(l => l.EtsyState).Include(l => l.Products).ThenInclude(p => p.Offerings).AsSplitQuery()
+            listing = await db.Listings.AsNoTracking().Include(l => l.Shop).ThenInclude(s => s.Token).Include(l => l.EtsyState)
+                .Include(l => l.Videos)
+                .Include(l => l.Products).ThenInclude(p => p.Offerings).AsSplitQuery()
                 .FirstAsync(l => l.Id == listingId, ct);
             model = ListingEditModel.Parse(listing.EtsyState!.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         }
@@ -88,7 +91,7 @@ public sealed class PushListingJob(
         IReadOnlyList<AttributeProperty>? properties;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
             properties = await AttributeEditor.LoadAsync(db, (long?)model.Local("taxonomy_id"), ct);
-        var preview = ListingEditor.Preview(listing, model, pushInProgress: false, images.Exists, properties);
+        var preview = ListingEditor.Preview(listing, model, pushInProgress: false, file => images.Exists(file) || (videoStore?.Exists(file) ?? false), properties);
         if (preview.Blockers.Count > 0)
         {
             var reason = string.Join(" ", preview.Blockers);
@@ -107,6 +110,7 @@ public sealed class PushListingJob(
         var attributesChanged = preview.Changes.Any(c => c.Key == ListingFields.Attributes);
         var personalizationChanged = preview.Changes.Any(c => c.Key == ListingFields.Personalization);
         var photosChanged = preview.Changes.Any(c => c.Key == ListingFields.Images);
+        var videoChanged = preview.Changes.Any(c => c.Key == ListingFields.Video);
         var inventoryChanged = preview.Changes.Any(c => c.Key == ListingFields.Inventory);
 
         // 2. Snapshot what Etsy holds right now.
@@ -154,6 +158,8 @@ public sealed class PushListingJob(
             }
             if (photosChanged)
                 await PushPhotosAsync(listing, local[ListingFields.Images]!.AsArray(), auth, uploaded, () => wrote = true, ct);
+            if (videoChanged)
+                await PushVideoAsync(listing, model, local, auth, () => wrote = true, ct);
             if (inventoryChanged)
             {
                 var body = InventoryWriter.FromLocal(inventory, local[ListingFields.Inventory]!);
@@ -209,6 +215,16 @@ public sealed class PushListingJob(
         // New variation values got their ids from Etsy just now; the draft has none for them yet.
         if (after.Draft[ListingFields.Inventory] is JsonObject draftInventory && newEtsy[ListingFields.Inventory] is { } etsyInventory)
             after.Draft[ListingFields.Inventory] = VariationEditor.AdoptValueIds(draftInventory, etsyInventory);
+        // If video was in draft, adopt Etsy's new state
+        if (after.Draft.ContainsKey(ListingFields.Video))
+        {
+            var draftVideo = after.Draft[ListingFields.Video];
+            var etsyVideo = newEtsy[ListingFields.Video];
+            if (draftVideo is null && etsyVideo is null)
+                after.Draft.Remove(ListingFields.Video);
+            else if (draftVideo is not null && etsyVideo is not null)
+                after.Draft.Remove(ListingFields.Video);
+        }
         var notApplied = after.AcceptPushed(newEtsy);
         ListingMapper.Apply(row, after);
         var push = await db.ListingPushes.FirstAsync(p => p.Id == pushId, ct);
@@ -254,6 +270,45 @@ public sealed class PushListingJob(
                     break;
             }
             markWrote();
+        }
+    }
+
+    private async Task PushVideoAsync(Listing listing, ListingEditModel model, JsonObject local, EtsyAuth auth, Action markWrote, CancellationToken ct)
+    {
+        var currentEtsyVideo = model.Etsy[ListingFields.Video];
+        var currentEtsyVideoId = (long?)currentEtsyVideo?["etsy_video_id"]
+            ?? listing.Videos.FirstOrDefault(v => v.VideoState != "deleted")?.EtsyVideoId;
+        var shopId = listing.Shop.EtsyShopId;
+        var localVideo = local[ListingFields.Video];
+
+        if (localVideo is null)
+        {
+            if (currentEtsyVideoId is { } existingId)
+            {
+                logger.LogInformation("Deleting video {VideoId} for listing {ListingId}", existingId, listing.EtsyListingId);
+                await etsy.DeleteListingVideoAsync(shopId, listing.EtsyListingId, existingId, auth, ct);
+                markWrote();
+            }
+        }
+        else
+        {
+            var fileName = (string?)localVideo["file_name"];
+            if (!string.IsNullOrEmpty(fileName))
+            {
+                if (currentEtsyVideoId is { } existingId)
+                {
+                    logger.LogInformation("Replacing video: deleting existing video {VideoId} for listing {ListingId}", existingId, listing.EtsyListingId);
+                    await etsy.DeleteListingVideoAsync(shopId, listing.EtsyListingId, existingId, auth, ct);
+                    markWrote();
+                }
+
+                var videoPath = videoStore?.PathFor(fileName) ?? fileName;
+                var videoBytes = await File.ReadAllBytesAsync(videoPath, ct);
+                var uploadName = (string?)localVideo["name"] ?? fileName;
+                logger.LogInformation("Uploading video {FileName} ({Bytes} bytes) for listing {ListingId}", uploadName, videoBytes.Length, listing.EtsyListingId);
+                await etsy.UploadListingVideoAsync(shopId, listing.EtsyListingId, videoBytes, uploadName, auth, ct);
+                markWrote();
+            }
         }
     }
 

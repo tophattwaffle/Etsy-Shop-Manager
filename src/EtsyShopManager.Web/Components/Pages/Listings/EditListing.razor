@@ -4,6 +4,7 @@
 @using EtsyShopManager.Core.Listings
 @using EtsyShopManager.Web.Modules.Editor
 @using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Templates
 @using Microsoft.EntityFrameworkCore
 @implements IDisposable
 @inject ListingEditor Editor
@@ -85,48 +86,7 @@ else
 
     @if (_preview is not null)
     {
-        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-                <MudText Typo="Typo.h6">Review changes</MudText>
-                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => _preview = null">Keep editing</MudButton>
-            </MudStack>
-            @if (_preview.Changes.Count == 0)
-            {
-                <MudText Typo="Typo.body2" Class="muted">Nothing to push: this listing matches Etsy.</MudText>
-            }
-            else
-            {
-                <MudSimpleTable Dense="true" Class="mt-2">
-                    <thead>
-                        <tr>
-                            <SortHeader Sort="_changeSort" Column="field" Changed="StateHasChanged">Field</SortHeader>
-                            <SortHeader Sort="_changeSort" Column="from" Changed="StateHasChanged">On Etsy now</SortHeader>
-                            <SortHeader Sort="_changeSort" Column="to" Changed="StateHasChanged">After the push</SortHeader>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var c in _changeSort.Apply(_preview.Changes))
-                        {
-                            <tr><td>@c.Label</td><td class="muted">@_lookups.Describe(c.Key, c.From)</td><td>@_lookups.Describe(c.Key, c.To)</td></tr>
-                        }
-                    </tbody>
-                </MudSimpleTable>
-            }
-            @foreach (var b in _preview.Blockers)
-            {
-                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@b</MudAlert>
-            }
-            @foreach (var w in _preview.Warnings)
-            {
-                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@w</MudAlert>
-            }
-            @if (_preview.CanPush)
-            {
-                <MudStack Row="true" Class="mt-3">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PushAsync" Disabled="_pushing">Push to Etsy</MudButton>
-                </MudStack>
-            }
-        </MudPaper>
+        <ListingPreview Preview="_preview" Lookups="_lookups" OnClose="() => _preview = null" OnPush="PushAsync" Pushing="_pushing" />
     }
 
     <MudGrid>
@@ -164,7 +124,7 @@ else
                         }
                     </MudText>
                 }
-                @if (EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Slugs(_description).Count > 0)
+                @if (PlaceholderEngine.HasPlaceholders(_description))
                 {
                     <MudExpansionPanels Elevation="0" Outlined="true" Class="mt-3">
                         <MudExpansionPanel Text="Shown on Etsy as">
@@ -185,6 +145,16 @@ else
             </MudPaper>
 
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Video</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Etsy allows up to 1 video per listing (MP4 or MOV, up to 100 MB). @Pending(ListingFields.Video)
+                </MudText>
+                <VideoEditor Video="@_form![ListingFields.Video]"
+                             Imported="@l.Videos.FirstOrDefault(v => v.VideoState != "deleted")"
+                             VideoChanged="@(v => Set(ListingFields.Video, v))" />
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
                 <MudText Typo="Typo.h6" Class="mb-2">Variations, price and processing</MudText>
                 <MudText Typo="Typo.body2" Class="muted mb-2">
                     Stock isn't edited here: Etsy, sales and auto-refill manage it, and new combinations start with the
@@ -192,7 +162,11 @@ else
                 </MudText>
                 @if (_form![ListingFields.Inventory] is { } inventoryNode)
                 {
-                    <VariationsEditor Inventory="inventoryNode" Order="VariationEditor.EtsyOrder(l)" InventoryChanged="@(i => Set(ListingFields.Inventory, i))" />
+                    <VariationsEditor Inventory="inventoryNode" Order="VariationEditor.EtsyOrder(l)"
+                                      Links="_links"
+                                      @bind-SkuPattern="_skuPattern"
+                                      BaseSku="@(l.Skus.FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "")"
+                                      InventoryChanged="@(i => Set(ListingFields.Inventory, i))" />
                     @if (_variationLists.Count > 0)
                     {
                         @foreach (var v in VariationEditor.Variations(inventoryNode, VariationEditor.EtsyOrder(l)))
@@ -496,6 +470,8 @@ else
     private readonly Dictionary<long, int?> _linkPick = [];
     private readonly Dictionary<long, (EtsyShopManager.Web.Modules.Templates.VariationListLinkPreview? Preview, string? Error)> _linkPreview = [];
     private IDisposable? _live;
+    private string? _skuPattern;
+    private string? _savedSkuPattern;
 
     private TableSort<FieldChange> _changeSort = new();
     private readonly TableSort<ListingPush> _pushSort = new()
@@ -539,6 +515,7 @@ else
         if (keepForm && _form is not null) return;
         _form = model.LocalState();
         _description = _savedDescription = await TextBlocks.SourceAsync(Id);
+        _skuPattern = _savedSkuPattern = _snapshot.Listing.SkuPattern;
         _category = Long("taxonomy_id") is { } t ? new CategoryOption(t, _lookups.Categories.GetValueOrDefault(t, $"#{t}")) : null;
         _attributeProperties = await AttributeEditor.LoadAsync(db, Long("taxonomy_id"));
     }
@@ -549,14 +526,23 @@ else
         _ => "changed on Etsy",
     };
 
-    private (string Text, IReadOnlyList<string> Unknown) RenderDescription(string source) =>
-        EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Render(source, s => _allBlocks.FirstOrDefault(b => b.Slug == s)?.Text);
+    private (string Text, IReadOnlyList<string> Unknown) RenderDescription(string source)
+    {
+        if (_form is null || _snapshot is null) return (source, []);
+        var blocks = _allBlocks.ToDictionary(b => b.Slug, b => b.Text);
+        var context = new PlaceholderContext(
+            _snapshot.Listing.Shop ?? new Shop { Name = "" },
+            _form,
+            _snapshot.Listing.Skus,
+            blocks);
+        return PlaceholderEngine.Render(source, context);
+    }
 
     private IReadOnlyList<string> DescriptionUnknown => RenderDescription(_description).Unknown;
 
     private string? DescriptionHelp => DescriptionUnknown.Count > 0
         ? $"No text template called {string.Join(", ", DescriptionUnknown.Select(EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Token))}. Fix the placeholder or create the template."
-        : EtsyShopManager.Web.Modules.Templates.TextBlockMarkup.Slugs(_description).Count > 0
+        : PlaceholderEngine.HasPlaceholders(_description)
             ? $"Text templates show as placeholders here and are filled in on Etsy; their text is changed on the template's page. {Pending("description")}"
             : Pending("description");
 
@@ -603,22 +589,43 @@ else
     /// to what it was isn't one.</summary>
     private bool Unsaved => _snapshot is { } s && _form is not null
         && (_description != _savedDescription
+            || _skuPattern != _savedSkuPattern
             || ListingFields.All.Any(f => f.Editable && !JsonNode.DeepEquals(_form[f.Key], s.Model.Local(f.Key))));
 
     /// <summary>Cancel: back to the saved draft (Discard changes is the one that goes back to what's on Etsy).</summary>
     private async Task CancelEditsAsync()
     {
+        _skuPattern = _savedSkuPattern;
         await LoadAsync();
         _preview = null;
     }
-    private void SetStr(string key, string? v) => Set(key, v is null ? null : JsonValue.Create(v));
+    private void RefreshRenderedDescriptionIfPlaceholders()
+    {
+        if (_form is not null && PlaceholderEngine.HasPlaceholders(_description))
+        {
+            Set("description", JsonValue.Create(RenderDescription(_description).Text));
+        }
+    }
+
+    private void SetStr(string key, string? v)
+    {
+        Set(key, v is null ? null : JsonValue.Create(v));
+        if (key != "description") RefreshRenderedDescriptionIfPlaceholders();
+    }
     private void SetBool(string key, bool v) => Set(key, JsonValue.Create(v));
     private void SetLong(string key, long? v) => Set(key, v is null ? null : JsonValue.Create(v.Value));
-    private void SetDec(string key, decimal? v) => Set(key, v is null ? null : JsonValue.Create(v.Value));
+    private void SetDec(string key, decimal? v)
+    {
+        Set(key, v is null ? null : JsonValue.Create(v.Value));
+        RefreshRenderedDescriptionIfPlaceholders();
+    }
     private void SetPartners(IReadOnlyCollection<long>? ids) => Set("production_partner_ids", new JsonArray([.. (ids ?? []).Select(i => (JsonNode)i)]));
 
-    private void SetList(string key, string? text) =>
+    private void SetList(string key, string? text)
+    {
         Set(key, new JsonArray([.. (text ?? "").Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).Select(t => (JsonNode)t)]));
+        RefreshRenderedDescriptionIfPlaceholders();
+    }
 
     private async Task SetCategory(CategoryOption? c)
     {
@@ -700,6 +707,17 @@ else
         if (changes.Count > 0) await Editor.SaveAsync(Id, changes, await User());
         if (_description != _savedDescription || !JsonNode.DeepEquals(_form!["description"], model.Local("description")))
             await TextBlocks.SaveDescriptionAsync(Id, _description, await User());
+        if (_skuPattern != _savedSkuPattern)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = await db.Listings.FirstOrDefaultAsync(l => l.Id == Id);
+            if (entity is not null)
+            {
+                entity.SkuPattern = string.IsNullOrWhiteSpace(_skuPattern) ? null : _skuPattern.Trim();
+                await db.SaveChangesAsync();
+            }
+            _savedSkuPattern = _skuPattern;
+        }
         await LoadAsync();
         Snackbar.Add("Draft saved. Nothing has been sent to Etsy.", Severity.Success);
     }
@@ -731,12 +749,13 @@ else
 
     private async Task LinkListAsync(long propertyId)
     {
+        if (Unsaved) await SaveAsync();
         var error = await VariationLists.LinkVariationAsync(_linkPick[propertyId]!.Value, Id, propertyId, await User());
         if (error is not null) { Snackbar.Add(error, Severity.Warning); return; }
         var changes = _linkPreview[propertyId].Preview!.Changes.Count;
         _linkPick.Remove(propertyId);
         _linkPreview.Remove(propertyId);
-        _links = await VariationLists.ListingLinksAsync(Id);
+        await LoadAsync();
         Snackbar.Add(changes > 0 ? "Linked. Use Apply template now (or Apply on the template's page) to bring it in line with the template." : "Linked.", Severity.Success);
     }
 
@@ -752,8 +771,9 @@ else
 
     private async Task UnlinkListAsync(EtsyShopManager.Web.Modules.Templates.VariationListLink link)
     {
+        if (Unsaved) await SaveAsync();
         await VariationLists.UnlinkAsync(link.ListId, Id, await User());
-        _links = await VariationLists.ListingLinksAsync(Id);
+        await LoadAsync();
         Snackbar.Add($"Unlinked from {link.ListName}; the values stay as they are.", Severity.Success);
     }
 

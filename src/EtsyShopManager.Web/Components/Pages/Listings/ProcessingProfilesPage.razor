@@ -1,0 +1,653 @@
+@page "/processing-profiles"
+@using EtsyShopManager.Core.Domain
+@using EtsyShopManager.Core.Listings
+@using EtsyShopManager.Core.Modules
+@using EtsyShopManager.Data
+@using EtsyShopManager.Web.Components.Layout
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Templates
+@using Microsoft.EntityFrameworkCore
+@inject ProcessingProfileService ProfileService
+@inject BulkListingEditor BulkEditor
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>Processing profiles · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Processing profiles">
+    <Summary>
+        Per-shop processing profiles (readiness states) define order processing times for physical listings.
+    </Summary>
+    <Actions>
+        <AuthorizeView Roles="@Roles.Admin">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="OpenCreateDialogAsync" Disabled="_selectedShopId is null || _loading">
+                New profile
+            </MudButton>
+        </AuthorizeView>
+    </Actions>
+</PageHeader>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudSelect T="int?" Value="_selectedShopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+        @foreach (var s in _shops)
+        {
+            <MudSelectItem T="int?" Value="@((int?)s.Id)">@s.Name</MudSelectItem>
+        }
+    </MudSelect>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" Class="mb-2">Profiles for this shop</MudText>
+    @if (_loading)
+    {
+        <MudText Typo="Typo.body2" Class="muted">Loading profiles...</MudText>
+    }
+    else if (_profiles.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">No processing profiles for this shop.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true">
+            <thead>
+                <tr>
+                    <SortHeader Sort="_profileSort" Column="label" Changed="StateHasChanged">Display label</SortHeader>
+                    <SortHeader Sort="_profileSort" Column="id" Changed="StateHasChanged">Readiness state ID</SortHeader>
+                    <SortHeader Sort="_profileSort" Column="state" Changed="StateHasChanged">Readiness state</SortHeader>
+                    <SortHeader Sort="_profileSort" Column="days" Changed="StateHasChanged">Processing time</SortHeader>
+                    <SortHeader Sort="_profileSort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in _profileSort.Apply(_profiles))
+                {
+                    <tr>
+                        <td>@(p.DisplayLabel ?? "—")</td>
+                        <td>@p.ReadinessStateId</td>
+                        <td>@(p.ReadinessState == "made_to_order" ? "Made to order" : "Ready to ship")</td>
+                        <td>@(p.MinProcessingDays == p.MaxProcessingDays ? $"{p.MinProcessingDays} days" : $"{p.MinProcessingDays}-{p.MaxProcessingDays} days")</td>
+                        <td>@p.ListingCount</td>
+                        <td class="text-right">
+                            <AuthorizeView Roles="@Roles.Admin">
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenEditDialogAsync(p))">Edit</MudButton>
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => SelectForApply(p.ReadinessStateId))">Apply to listings</MudButton>
+                            </AuthorizeView>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" Class="mb-1">Apply profile to listings</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Choose a profile and candidate listings to update. Applying saves changes as unpushed draft inventory edits; nothing is sent to Etsy until you review and push.
+    </MudText>
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+        <MudSelect T="long?" Value="_applyProfileId" ValueChanged="OnApplyProfileChanged" Label="Profile to apply" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-md">
+            <MudSelectItem T="long?" Value="@((long?)null)">Choose a profile</MudSelectItem>
+            @foreach (var p in _profiles)
+            {
+                <MudSelectItem T="long?" Value="@((long?)p.ReadinessStateId)">@(p.DisplayLabel ?? $"{p.ReadinessState} (#{p.ReadinessStateId})")</MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap" Class="mb-3">
+        <MudTextField T="string" Value="_filterText" ValueChanged="OnFilterTextChanged" Placeholder="Search title, SKU, tag, listing ID..."
+                      Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Class="esm-w-md" aria-label="Search listings" />
+        <MudSelect T="int?" Value="_filterShopId" ValueChanged="OnFilterShopChanged" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+            <MudSelectItem T="int?" Value="@((int?)null)">All shops</MudSelectItem>
+            @foreach (var s in _shops)
+            {
+                <MudSelectItem T="int?" Value="@((int?)s.Id)">@s.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" Value="_filterStatus" ValueChanged="OnFilterStatusChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+            <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+            <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
+            <MudSelectItem T="string" Value="@("draft")">Draft</MudSelectItem>
+            <MudSelectItem T="string" Value="@("expired")">Expired</MudSelectItem>
+            <MudSelectItem T="string" Value="@("sold_out")">Sold out</MudSelectItem>
+            <MudSelectItem T="string" Value="@("inactive")">Inactive</MudSelectItem>
+            <MudSelectItem T="string" Value="@("missing")">Gone from Etsy</MudSelectItem>
+        </MudSelect>
+        <MudSelect T="string" Value="_filterProfile" ValueChanged="OnFilterProfileChanged" Label="Current profile" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-md">
+            <MudSelectItem T="string" Value="@("all")">All profiles</MudSelectItem>
+            <MudSelectItem T="string" Value="@("none")">No profile</MudSelectItem>
+            <MudSelectItem T="string" Value="@("varies")">Varies by variation</MudSelectItem>
+            @foreach (var p in AvailableFilterProfiles)
+            {
+                <MudSelectItem T="string" Value="@p.ReadinessStateId.ToString()">@(p.DisplayLabel ?? $"{p.ReadinessState} (#{p.ReadinessStateId})")</MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudCheckBox T="bool?" Value="CandidateHeaderChecked" ValueChanged="@(_ => TogglePickAllVisible())" TriState="true" aria-label="Select all" Dense="true" />
+            <MudText Typo="Typo.body2">@_picked.Count.ToString("N0") selected (@VisibleCandidates.Count.ToString("N0") visible)</MudText>
+            @if (VisibleCandidates.Count > 0 && _picked.Count < VisibleCandidates.Count)
+            {
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllVisible">Select all @VisibleCandidates.Count.ToString("N0") matching</MudButton>
+            }
+            @if (_picked.Count > 0)
+            {
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ClearPicked">Clear selection</MudButton>
+            }
+        </MudStack>
+        <MudButton Variant="Variant.Outlined" Disabled="@(TargetCount == 0 || _applyProfileId is null || _busy)" OnClick="PreviewBulkApplyAsync">
+            Preview @TargetCount.ToString("N0") listing@(TargetCount == 1 ? "" : "s")
+        </MudButton>
+    </MudStack>
+
+    @if (VisibleCandidates.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">No candidate listings match the current filters.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true">
+            <thead>
+                <tr>
+                    <th></th>
+                    <SortHeader Sort="_candidateSort" Column="title" Changed="StateHasChanged">Listing</SortHeader>
+                    <SortHeader Sort="_candidateSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                    <SortHeader Sort="_candidateSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                    <SortHeader Sort="_candidateSort" Column="profile" Changed="StateHasChanged">Current profile</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in _candidateSort.Apply(VisibleCandidates))
+                {
+                    var isPicked = _picked.Contains(c.ListingId);
+                    <tr @onclick="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))">
+                        <td>
+                            <RangeCheckBox Value="isPicked"
+                                           Clicked="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))"
+                                           AriaLabel="@($"Select {c.Title}")" />
+                        </td>
+                        <td><a href="@($"listings/{c.ListingId}/edit")" @onclick:stopPropagation="true">@c.Title</a></td>
+                        <td>@c.ShopName</td>
+                        <td>@(c.IsMissingOnEtsy ? "Gone from Etsy" : ListingFormat.Humanize(c.State))</td>
+                        <td>@c.CurrentProfileName</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@if (_previewRows is not null)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-1">Preview changes</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2">
+            @Changing will change@(Skipped > 0 ? $", {Skipped:N0} skipped" : "")@(Same > 0 ? $", {Same:N0} already using this profile" : "").
+        </MudText>
+        <MudSimpleTable Dense="true">
+            <thead>
+                <tr>
+                    <SortHeader Sort="_previewSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                    <SortHeader Sort="_previewSort" Column="before" Changed="StateHasChanged">Now</SortHeader>
+                    <SortHeader Sort="_previewSort" Column="after" Changed="StateHasChanged">After</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _previewSort.Apply(_previewRows))
+                {
+                    <tr>
+                        <td><a href="@($"listings/{row.ListingId}/edit")">@row.Title</a> <span class="muted small">· @row.ShopName</span></td>
+                        <td>@row.Before</td>
+                        <td>
+                            @if (row.Skipped is not null)
+                            {
+                                <span><span class="esm-status-dot esm-dot-warning"></span> Skipped: @row.Skipped</span>
+                            }
+                            else if (!row.Changes)
+                            {
+                                <span class="muted">No change</span>
+                            }
+                            else
+                            {
+                                @row.After
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Changing == 0 || _busy)" OnClick="CommitEditsAsync">
+            Save as edits to @Changing listing@(Changing == 1 ? "" : "s")
+        </MudButton>
+    </MudPaper>
+}
+
+@if (_savedCount is > 0)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.body2">Saved as unpushed edits on @_savedCount listing@(_savedCount == 1 ? "" : "s").</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ReviewPushAsync">
+                Review and push @_savedCount listing@(_savedCount == 1 ? "" : "s")
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+}
+
+@if (_review is not null)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+            <MudText Typo="Typo.h6">Review the push</MudText>
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _review = null)">Close</MudButton>
+        </MudStack>
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Each listing is pushed on its own, with all of its unpushed edits (not only this profile), exactly as from its editor. Listings with a problem are skipped; fix them in their editor.
+        </MudText>
+        @if (_review.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">None of these listings has edits to push any more.</MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true">
+                <thead>
+                    <tr>
+                        <SortHeader Sort="_reviewSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                        <SortHeader Sort="_reviewSort" Column="changes" Changed="StateHasChanged">Changes</SortHeader>
+                        <SortHeader Sort="_reviewSort" Column="ready" Changed="StateHasChanged">Ready</SortHeader>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _reviewSort.Apply(_review))
+                    {
+                        <tr>
+                            <td><a href="@($"listings/{item.ListingId}/edit")">@item.Title</a> <span class="muted small">· @item.ShopName</span></td>
+                            <td>@string.Join(", ", item.Preview.Changes.Select(c => c.Label))</td>
+                            <td>
+                                @if (item.Preview.CanPush)
+                                {
+                                    <span><span class="esm-status-dot esm-dot-success"></span> Ready</span>
+                                }
+                                else
+                                {
+                                    @foreach (var b in item.Preview.Blockers) { <div class="small error-text">@b</div> }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Ready == 0 || _busy)" OnClick="PushAsync">
+                Push @Ready listing@(Ready == 1 ? "" : "s") to Etsy
+            </MudButton>
+        }
+    </MudPaper>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<Shop> _shops = [];
+    private int? _selectedShopId;
+    private List<ProcessingProfileItem> _profiles = [];
+    private List<ProcessingProfileCandidate> _candidates = [];
+    private readonly HashSet<int> _picked = [];
+
+    private long? _applyProfileId;
+    private string? _filterText;
+    private int? _filterShopId;
+    private string _filterStatus = "all";
+    private string _filterProfile = "all";
+    private List<ProcessingProfileItem> _allProfiles = [];
+
+    private IEnumerable<ProcessingProfileItem> AvailableFilterProfiles
+    {
+        get
+        {
+            var profiles = _filterShopId.HasValue
+                ? _allProfiles.Where(p => p.ShopId == _filterShopId.Value)
+                : _allProfiles;
+
+            return profiles
+                .GroupBy(p => p.ReadinessStateId)
+                .Select(g => g.First())
+                .OrderBy(p => p.DisplayLabel ?? p.ReadinessState);
+        }
+    }
+
+    private int TargetCount => _picked.Intersect(VisibleCandidates.Select(c => c.ListingId)).Count();
+
+    private IReadOnlyList<ProcessingProfileApplyRow>? _previewRows;
+    private int? _savedCount;
+    private IReadOnlyList<int> _savedListingIds = [];
+    private IReadOnlyList<TemplatePushItem>? _review;
+
+    private bool _loading = true;
+    private bool _busy;
+
+    private int Changing => _previewRows?.Count(r => r.Changes) ?? 0;
+    private int Skipped => _previewRows?.Count(r => r.Skipped is not null) ?? 0;
+    private int Same => _previewRows?.Count(r => r.Skipped is null && !r.Changes) ?? 0;
+    private int Ready => _review?.Count(r => r.Preview.CanPush) ?? 0;
+
+    private readonly TableSort<ProcessingProfileItem> _profileSort = new()
+    {
+        ["label"] = p => p.DisplayLabel ?? "",
+        ["id"] = p => p.ReadinessStateId,
+        ["state"] = p => p.ReadinessState,
+        ["days"] = p => p.MinProcessingDays * 1000 + p.MaxProcessingDays,
+        ["listings"] = p => p.ListingCount,
+    };
+
+    private readonly TableSort<ProcessingProfileCandidate> _candidateSort = new()
+    {
+        ["title"] = c => c.Title,
+        ["shop"] = c => c.ShopName,
+        ["status"] = c => c.IsMissingOnEtsy ? "missing" : c.State,
+        ["profile"] = c => c.CurrentProfileName,
+    };
+
+    private readonly TableSort<ProcessingProfileApplyRow> _previewSort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["before"] = r => r.Before,
+        ["after"] = r => r.Skipped ?? r.After,
+    };
+
+    private readonly TableSort<TemplatePushItem> _reviewSort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["changes"] = r => string.Join(", ", r.Preview.Changes.Select(c => c.Label)),
+        ["ready"] = r => r.Preview.CanPush,
+    };
+
+    private List<ProcessingProfileCandidate> VisibleCandidates =>
+        _candidates.Where(c => TemplateFilterMatcher.Matches(c, new TemplateListingFilter
+        {
+            Text = _filterText,
+            ShopId = _filterShopId,
+            Status = _filterStatus,
+            ProcessingProfile = _filterProfile,
+        })).ToList();
+
+    private bool? CandidateHeaderChecked
+    {
+        get
+        {
+            var visible = VisibleCandidates;
+            if (visible.Count == 0 || _picked.Count == 0) return false;
+            var visibleIds = visible.Select(c => c.ListingId).ToHashSet();
+            var pickedVisible = _picked.Count(id => visibleIds.Contains(id));
+            if (pickedVisible == visible.Count) return true;
+            if (pickedVisible > 0) return null;
+            return false;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _shops = await db.Shops.AsNoTracking().OrderBy(s => s.Name).ToListAsync();
+        if (_shops.Count > 0)
+        {
+            _selectedShopId = _shops[0].Id;
+            _filterShopId = _selectedShopId;
+        }
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _allProfiles = (await ProfileService.ListAsync((int?)null)).ToList();
+            if (_selectedShopId.HasValue)
+            {
+                _profiles = _allProfiles.Where(p => p.ShopId == _selectedShopId.Value).ToList();
+            }
+            else
+            {
+                _profiles.Clear();
+            }
+            _candidates = (await ProfileService.GetCandidatesAsync(null)).ToList();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnShopChanged(int? newShopId)
+    {
+        _selectedShopId = newShopId;
+        _filterShopId = newShopId;
+        _applyProfileId = null;
+        _previewRows = null;
+        await ReloadAsync();
+    }
+
+    private void OnFilterTextChanged(string? text)
+    {
+        _filterText = text;
+        _previewRows = null;
+    }
+
+    private void OnFilterShopChanged(int? shopId)
+    {
+        _filterShopId = shopId;
+        if (_filterProfile != "all" && _filterProfile != "none" && _filterProfile != "varies")
+        {
+            if (!AvailableFilterProfiles.Any(p => p.ReadinessStateId.ToString() == _filterProfile))
+            {
+                _filterProfile = "all";
+            }
+        }
+        _previewRows = null;
+    }
+
+    private void OnFilterStatusChanged(string status)
+    {
+        _filterStatus = status;
+        _previewRows = null;
+    }
+
+    private void OnFilterProfileChanged(string profile)
+    {
+        _filterProfile = profile;
+        _previewRows = null;
+    }
+
+    private void OnApplyProfileChanged(long? profileId)
+    {
+        _applyProfileId = profileId;
+        _previewRows = null;
+    }
+
+    private void SelectForApply(long readinessStateId)
+    {
+        _applyProfileId = readinessStateId;
+        _previewRows = null;
+    }
+
+    private readonly RangeSelection<int> _range = new();
+
+    private void HandleCandidateClick(int listingId, MouseEventArgs e)
+    {
+        var visible = _candidateSort.Apply(VisibleCandidates).Select(x => x.ListingId).ToList();
+        _range.HandleClick(listingId, e.ShiftKey, visible, _picked);
+        _previewRows = null;
+    }
+
+    private void ClearPicked()
+    {
+        _picked.Clear();
+        _range.Reset();
+        _previewRows = null;
+    }
+
+    private void TogglePick(int listingId, bool picked)
+    {
+        if (picked) _picked.Add(listingId);
+        else _picked.Remove(listingId);
+        _previewRows = null;
+    }
+
+    private void SelectAllVisible()
+    {
+        foreach (var c in VisibleCandidates) _picked.Add(c.ListingId);
+        _range.Reset();
+        _previewRows = null;
+    }
+
+    private void TogglePickAllVisible()
+    {
+        var visible = VisibleCandidates;
+        var visibleIds = visible.Select(c => c.ListingId).ToHashSet();
+        if (_picked.Any(id => visibleIds.Contains(id)))
+        {
+            foreach (var id in visibleIds) _picked.Remove(id);
+        }
+        else
+        {
+            foreach (var id in visibleIds) _picked.Add(id);
+        }
+        _range.Reset();
+        _previewRows = null;
+    }
+
+    private async Task OpenCreateDialogAsync()
+    {
+        if (_selectedShopId is null) return;
+        var shop = _shops.FirstOrDefault(s => s.Id == _selectedShopId.Value);
+        var parameters = new DialogParameters<ProcessingProfileDialog>
+        {
+            { x => x.ShopId, _selectedShopId.Value },
+            { x => x.ShopName, shop?.Name ?? "" },
+        };
+        var dialog = await Dialogs.ShowAsync<ProcessingProfileDialog>("New processing profile", parameters);
+        var result = await dialog.Result;
+        if (result is not null && !result.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OpenEditDialogAsync(ProcessingProfileItem profile)
+    {
+        var shop = _shops.FirstOrDefault(s => s.Id == profile.ShopId);
+        var parameters = new DialogParameters<ProcessingProfileDialog>
+        {
+            { x => x.ShopId, profile.ShopId },
+            { x => x.ShopName, shop?.Name ?? "" },
+            { x => x.Profile, profile },
+        };
+        var dialog = await Dialogs.ShowAsync<ProcessingProfileDialog>("Edit processing profile", parameters);
+        var result = await dialog.Result;
+        if (result is not null && !result.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task PreviewBulkApplyAsync()
+    {
+        if (_applyProfileId is null || _picked.Count == 0) return;
+        var targetIds = _picked.Intersect(VisibleCandidates.Select(c => c.ListingId)).ToList();
+        if (targetIds.Count == 0) return;
+        _busy = true;
+        try
+        {
+            _previewRows = await ProfileService.PreviewBulkApplyAsync(_applyProfileId.Value, targetIds);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CommitEditsAsync()
+    {
+        if (_applyProfileId is null || _picked.Count == 0) return;
+        var targetIds = _picked.Intersect(VisibleCandidates.Select(c => c.ListingId)).ToList();
+        if (targetIds.Count == 0) return;
+        _busy = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var changed = await ProfileService.ApplyAsync(_applyProfileId.Value, targetIds, user);
+            _savedCount = changed.Count;
+            _savedListingIds = changed;
+            _previewRows = null;
+            Snackbar.Add($"Saved unpushed edits on {_savedCount} listing(s)", Severity.Success);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReviewPushAsync()
+    {
+        if (_savedListingIds.Count == 0) return;
+        _busy = true;
+        try
+        {
+            _review = await BulkEditor.ReviewAsync(_savedListingIds);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task PushAsync()
+    {
+        if (_savedListingIds.Count == 0) return;
+        _busy = true;
+        try
+        {
+            var user = (await AuthState).User;
+            var results = await BulkEditor.PushAsync(_savedListingIds, user);
+            var pushed = results.Count(r => r.PushId != null);
+            Snackbar.Add($"Queued {pushed} listing push(es)", Severity.Success);
+            _review = null;
+            _savedCount = null;
+            _savedListingIds = [];
+            _picked.Clear();
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

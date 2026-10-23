@@ -8,9 +8,11 @@ using EtsyShopManager.Etsy;
 using EtsyShopManager.Web.Components;
 using EtsyShopManager.Web.Infrastructure;
 using EtsyShopManager.Web.Infrastructure.Jobs;
+using EtsyShopManager.Web.Infrastructure.Storage;
 using EtsyShopManager.Web.Modules;
 using EtsyShopManager.Web.Modules.Listings;
 using EtsyShopManager.Web.Modules.Orders;
+using EtsyShopManager.Web.Modules.Shops;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -98,6 +100,9 @@ builder.Services.AddJobInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IEtsyCredentialsProvider, EtsyCredentialsProvider>();
 builder.Services.AddSingleton<IEtsyTokenStore, ShopTokenStore>();
 builder.Services.AddSingleton<IEtsyWriteJournal, EtsyWriteJournal>();
+builder.Services.AddSingleton<ShopDefaultsService>();
+builder.Services.AddSingleton<ListingCreationService>();
+builder.Services.AddSingleton<VideoStore>();
 builder.Services.AddEtsy(builder.Configuration);
 if (builder.Environment.IsStaging())
     builder.Services.AddStagingEtsyLockout(); // the staging copy never reaches Etsy (docs/STAGING.md)
@@ -169,6 +174,12 @@ app.MapRazorComponents<App>()
 
 app.MapAccountEndpoints();
 app.MapModuleEndpoints(modules);
+app.MapGet(VideoStore.UrlPrefix + "{fileName}", (string fileName, VideoStore store, HttpContext http) =>
+{
+    if (!store.Exists(fileName)) return Results.NotFound();
+    http.Response.Headers[Microsoft.Net.Http.Headers.HeaderNames.CacheControl] = "public, max-age=31536000, immutable";
+    return Results.File(store.PathFor(fileName), VideoStore.ContentTypeFor(fileName), enableRangeProcessing: true);
+}).AllowAnonymous();
 app.MapGet("/health", () => Results.Ok(new { status = "ok", version = AppVersion.Version, commit = AppVersion.Commit }))
     .AllowAnonymous();
 

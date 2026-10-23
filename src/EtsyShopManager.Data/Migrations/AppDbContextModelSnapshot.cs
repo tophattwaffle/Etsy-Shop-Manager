@@ -321,6 +321,10 @@ namespace EtsyShopManager.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SkuPattern")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
                     b.PrimitiveCollection<string>("Skus")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -833,6 +837,64 @@ namespace EtsyShopManager.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("ListingVariationLists");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingVideo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ByteSize")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DownloadError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DownloadedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("EtsyVideoId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FileName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SourceThumbUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceUrl")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ThumbFileName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VideoState")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EtsyVideoId");
+
+                    b.HasIndex("FileName");
+
+                    b.HasIndex("ListingId", "EtsyVideoId")
+                        .IsUnique();
+
+                    b.ToTable("ListingVideos");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
@@ -2101,6 +2163,17 @@ namespace EtsyShopManager.Data.Migrations
                     b.Navigation("VariationList");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingVideo", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithMany("Videos")
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
                 {
                     b.HasOne("EtsyShopManager.Core.Domain.Shop", "Shop")
@@ -2270,6 +2343,8 @@ namespace EtsyShopManager.Data.Migrations
                     b.Navigation("Images");
 
                     b.Navigation("Products");
+
+                    b.Navigation("Videos");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingProduct", b =>

@@ -55,7 +55,7 @@
                     </MudTooltip>
                 </span>
                 <MudSpacer />
-                @PrintActions(Picked.Count, PrintLink, () => _picked.Clear())
+                @PrintActions(Picked.Count, PrintLink, ClearPicked)
             </div>
         @if (_shown.Count == 0)
         {
@@ -165,7 +165,7 @@
                     </MudTooltip>
                 </span>
                 <MudSpacer />
-                @PrintActions(_historyPicked.Count, HistoryPrintLink, () => _historyPicked.Clear())
+                @PrintActions(_historyPicked.Count, HistoryPrintLink, ClearHistoryPicked)
             </div>
             @if (_historyRows.Count == 0)
             {
@@ -405,8 +405,9 @@
         <div class="order-card @(!history && due.Urgent ? "urgent" : "")" style="@ShopStyle(o.ShopId)">
             <div class="order-head">
                 <div class="order-pick">
-                    <MudCheckBox T="bool" Value="@picked" ValueChanged="@(on => { if (history) PickHistory(o.Id, on); else Pick(o.Id, on); })" Dense="true"
-                                 Size="Size.Small" aria-label="@($"Select order {o.EtsyReceiptId} to print")" />
+                    <RangeCheckBox Value="@picked"
+                                   Clicked="@((MouseEventArgs e) => HandleOrderClick(o.Id, e, history))"
+                                   AriaLabel="@($"Select order {o.EtsyReceiptId} to print")" />
                     <div>
                         <div class="order-buyer">
                             @(o.BuyerName ?? $"#{o.EtsyReceiptId}")
@@ -732,6 +733,35 @@
     private static string SortLabel(string? key) =>
         OpenOrderFilter.SortOptions.FirstOrDefault(s => s.Key == key).Label ?? "Ship by date";
 
+    private readonly RangeSelection<int> _openRange = new();
+    private readonly RangeSelection<int> _historyRange = new();
+
+    private void HandleOrderClick(int id, MouseEventArgs e, bool history)
+    {
+        if (history)
+        {
+            var visible = _historyRows.Select(o => o.Id).ToList();
+            _historyRange.HandleClick(id, e.ShiftKey, visible, _historyPicked);
+        }
+        else
+        {
+            var visible = _shown.Select(o => o.Id).ToList();
+            _openRange.HandleClick(id, e.ShiftKey, visible, _picked);
+        }
+    }
+
+    private void ClearPicked()
+    {
+        _picked.Clear();
+        _openRange.Reset();
+    }
+
+    private void ClearHistoryPicked()
+    {
+        _historyPicked.Clear();
+        _historyRange.Reset();
+    }
+
     // Orders picked for printing (open orders shown by the filters only; one that ships or closes drops out on the next refresh).
     private readonly HashSet<int> _picked = [];
     private List<int> Picked => [.. _shown.Where(o => _picked.Contains(o.Id)).Select(o => o.Id)];
@@ -741,7 +771,11 @@
         if (on) _picked.Add(id); else _picked.Remove(id);
     }
 
-    private void SelectAllOpen() => _picked.UnionWith(_shown.Select(o => o.Id));
+    private void SelectAllOpen()
+    {
+        _picked.UnionWith(_shown.Select(o => o.Id));
+        _openRange.Reset();
+    }
 
     // Prints a printout page without leaving this one: it loads in a hidden frame and opens the browser's print dialog
     // (esm.printPage). The page itself still works on its own, with its Print button.
@@ -764,6 +798,7 @@
     private void PickHistoryPage(bool on)
     {
         foreach (var o in _historyRows) PickHistory(o.Id, on);
+        _historyRange.Reset();
     }
 
     private string HistoryPrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", _historyPicked.Order())}";

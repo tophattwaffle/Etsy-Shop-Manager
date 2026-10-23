@@ -22,16 +22,18 @@ public class VariationListTests
         var shop = new FakeEtsyShop();
         var listing = FakeEtsyShop.Listing(1, "Galaxy vase");
         long id = 10;
+        string[] colors = ["Black", "White", "Red", "Custom swirl"];
+        var colorValueIds = colors.Select((c, i) => (Color: c, Id: 100L + i)).ToDictionary(x => x.Color, x => x.Id);
         JsonObject Product(string size, string color, long price)
         {
             var p = FakeEtsyShop.Product(++id, "", size, price, 5);
+            p["property_values"]![0]!["value_ids"] = new JsonArray(size == "Small" ? 10L : 20L);
             p["property_values"]!.AsArray().Add(new JsonObject
             {
-                ["property_id"] = Color, ["property_name"] = "Color", ["value_ids"] = new JsonArray(), ["values"] = new JsonArray(color),
+                ["property_id"] = Color, ["property_name"] = "Color", ["value_ids"] = new JsonArray(colorValueIds[color]), ["values"] = new JsonArray(color),
             });
             return p;
         }
-        string[] colors = ["Black", "White", "Red", "Custom swirl"];
         listing["inventory"] = new JsonObject
         {
             ["price_on_property"] = new JsonArray(100L),
@@ -661,5 +663,28 @@ public class VariationListTests
         // Newly added Green takes lowest within each other-variation group
         Assert.Equal(5.00m, OfferingPriceOf(inventory, "Green", "Small")); // min(5, 10)
         Assert.Equal(15.00m, OfferingPriceOf(inventory, "Green", "Large")); // min(15, 30)
+    }
+
+    [Fact]
+    public async Task Initial_link_reorders_listing_values_to_follow_template_order()
+    {
+        var (shop, coloredId, _) = await SetupAsync();
+        using var _ = shop;
+
+        // Listing 1 has colors: Black, White, Red, Custom swirl
+        // Create template with order: White, Red, Black
+        var listId = (await Lists(shop).SaveAsync(null, "Reversed Palette", [
+            new(0, "White", true),
+            new(0, "Red", true),
+            new(0, "Black", true)
+        ], "tophattwaffle")).Id!.Value;
+
+        // Link single variation from editor
+        var error = await Lists(shop).LinkVariationAsync(listId, coloredId, Color, "tophattwaffle");
+        Assert.Null(error);
+
+        var inventory = await InventoryAsync(shop, coloredId);
+        // Template options first in template order, followed by extra listing-specific values
+        Assert.Equal(["White", "Red", "Black", "Custom swirl"], Colors(inventory));
     }
 }

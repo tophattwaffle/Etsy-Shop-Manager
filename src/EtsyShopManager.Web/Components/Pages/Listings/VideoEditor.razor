@@ -1,0 +1,146 @@
+@using System.Text.Json.Nodes
+@using EtsyShopManager.Core.Domain
+@using EtsyShopManager.Web.Infrastructure.Storage
+@using EtsyShopManager.Web.Modules.Listings
+@inject VideoStore Store
+@inject ImageStore Images
+
+@* The video of a listing being edited: preview, replace, remove, and upload. Changes go back to the editor
+   as the new local "video" node; nothing reaches Etsy until a reviewed push. *@
+
+@if (HasVideo)
+{
+    <MudStack Spacing="2">
+        @if (VideoUrl is { } url)
+        {
+            <div>
+                <video controls preload="metadata" src="@url" poster="@PosterUrl" class="rounded-lg esm-w-lg"></video>
+            </div>
+        }
+        <div class="small muted">
+            @VideoDescription
+        </div>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudFileUpload T="IBrowserFile" FilesChanged="UploadAsync" Accept=".mp4,.mov" Disabled="_uploading">
+                <CustomContent>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.SwapHoriz"
+                               Disabled="_uploading" OnClick="@(() => context.OpenFilePickerAsync())">
+                        Replace video
+                    </MudButton>
+                </CustomContent>
+            </MudFileUpload>
+            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" Disabled="_uploading" OnClick="RemoveAsync">
+                Remove video
+            </MudButton>
+        </MudStack>
+    </MudStack>
+}
+else
+{
+    <div class="esm-variation-add">
+        <MudFileUpload T="IBrowserFile" FilesChanged="UploadAsync" Accept=".mp4,.mov" Disabled="_uploading">
+            <CustomContent>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+                           Disabled="_uploading" OnClick="@(() => context.OpenFilePickerAsync())">
+                    Add a video
+                </MudButton>
+            </CustomContent>
+        </MudFileUpload>
+        <span class="small muted">MP4 or MOV, up to 100 MB.</span>
+    </div>
+}
+
+@if (_error is not null)
+{
+    <MudText Typo="Typo.body2" Class="error-text mt-2">@_error</MudText>
+}
+
+@code {
+    private const long MaxBytes = 100 * 1024 * 1024;
+
+    [Parameter] public JsonNode? Video { get; set; }
+    [Parameter] public ListingVideo? Imported { get; set; }
+    [Parameter] public EventCallback<JsonNode?> VideoChanged { get; set; }
+
+    private bool _uploading;
+    private string? _error;
+
+    private bool HasVideo => Video is not null;
+
+    private string? VideoUrl
+    {
+        get
+        {
+            if (Video is null) return null;
+            if ((string?)Video["file_name"] is { Length: > 0 } file)
+                return VideoStore.UrlFor(file);
+            if ((long?)Video["etsy_video_id"] is > 0)
+            {
+                if (Imported?.FileName is { Length: > 0 } impFile && Store.Exists(impFile))
+                    return VideoStore.UrlFor(impFile);
+                return Imported?.SourceUrl;
+            }
+            return null;
+        }
+    }
+
+    private string? PosterUrl
+    {
+        get
+        {
+            if (Imported?.ThumbFileName is { Length: > 0 } thumb && Images.Exists(thumb))
+                return ImageStore.UrlFor(thumb);
+            return Imported?.SourceThumbUrl;
+        }
+    }
+
+    private string VideoDescription
+    {
+        get
+        {
+            if (Video is null) return "No video";
+            if ((long?)Video["etsy_video_id"] is { } id)
+                return $"Etsy video #{id} ({(string?)Video["video_state"] ?? "active"})";
+            var name = (string?)Video["name"] ?? (string?)Video["file_name"] ?? "new video";
+            return $"New video ({name}) · unpushed";
+        }
+    }
+
+    private async Task UploadAsync(IBrowserFile? file)
+    {
+        if (file is null) return;
+        _error = null;
+        if (file.Size > MaxBytes)
+        {
+            _error = $"{file.Name} is larger than {MaxBytes / 1024 / 1024} MB.";
+            return;
+        }
+        _uploading = true;
+        try
+        {
+            using var stream = file.OpenReadStream(MaxBytes);
+            var ext = Path.GetExtension(file.Name);
+            var fileName = await Store.SaveAsync(stream, ext);
+            var node = new JsonObject
+            {
+                ["file_name"] = fileName,
+                ["name"] = file.Name,
+            };
+            await VideoChanged.InvokeAsync(node);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not upload video: {ex.Message}";
+        }
+        finally
+        {
+            _uploading = false;
+        }
+    }
+
+    private async Task RemoveAsync()
+    {
+        _error = null;
+        await VideoChanged.InvokeAsync(null);
+    }
+}

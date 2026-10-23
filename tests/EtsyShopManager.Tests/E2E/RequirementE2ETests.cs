@@ -996,7 +996,6 @@ public class RequirementE2ETests
             typeof(Audit),
             typeof(ApiKeys),
             typeof(EtsyWrites),
-            typeof(PhotoOrderTestPage),
         ];
 
         foreach (var page in settingsPages)

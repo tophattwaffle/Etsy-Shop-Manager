@@ -87,10 +87,21 @@ public sealed class EtsyListing
     [JsonPropertyName("views")] public int? Views { get; set; }
     [JsonPropertyName("production_partners")] public List<EtsyProductionPartner>? ProductionPartners { get; set; }
 
-    // Includes (Images, Inventory, Personalization). Null when not requested or not returned.
+    // Includes (Images, Inventory, Personalization, Videos). Null when not requested or not returned.
     [JsonPropertyName("images")] public List<EtsyListingImage>? Images { get; set; }
+    [JsonPropertyName("videos")] public List<EtsyListingVideo>? Videos { get; set; }
     [JsonPropertyName("inventory")] public EtsyInventory? Inventory { get; set; }
     [JsonPropertyName("personalization")] public JsonElement? Personalization { get; set; }
+}
+
+public sealed class EtsyListingVideo
+{
+    [JsonPropertyName("video_id")] public long VideoId { get; set; }
+    [JsonPropertyName("height")] public int? Height { get; set; }
+    [JsonPropertyName("width")] public int? Width { get; set; }
+    [JsonPropertyName("thumbnail_url")] public string? ThumbnailUrl { get; set; }
+    [JsonPropertyName("video_url")] public string? VideoUrl { get; set; }
+    [JsonPropertyName("video_state")] public string? VideoState { get; set; }
 }
 
 public sealed class EtsyListingImage

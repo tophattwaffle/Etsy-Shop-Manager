@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Modules.Editor;
 
-public enum BulkEditKind { Price, AddTags, RemoveTags, AddMaterials, RemoveMaterials, ShippingProfile, Section }
+public enum BulkEditKind { Price, AddTags, RemoveTags, AddMaterials, RemoveMaterials, ShippingProfile, Section, ProcessingProfile }
 
 public enum PriceRounding
 {
@@ -28,13 +28,13 @@ public enum PriceRounding
 /// <param name="Amount">Price: change by this amount in the listing's currency (used when <paramref name="Percent"/> is null).</param>
 /// <param name="Rounding">Price: rounding after a percent change (an amount change is exact, so it isn't rounded).</param>
 /// <param name="Words">Tags or materials to add or remove.</param>
-/// <param name="PerShop">Shipping profile or section per shop (app shop id → Etsy id; a null section means none). Shops left out are skipped.</param>
+/// <param name="PerShop">Shipping profile, processing profile or section per shop (app shop id → Etsy id; a null section means none). Shops left out are skipped.</param>
 public sealed record BulkEdit(BulkEditKind Kind, decimal? Percent = null, decimal? Amount = null, PriceRounding Rounding = PriceRounding.None,
     IReadOnlyList<string>? Words = null, IReadOnlyDictionary<int, long?>? PerShop = null)
 {
     public string FieldKey => Kind switch
     {
-        BulkEditKind.Price => ListingFields.Inventory,
+        BulkEditKind.Price or BulkEditKind.ProcessingProfile => ListingFields.Inventory,
         BulkEditKind.AddTags or BulkEditKind.RemoveTags => "tags",
         BulkEditKind.AddMaterials or BulkEditKind.RemoveMaterials => "materials",
         BulkEditKind.ShippingProfile => "shipping_profile_id",
@@ -52,7 +52,7 @@ public sealed record BulkEdit(BulkEditKind Kind, decimal? Percent = null, decima
         BulkEditKind.Price when (Percent ?? Amount) == 0 && AppliedRounding == PriceRounding.None => "Enter a change other than zero, or choose rounding.",
         BulkEditKind.AddTags or BulkEditKind.RemoveTags or BulkEditKind.AddMaterials or BulkEditKind.RemoveMaterials
             when !(Words ?? []).Any(w => w.Trim().Length > 0) => $"Enter the {(FieldKey == "tags" ? "tags" : "materials")}, separated by commas.",
-        BulkEditKind.ShippingProfile or BulkEditKind.Section when PerShop is not { Count: > 0 } => "Choose a value for at least one shop.",
+        BulkEditKind.ShippingProfile or BulkEditKind.Section or BulkEditKind.ProcessingProfile when PerShop is not { Count: > 0 } => "Choose a value for at least one shop.",
         _ => null,
     };
 
@@ -72,6 +72,7 @@ public sealed record BulkEdit(BulkEditKind Kind, decimal? Percent = null, decima
         BulkEditKind.AddMaterials => $"Add materials: {string.Join(", ", Words ?? [])}",
         BulkEditKind.RemoveMaterials => $"Remove materials: {string.Join(", ", Words ?? [])}",
         BulkEditKind.ShippingProfile => "Shipping profile",
+        BulkEditKind.ProcessingProfile => "Processing profile",
         _ => "Shop section",
     };
 }
@@ -82,9 +83,9 @@ public sealed record BulkEditRow(int ListingId, string Title, string ShopName, s
     public bool Changes => Skipped is null && Before != After;
 }
 
-/// <summary>A shop among the selected listings, with what its shipping profile and section can be set to.</summary>
+/// <summary>A shop among the selected listings, with what its shipping profile, processing profile and section can be set to.</summary>
 public sealed record BulkEditShop(int ShopId, string ShopName, int Listings, IReadOnlyDictionary<long, string> ShippingProfiles,
-    IReadOnlyDictionary<long, string> Sections);
+    IReadOnlyDictionary<long, string> Sections, IReadOnlyDictionary<long, string> ProcessingProfiles);
 
 /// <summary>
 /// Bulk edits from the listings page: price by percent or amount (every variation's price, with optional rounding), tags and
@@ -108,7 +109,7 @@ public sealed class BulkListingEditor(IDbContextFactory<AppDbContext> dbFactory,
         foreach (var s in shops.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
         {
             var names = await EditorLookups.LoadAsync(db, s.ShopId, [], null, ct);
-            result.Add(new BulkEditShop(s.ShopId, s.Name, s.Count, names.ShippingProfiles, names.Sections));
+            result.Add(new BulkEditShop(s.ShopId, s.Name, s.Count, names.ShippingProfiles, names.Sections, names.ProcessingProfiles));
         }
         return result;
     }
@@ -236,6 +237,18 @@ public sealed class BulkListingEditor(IDbContextFactory<AppDbContext> dbFactory,
                 if ((tags ? ListingTextRules.TagProblems(words) : ListingTextRules.MaterialProblems(words)).FirstOrDefault() is { } rule)
                     return (null, rule);
                 return (new JsonArray([.. words.Select(w => (JsonNode)w)]), null);
+            case BulkEditKind.ProcessingProfile:
+                if (current?["products"] is not JsonArray { Count: > 0 }) return (null, "No inventory imported.");
+                if (edit.PerShop is null || !edit.PerShop.TryGetValue(shopId, out var readyId) || readyId is null)
+                    return (null, "Choose a processing profile.");
+                if (!names.ProcessingProfiles.ContainsKey(readyId.Value))
+                    return (null, "That choice isn't one of this shop's.");
+                var inv = current.DeepClone();
+                foreach (var offering in (inv["products"]?.AsArray() ?? []).SelectMany(p => p!["offerings"]?.AsArray() ?? []).Select(o => o!))
+                {
+                    offering["readiness_state_id"] = readyId.Value;
+                }
+                return (inv, null);
             default:
                 if (edit.PerShop is null || !edit.PerShop.TryGetValue(shopId, out var id))
                     return (null, "Nothing chosen for this shop.");
@@ -260,6 +273,21 @@ public sealed class BulkListingEditor(IDbContextFactory<AppDbContext> dbFactory,
 
     private static string Describe(BulkEdit edit, EditorLookups names, JsonNode? value)
     {
+        if (edit.Kind == BulkEditKind.ProcessingProfile)
+        {
+            var profileIds = (value?["products"]?.AsArray() ?? [])
+                .SelectMany(p => p!["offerings"]?.AsArray() ?? [])
+                .Select(o => (long?)o!["readiness_state_id"])
+                .OfType<long>()
+                .Distinct()
+                .ToList();
+            return profileIds.Count switch
+            {
+                0 => "—",
+                1 => names.ProcessingProfiles.GetValueOrDefault(profileIds[0], $"#{profileIds[0]}"),
+                _ => string.Join(", ", profileIds.Select(id => names.ProcessingProfiles.GetValueOrDefault(id, $"#{id}"))),
+            };
+        }
         if (edit.Kind != BulkEditKind.Price) return value is null && edit.Kind == BulkEditKind.Section ? "No section" : names.Describe(edit.FieldKey, value);
         var prices = (value?["products"]?.AsArray() ?? []).SelectMany(p => p!["offerings"]?.AsArray() ?? [])
             .Select(o => (Amount: (long?)o!["price_amount"] ?? 0, Divisor: (int?)o["price_divisor"] is int d && d > 0 ? d : 100))

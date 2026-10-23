@@ -24,7 +24,9 @@ public sealed class ListingImporter(
     EtsyApiClient etsy,
     IDomainEventPublisher events,
     TimeProvider time,
-    ILogger<ListingImporter> logger)
+    ILogger<ListingImporter> logger,
+    Infrastructure.Storage.VideoStore? videoStore = null,
+    IHttpClientFactory? httpClientFactory = null)
 {
     /// <summary>An open run older than this is abandoned and a new one starts.</summary>
     public static readonly TimeSpan ResumeWindow = TimeSpan.FromHours(12);
@@ -190,6 +192,7 @@ public sealed class ListingImporter(
         var ids = page.Select(r => r.Value.ListingId).ToList();
         var existing = await db.Listings
             .Include(l => l.Images)
+            .Include(l => l.Videos)
             .Include(l => l.Products).ThenInclude(p => p.Offerings)
             .Include(l => l.EtsyState)
             .AsSplitQuery()
@@ -217,6 +220,13 @@ public sealed class ListingImporter(
             // The includes normally carry images and inventory. Fall back to the per-listing calls if they don't.
             var images = src.Images ?? await etsy.GetListingImagesAsync(src.ListingId, auth, ct);
             ListingMapper.SyncImages(listing, images);
+
+            var videos = src.Videos ?? await etsy.GetListingVideosAsync(src.ListingId, auth, ct);
+            SyncVideos(listing, videos);
+            if (videoStore is not null && httpClientFactory is not null)
+            {
+                await DownloadVideosAsync(listing, now, ct);
+            }
 
             var inventory = src.Inventory ?? await etsy.GetListingInventoryAsync(src.ListingId, auth, ct);
             ListingMapper.SyncInventory(listing, inventory);
@@ -400,5 +410,71 @@ public sealed class ListingImporter(
             apply(entity, item);
         }
         set.RemoveRange(current.Where(e => !seen.Contains(entityKey(e))));
+    }
+
+    /// <summary>Brings the local videos in line with Etsy's, matched by video_id.</summary>
+    private static void SyncVideos(Listing target, IReadOnlyList<EtsyListingVideo>? source)
+    {
+        var incoming = (source ?? [])
+            .Where(v => !string.IsNullOrEmpty(v.VideoUrl) || v.VideoId > 0)
+            .GroupBy(v => v.VideoId).Select(g => g.First()).ToList();
+        var ids = incoming.Select(v => v.VideoId).ToHashSet();
+        target.Videos.RemoveAll(v => !ids.Contains(v.EtsyVideoId));
+
+        foreach (var src in incoming)
+        {
+            var vid = target.Videos.FirstOrDefault(v => v.EtsyVideoId == src.VideoId);
+            if (vid is null)
+            {
+                vid = new ListingVideo { EtsyVideoId = src.VideoId };
+                target.Videos.Add(vid);
+            }
+
+            if (vid.SourceUrl != (src.VideoUrl ?? ""))
+            {
+                vid.SourceUrl = src.VideoUrl ?? "";
+                vid.FileName = null;
+                vid.ByteSize = null;
+                vid.DownloadedAtUtc = null;
+                vid.DownloadError = null;
+            }
+            if (vid.SourceThumbUrl != src.ThumbnailUrl)
+            {
+                vid.SourceThumbUrl = src.ThumbnailUrl;
+                vid.ThumbFileName = null;
+            }
+
+            vid.Height = src.Height;
+            vid.Width = src.Width;
+            vid.VideoState = src.VideoState;
+        }
+    }
+
+    private async Task DownloadVideosAsync(Listing listing, DateTime now, CancellationToken ct)
+    {
+        if (videoStore is null || httpClientFactory is null) return;
+        var client = httpClientFactory.CreateClient(EtsyServiceCollectionExtensions.EtsyImageClientName);
+        foreach (var vid in listing.Videos.Where(v => !string.IsNullOrEmpty(v.SourceUrl) && (v.FileName == null || !videoStore.Exists(v.FileName))))
+        {
+            try
+            {
+                using var response = await client.GetAsync(vid.SourceUrl, ct);
+                if (response.IsSuccessStatusCode)
+                {
+                    var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+                    var ext = Infrastructure.Storage.VideoStore.ExtensionFor(response.Content.Headers.ContentType?.MediaType, vid.SourceUrl);
+                    var name = await videoStore.SaveAsync(bytes, ext, ct);
+                    vid.FileName = name;
+                    vid.ByteSize = bytes.LongLength;
+                    vid.DownloadedAtUtc = now;
+                    vid.DownloadError = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to download video {SourceUrl} for listing {ListingId}", vid.SourceUrl, listing.EtsyListingId);
+                vid.DownloadError = ex.Message;
+            }
+        }
     }
 }

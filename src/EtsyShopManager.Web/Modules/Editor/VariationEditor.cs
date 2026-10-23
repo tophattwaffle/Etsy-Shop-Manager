@@ -46,6 +46,22 @@ public static class VariationEditor
             if (!v.Values.Contains(ValueText(pv), StringComparer.Ordinal))
                 result[index] = v with { Values = [.. v.Values, ValueText(pv)] };
         }
+        for (var i = 0; i < result.Count; i++)
+        {
+            var v = result[i];
+            if (inventory["value_order"]?[v.PropertyId.ToString()] is JsonArray orderArr && orderArr.Count > 0)
+            {
+                var desiredOrder = orderArr.Select(x => (string)x!).ToList();
+                var sortedValues = v.Values
+                    .OrderBy(val =>
+                    {
+                        var idx = desiredOrder.FindIndex(d => string.Equals(d, val, StringComparison.OrdinalIgnoreCase));
+                        return idx >= 0 ? idx : int.MaxValue;
+                    })
+                    .ToList();
+                result[i] = v with { Values = sortedValues };
+            }
+        }
         return [.. result.OrderBy(v => Position(order, v.PropertyId)).ThenBy(v => v.PropertyId)];
     }
 
@@ -53,13 +69,126 @@ public static class VariationEditor
     public static IReadOnlyList<long> EtsyOrder(EtsyShopManager.Core.Domain.Listing listing) =>
         [.. listing.Products.Where(p => !p.IsDeleted).SelectMany(p => p.PropertyValues).Select(v => v.PropertyId).Distinct()];
 
-    public static JsonObject AddValue(JsonNode inventory, long propertyId, string value)
+    /// <summary>
+    /// Gets the desired value order for a variation. If inventory["value_order"] contains an entry for propertyId,
+    /// returns it; otherwise defaults to the order in which values appear in inventory["products"].
+    /// </summary>
+    public static IReadOnlyList<string> GetValueOrder(JsonNode inventory, long propertyId)
     {
+        if (inventory["value_order"]?[propertyId.ToString()] is JsonArray orderArr && orderArr.Count > 0)
+        {
+            return [.. orderArr.Select(x => (string)x!)];
+        }
+        return Variations(inventory).FirstOrDefault(v => v.PropertyId == propertyId)?.Values ?? [];
+    }
+
+    /// <summary>
+    /// Orders a listing's variation values to follow template option order:
+    /// values matching template options appear first in template order, followed by
+    /// any extra listing-specific values in their original relative sequence.
+    /// Comparisons are case-insensitive and preserve the listing's existing casing for values.
+    /// </summary>
+    public static IReadOnlyList<string> OrderValuesByTemplate(
+        IEnumerable<string> currentValues,
+        IEnumerable<string> templateOptions)
+    {
+        var currentList = currentValues.ToList();
+        var templateList = templateOptions.ToList();
+
+        var templateOrderedOnListing = new List<string>();
+        foreach (var opt in templateList)
+        {
+            var match = currentList.FirstOrDefault(v => string.Equals(v, opt, StringComparison.OrdinalIgnoreCase));
+            if (match is not null && !templateOrderedOnListing.Contains(match, StringComparer.OrdinalIgnoreCase))
+            {
+                templateOrderedOnListing.Add(match);
+            }
+        }
+
+        var extraValues = currentList
+            .Where(v => !templateOrderedOnListing.Contains(v, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        return [.. templateOrderedOnListing, .. extraValues];
+    }
+
+    /// <summary>
+    /// Checks whether a variation is linked to a variation template and locked against manual structural modifications.
+    /// </summary>
+    public static bool IsLocked(long propertyId, IEnumerable<VariationListLink>? links) =>
+        links?.Any(l => l.PropertyId == propertyId) == true;
+
+    /// <summary>
+    /// Checks whether a variation's property ID is in a set of locked property IDs.
+    /// </summary>
+    public static bool IsLocked(long propertyId, IEnumerable<long>? lockedPropertyIds) =>
+        lockedPropertyIds?.Contains(propertyId) == true;
+
+    /// <summary>
+    /// Asserts that a variation is not locked against manual structural modifications.
+    /// Throws <see cref="InvalidOperationException"/> if the property ID is found in <paramref name="lockedPropertyIds"/>.
+    /// </summary>
+    public static void AssertNotLocked(long propertyId, IEnumerable<long>? lockedPropertyIds)
+    {
+        if (lockedPropertyIds != null && lockedPropertyIds.Contains(propertyId))
+        {
+            throw new InvalidOperationException($"Variation {propertyId} is linked to a variation template and its structure is locked.");
+        }
+    }
+
+    /// <summary>
+    /// Asserts that a variation is not locked against manual structural modifications.
+    /// Throws <see cref="InvalidOperationException"/> if the property ID is linked in <paramref name="links"/>.
+    /// </summary>
+    public static void AssertNotLocked(long propertyId, IEnumerable<VariationListLink>? links) =>
+        AssertNotLocked(propertyId, links?.Select(l => l.PropertyId));
+
+    /// <summary>
+    /// Reorders the values of a variation, updating value_order and sorting products in grid order.
+    /// </summary>
+    public static JsonObject ReorderValues(JsonNode inventory, long propertyId, IReadOnlyList<string> newOrder, IEnumerable<long>? lockedPropertyIds = null)
+    {
+        AssertNotLocked(propertyId, lockedPropertyIds);
+        var inv = Clone(inventory);
+        var variation = Find(inv, propertyId);
+        var currentValues = variation.Values;
+        if (newOrder.Count != currentValues.Count ||
+            !newOrder.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(currentValues))
+        {
+            throw new ArgumentException($"New value order does not match existing values for {Label(variation)}.");
+        }
+
+        var valueOrderObj = inv["value_order"] as JsonObject;
+        if (valueOrderObj is null)
+        {
+            valueOrderObj = new JsonObject();
+            inv["value_order"] = valueOrderObj;
+        }
+        valueOrderObj[propertyId.ToString()] = new JsonArray([.. newOrder.Select(v => (JsonNode)v)]);
+
+        return Canonical(inv);
+    }
+
+    public static JsonObject ReorderValues(JsonNode inventory, long propertyId, IReadOnlyList<string> newOrder, IEnumerable<VariationListLink>? links) =>
+        ReorderValues(inventory, propertyId, newOrder, links?.Select(l => l.PropertyId));
+
+    public static JsonObject AddValue(JsonNode inventory, long propertyId, string value, string? skuPattern = null, string? baseSku = null, IEnumerable<long>? lockedPropertyIds = null)
+    {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var text = Clean(value, "The value");
         var variation = Find(inv, propertyId);
         if (variation.Values.Contains(text, StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException($"{Label(variation)} already has \"{text}\".");
+
+        if (inv["value_order"]?[propertyId.ToString()] is JsonArray orderArr)
+        {
+            orderArr.Add(text);
+        }
+
+        var pattern = skuPattern ?? (string?)inv["sku_pattern"];
+        var baseSkuVal = baseSku ?? (string?)inv["base_sku"]
+            ?? Products(inv).Select(p => (string?)p["sku"]).FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "";
 
         // One new product per combination of the other variations' values, copied from an existing one (so the price
         // and processing follow whatever they vary by).
@@ -74,10 +203,28 @@ public static class VariationEditor
             pv["value_ids"] = new JsonArray();
             pv["values"] = new JsonArray(text);
             foreach (var offering in Offerings(product)) offering["is_enabled"] = true;
+
+            if (!string.IsNullOrWhiteSpace(pattern))
+            {
+                var variationValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var pval in PropertyValues(product))
+                {
+                    var pId = (long)pval["property_id"]!;
+                    var pName = (string?)pval["property_name"]
+                        ?? Variations(inv).FirstOrDefault(v => v.PropertyId == pId)?.Name
+                        ?? pId.ToString();
+                    variationValues[pName] = ValueText(pval);
+                }
+                product["sku"] = SkuPatternResolver.GenerateSku(pattern, baseSkuVal, variationValues);
+            }
+
             ProductArray(inv).Add(product);
         }
         return Canonical(inv);
     }
+
+    public static JsonObject AddValue(JsonNode inventory, long propertyId, string value, IEnumerable<VariationListLink>? links) =>
+        AddValue(inventory, propertyId, value, null, null, links?.Select(l => l.PropertyId));
 
     /// <summary>
     /// Applies pricing to newly added options on a listing when price varies by that variation.
@@ -136,8 +283,9 @@ public static class VariationEditor
             .Order()];
     }
 
-    public static JsonObject RemoveValue(JsonNode inventory, long propertyId, string value)
+    public static JsonObject RemoveValue(JsonNode inventory, long propertyId, string value, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var variation = Find(inv, propertyId);
         if (!variation.Values.Contains(value, StringComparer.Ordinal))
@@ -145,11 +293,20 @@ public static class VariationEditor
         if (variation.Values.Count == 1)
             throw new ArgumentException($"\"{value}\" is the only value of {Label(variation)}; remove the variation instead.");
         RemoveProducts(inv, p => ValueOf(p, propertyId) == value);
+        if (inv["value_order"]?[propertyId.ToString()] is JsonArray orderArr)
+        {
+            var itemToRemove = orderArr.FirstOrDefault(x => string.Equals((string?)x, value, StringComparison.OrdinalIgnoreCase));
+            if (itemToRemove is not null) orderArr.Remove(itemToRemove);
+        }
         return Canonical(inv);
     }
 
-    public static JsonObject RenameValue(JsonNode inventory, long propertyId, string value, string newValue)
+    public static JsonObject RemoveValue(JsonNode inventory, long propertyId, string value, IEnumerable<VariationListLink>? links) =>
+        RemoveValue(inventory, propertyId, value, links?.Select(l => l.PropertyId));
+
+    public static JsonObject RenameValue(JsonNode inventory, long propertyId, string value, string newValue, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var variation = Find(inv, propertyId);
         var text = Clean(newValue, "The value");
@@ -162,8 +319,22 @@ public static class VariationEditor
             pv["value_ids"] = new JsonArray(); // a new value for Etsy
             pv["values"] = new JsonArray(text);
         }
+        if (inv["value_order"]?[propertyId.ToString()] is JsonArray orderArr)
+        {
+            for (var i = 0; i < orderArr.Count; i++)
+            {
+                if (string.Equals((string?)orderArr[i], value, StringComparison.OrdinalIgnoreCase))
+                {
+                    orderArr[i] = text;
+                    break;
+                }
+            }
+        }
         return Canonical(inv);
     }
+
+    public static JsonObject RenameValue(JsonNode inventory, long propertyId, string value, string newValue, IEnumerable<VariationListLink>? links) =>
+        RenameValue(inventory, propertyId, value, newValue, links?.Select(l => l.PropertyId));
 
     /// <summary>Adds a variation (an Etsy custom one) with its values; every existing combination gets each value.</summary>
     public static JsonObject AddVariation(JsonNode inventory, string name, IEnumerable<string> values)
@@ -198,6 +369,10 @@ public static class VariationEditor
                 ProductArray(inv).Add(copy);
             }
         }
+        if (inv["value_order"] is JsonObject vo)
+        {
+            vo[propertyId.ToString()] = new JsonArray([.. texts.Select(t => (JsonNode)t)]);
+        }
         return Canonical(inv);
     }
 
@@ -205,8 +380,9 @@ public static class VariationEditor
     /// Removes a variation: each remaining combination keeps the first of the products it merges (its price, processing,
     /// availability and SKU), and nothing varies by the removed variation any more.
     /// </summary>
-    public static JsonObject RemoveVariation(JsonNode inventory, long propertyId)
+    public static JsonObject RemoveVariation(JsonNode inventory, long propertyId, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         Find(inv, propertyId);
         var kept = Products(inv).GroupBy(p => OtherKey(p, propertyId)).Select(g => g.First()).ToList();
@@ -220,11 +396,17 @@ public static class VariationEditor
         foreach (var key in new[] { PriceOnProperty, "quantity_on_property", "sku_on_property", ProcessingOnProperty })
             if (inv[key] is JsonArray on)
                 foreach (var item in on.Where(x => (long)x! == propertyId).ToList()) on.Remove(item);
+        if (inv["value_order"] is JsonObject vo)
+            vo.Remove(propertyId.ToString());
         return Canonical(inv);
     }
 
-    public static JsonObject RenameVariation(JsonNode inventory, long propertyId, string name)
+    public static JsonObject RemoveVariation(JsonNode inventory, long propertyId, IEnumerable<VariationListLink>? links) =>
+        RemoveVariation(inventory, propertyId, links?.Select(l => l.PropertyId));
+
+    public static JsonObject RenameVariation(JsonNode inventory, long propertyId, string name, IEnumerable<long>? lockedPropertyIds = null)
     {
+        AssertNotLocked(propertyId, lockedPropertyIds);
         var inv = Clone(inventory);
         var variation = Find(inv, propertyId);
         if (!variation.IsCustom) throw new ArgumentException($"{Label(variation)} is one of Etsy's own variations; its name can't be changed.");
@@ -235,6 +417,9 @@ public static class VariationEditor
             pv["property_name"] = label;
         return Canonical(inv);
     }
+
+    public static JsonObject RenameVariation(JsonNode inventory, long propertyId, string name, IEnumerable<VariationListLink>? links) =>
+        RenameVariation(inventory, propertyId, name, links?.Select(l => l.PropertyId));
 
     /// <summary>
     /// Sets whether the price (<see cref="PriceOnProperty"/>) or processing (<see cref="ProcessingOnProperty"/>) varies
@@ -345,10 +530,11 @@ public static class VariationEditor
         foreach (var pv in Products(inv).SelectMany(PropertyValues).Where(v => (v["value_ids"] as JsonArray)?.Count is null or 0))
             if (known.TryGetValue(((long)pv["property_id"]!, ValueText(pv)), out var ids))
                 pv["value_ids"] = ids.DeepClone();
+        inv.Remove("value_order");
         return Canonical(inv);
     }
 
-    /// <summary>Managed-state order: property values by id, products by their values (ordinal), then SKU (see ManagedInventory).</summary>
+    /// <summary>Managed-state order: property values by id, products by value_order (or values/Key), then SKU (see ManagedInventory).</summary>
     public static JsonObject Canonical(JsonObject inventory)
     {
         var products = Products(inventory).ToList();
@@ -357,8 +543,44 @@ public static class VariationEditor
             var pvs = PropertyValues(product).OrderBy(v => (long)v["property_id"]!).Select(v => v.DeepClone()).ToArray();
             product["property_values"] = new JsonArray(pvs);
         }
+
+        var valueOrderObj = inventory["value_order"] as JsonObject;
+        var hasCustomOrder = valueOrderObj is not null && valueOrderObj.Any(kv => kv.Value is JsonArray a && a.Count > 0);
+
+        var variations = Variations(inventory);
+        var prop1 = variations.Count > 0 ? variations[0].PropertyId : (long?)null;
+        var prop2 = variations.Count > 1 ? variations[1].PropertyId : (long?)null;
+
+        var order1 = prop1.HasValue && hasCustomOrder
+            ? (valueOrderObj?[prop1.Value.ToString()] is JsonArray a1
+                ? a1.Select(x => (string)x!).ToList()
+                : variations.FirstOrDefault(v => v.PropertyId == prop1.Value)?.Values)
+            : null;
+        var order2 = prop2.HasValue && hasCustomOrder
+            ? (valueOrderObj?[prop2.Value.ToString()] is JsonArray a2
+                ? a2.Select(x => (string)x!).ToList()
+                : variations.FirstOrDefault(v => v.PropertyId == prop2.Value)?.Values)
+            : null;
+
+        int IndexIn(IReadOnlyList<string>? order, string? val)
+        {
+            if (order is null || val is null) return 0;
+            var idx = -1;
+            for (var i = 0; i < order.Count; i++)
+            {
+                if (string.Equals(order[i], val, StringComparison.OrdinalIgnoreCase))
+                {
+                    idx = i;
+                    break;
+                }
+            }
+            return idx >= 0 ? idx : int.MaxValue;
+        }
+
         var sorted = products
-            .OrderBy(p => string.Join(";", PropertyValues(p).Select(Key)), StringComparer.Ordinal)
+            .OrderBy(p => prop1.HasValue ? IndexIn(order1, ValueOf(p, prop1.Value)) : 0)
+            .ThenBy(p => prop2.HasValue ? IndexIn(order2, ValueOf(p, prop2.Value)) : 0)
+            .ThenBy(p => string.Join(";", PropertyValues(p).Select(Key)), StringComparer.Ordinal)
             .ThenBy(p => (string?)p["sku"] ?? "", StringComparer.Ordinal)
             .Select(p => p.DeepClone())
             .ToArray();
