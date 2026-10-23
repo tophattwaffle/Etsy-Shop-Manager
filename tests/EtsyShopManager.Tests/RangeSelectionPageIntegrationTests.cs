@@ -18,6 +18,9 @@ namespace EtsyShopManager.Tests;
 /// - Orders.razor (open vs history selection isolation)
 /// - VariationListPage.razor (composite key (ListingId, PropertyId) under various sort orders)
 /// - Listings.razor (bulk edit range selection under paging and filtering)
+/// - ProcessingProfilesPage.razor (candidate range selection under sorting & filter transitions)
+/// - TextBlockPage.razor (single-key candidate range selection and admin authorization gating)
+/// - PhotoTemplatePage.razor (candidate range selection, photo status display, and admin authorization gating)
 /// </summary>
 public class RangeSelectionPageIntegrationTests
 {
@@ -223,6 +226,147 @@ public class RangeSelectionPageIntegrationTests
             typeof(Listings).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Page, parameters);
     }
 
+    private sealed class ProcessingProfilesPageAdapter
+    {
+        public ProcessingProfilesPage Page { get; } = new();
+
+        public List<ProcessingProfileCandidate> Candidates
+        {
+            get => (List<ProcessingProfileCandidate>)GetField("_candidates")!;
+            set => SetField("_candidates", value);
+        }
+
+        public HashSet<int> Picked => (HashSet<int>)GetField("_picked")!;
+
+        public RangeSelection<int> Range => (RangeSelection<int>)GetField("_range")!;
+
+        public TableSort<ProcessingProfileCandidate> CandidateSort =>
+            (TableSort<ProcessingProfileCandidate>)GetField("_candidateSort")!;
+
+        public List<ProcessingProfileCandidate> VisibleCandidates =>
+            (List<ProcessingProfileCandidate>)GetProperty("VisibleCandidates")!;
+
+        public bool? CandidateHeaderChecked =>
+            (bool?)GetProperty("CandidateHeaderChecked");
+
+        public void HandleCandidateClick(int listingId, bool shiftKey) =>
+            InvokeMethod("HandleCandidateClick", listingId, new MouseEventArgs { ShiftKey = shiftKey });
+
+        public void ClearPicked() =>
+            InvokeMethod("ClearPicked");
+
+        public void SelectAllVisible() =>
+            InvokeMethod("SelectAllVisible");
+
+        private object? GetField(string name) =>
+            typeof(ProcessingProfilesPage).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Page);
+
+        private void SetField(string name, object? value) =>
+            typeof(ProcessingProfilesPage).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(Page, value);
+
+        private object? GetProperty(string name) =>
+            typeof(ProcessingProfilesPage).GetProperty(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Page);
+
+        private object? InvokeMethod(string name, params object?[] parameters) =>
+            typeof(ProcessingProfilesPage).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Page, parameters);
+    }
+
+    private sealed class TextBlockPageAdapter
+    {
+        public TextBlockPage Page { get; } = new();
+
+        public bool CanEdit
+        {
+            get => (bool)GetField("_canEdit")!;
+            set => SetField("_canEdit", value);
+        }
+
+        public IReadOnlyList<TextBlockCandidate> Candidates
+        {
+            get => (IReadOnlyList<TextBlockCandidate>)GetField("_candidates")!;
+            set => SetField("_candidates", value);
+        }
+
+        public HashSet<int> Picked => (HashSet<int>)GetField("_picked")!;
+
+        public RangeSelection<int> Range => (RangeSelection<int>)GetField("_range")!;
+
+        public TableSort<TextBlockCandidate> CandidateSort =>
+            (TableSort<TextBlockCandidate>)GetField("_candidateSort")!;
+
+        public IReadOnlyList<TextBlockCandidate> VisibleCandidates =>
+            (IReadOnlyList<TextBlockCandidate>)GetProperty("VisibleCandidates")!;
+
+        public bool? CandidateHeaderChecked =>
+            (bool?)GetProperty("CandidateHeaderChecked");
+
+        public void HandleCandidateClick(int listingId, bool shiftKey) =>
+            InvokeMethod("HandleCandidateClick", listingId, new MouseEventArgs { ShiftKey = shiftKey });
+
+        public void TogglePickAllVisible() =>
+            InvokeMethod("TogglePickAllVisible");
+
+        private object? GetField(string name) =>
+            typeof(TextBlockPage).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Page);
+
+        private void SetField(string name, object? value) =>
+            typeof(TextBlockPage).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(Page, value);
+
+        private object? GetProperty(string name) =>
+            typeof(TextBlockPage).GetProperty(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Page);
+
+        private object? InvokeMethod(string name, params object?[] parameters) =>
+            typeof(TextBlockPage).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Page, parameters);
+    }
+
+    private sealed class PhotoTemplatePageAdapter
+    {
+        public PhotoTemplatePage Page { get; } = new();
+
+        public bool CanEdit
+        {
+            get => (bool)GetField("_canEdit")!;
+            set => SetField("_canEdit", value);
+        }
+
+        public IReadOnlyList<PhotoTemplateCandidate> Candidates
+        {
+            get => (IReadOnlyList<PhotoTemplateCandidate>)GetField("_candidates")!;
+            set => SetField("_candidates", value);
+        }
+
+        public HashSet<int> Picked => (HashSet<int>)GetField("_picked")!;
+
+        public RangeSelection<int> Range => (RangeSelection<int>)GetField("_range")!;
+
+        public TableSort<PhotoTemplateCandidate> CandidateSort =>
+            (TableSort<PhotoTemplateCandidate>)GetField("_candidateSort")!;
+
+        public IReadOnlyList<PhotoTemplateCandidate> VisibleCandidates =>
+            (IReadOnlyList<PhotoTemplateCandidate>)GetProperty("VisibleCandidates")!;
+
+        public bool? CandidateHeaderChecked =>
+            (bool?)GetProperty("CandidateHeaderChecked");
+
+        public void HandleCandidateClick(int listingId, bool shiftKey) =>
+            InvokeMethod("HandleCandidateClick", listingId, new MouseEventArgs { ShiftKey = shiftKey });
+
+        public void TogglePickAllVisible() =>
+            InvokeMethod("TogglePickAllVisible");
+
+        private object? GetField(string name) =>
+            typeof(PhotoTemplatePage).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Page);
+
+        private void SetField(string name, object? value) =>
+            typeof(PhotoTemplatePage).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(Page, value);
+
+        private object? GetProperty(string name) =>
+            typeof(PhotoTemplatePage).GetProperty(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Page);
+
+        private object? InvokeMethod(string name, params object?[] parameters) =>
+            typeof(PhotoTemplatePage).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Page, parameters);
+    }
+
     #endregion
 
     #region Helper Factories
@@ -314,6 +458,15 @@ public class RangeSelectionPageIntegrationTests
             Refill: null
         );
     }
+
+    private static ProcessingProfileCandidate CreateProfileCandidate(int id, string title, string profile = "1-3 days") =>
+        new(id, title, 1, "Shop 1", id * 1000L, "active", false, [], [], null, profile);
+
+    private static TextBlockCandidate CreateTextBlockCandidate(int id, string title) =>
+        new(id, title, 1, "Shop 1", id * 1000L, "active", false, [], []);
+
+    private static PhotoTemplateCandidate CreatePhotoTemplateCandidate(int id, string title, bool hasPhoto = false) =>
+        new(id, title, 1, "Shop 1", id * 1000L, "active", false, [], [], hasPhoto);
 
     #endregion
 
@@ -941,6 +1094,196 @@ public class RangeSelectionPageIntegrationTests
         // ClearSelection resets anchor
         adapter.ClearSelection();
         Assert.Empty(adapter.Selected);
+        Assert.False(adapter.Range.HasAnchor);
+    }
+
+    #endregion
+
+    #region ProcessingProfiles Tests
+
+    [Fact]
+    public void ProcessingProfiles_RangeSelection_SelectsContiguousRange()
+    {
+        var adapter = new ProcessingProfilesPageAdapter();
+        adapter.Candidates =
+        [
+            CreateProfileCandidate(10, "Candidate 10"),
+            CreateProfileCandidate(20, "Candidate 20"),
+            CreateProfileCandidate(30, "Candidate 30"),
+            CreateProfileCandidate(40, "Candidate 40"),
+            CreateProfileCandidate(50, "Candidate 50"),
+        ];
+
+        // Click index 1 (id 20) -> sets anchor
+        adapter.HandleCandidateClick(20, shiftKey: false);
+        Assert.Equal([20], adapter.Picked.Order());
+        Assert.Equal(20, adapter.Range.AnchorKey);
+        Assert.True(adapter.Range.AnchorState);
+
+        // Shift+Click index 3 (id 40) -> selects 20, 30, 40
+        adapter.HandleCandidateClick(40, shiftKey: true);
+        Assert.Equal([20, 30, 40], adapter.Picked.Order());
+        Assert.Equal(20, adapter.Range.AnchorKey);
+        Assert.True(adapter.Range.AnchorState);
+    }
+
+    [Fact]
+    public void ProcessingProfiles_BackwardRangeSelection_SelectsContiguousRange()
+    {
+        var adapter = new ProcessingProfilesPageAdapter();
+        adapter.Candidates =
+        [
+            CreateProfileCandidate(10, "Candidate 10"),
+            CreateProfileCandidate(20, "Candidate 20"),
+            CreateProfileCandidate(30, "Candidate 30"),
+            CreateProfileCandidate(40, "Candidate 40"),
+        ];
+
+        // Click index 3 (id 40)
+        adapter.HandleCandidateClick(40, shiftKey: false);
+        // Shift+Click index 1 (id 20)
+        adapter.HandleCandidateClick(20, shiftKey: true);
+
+        Assert.Equal([20, 30, 40], adapter.Picked.Order());
+        Assert.Equal(40, adapter.Range.AnchorKey);
+    }
+
+    [Fact]
+    public void ProcessingProfiles_DeselectRange_UnchecksRange()
+    {
+        var adapter = new ProcessingProfilesPageAdapter();
+        adapter.Candidates =
+        [
+            CreateProfileCandidate(1, "Candidate 1"),
+            CreateProfileCandidate(2, "Candidate 2"),
+            CreateProfileCandidate(3, "Candidate 3"),
+            CreateProfileCandidate(4, "Candidate 4"),
+        ];
+        // Initially all are picked
+        adapter.SelectAllVisible();
+        Assert.Equal([1, 2, 3, 4], adapter.Picked.Order());
+
+        // Click id 2 to uncheck (AnchorState = false)
+        adapter.HandleCandidateClick(2, shiftKey: false);
+        Assert.DoesNotContain(2, adapter.Picked);
+        Assert.False(adapter.Range.AnchorState);
+
+        // Shift+Click id 4 -> deselects [2..4]
+        adapter.HandleCandidateClick(4, shiftKey: true);
+        Assert.Equal([1], adapter.Picked.Order());
+    }
+
+    [Fact]
+    public void ProcessingProfiles_ClearPicked_ResetsRangeAnchor()
+    {
+        var adapter = new ProcessingProfilesPageAdapter();
+        adapter.Candidates = [CreateProfileCandidate(1, "Candidate 1"), CreateProfileCandidate(2, "Candidate 2")];
+
+        adapter.HandleCandidateClick(1, shiftKey: false);
+        Assert.True(adapter.Range.HasAnchor);
+
+        adapter.ClearPicked();
+        Assert.Empty(adapter.Picked);
+        Assert.False(adapter.Range.HasAnchor);
+    }
+
+    #endregion
+
+    #region TextBlock Tests
+
+    [Fact]
+    public void TextBlock_RangeSelection_SelectsContiguousRange()
+    {
+        var adapter = new TextBlockPageAdapter { CanEdit = true };
+        adapter.Candidates =
+        [
+            CreateTextBlockCandidate(100, "Listing 100"),
+            CreateTextBlockCandidate(200, "Listing 200"),
+            CreateTextBlockCandidate(300, "Listing 300"),
+            CreateTextBlockCandidate(400, "Listing 400"),
+        ];
+
+        adapter.HandleCandidateClick(200, shiftKey: false);
+        Assert.Equal([200], adapter.Picked.Order());
+
+        adapter.HandleCandidateClick(400, shiftKey: true);
+        Assert.Equal([200, 300, 400], adapter.Picked.Order());
+        Assert.Equal(200, adapter.Range.AnchorKey);
+    }
+
+    [Fact]
+    public void TextBlock_WhenNotAdmin_ClicksAreIgnored()
+    {
+        var adapter = new TextBlockPageAdapter { CanEdit = false };
+        adapter.Candidates = [CreateTextBlockCandidate(10, "Listing 10"), CreateTextBlockCandidate(20, "Listing 20")];
+
+        adapter.HandleCandidateClick(10, shiftKey: false);
+        Assert.Empty(adapter.Picked);
+        Assert.False(adapter.Range.HasAnchor);
+
+        adapter.HandleCandidateClick(20, shiftKey: true);
+        Assert.Empty(adapter.Picked);
+        Assert.False(adapter.Range.HasAnchor);
+    }
+
+    [Fact]
+    public void TextBlock_TogglePickAllVisible_ResetsRangeAnchor()
+    {
+        var adapter = new TextBlockPageAdapter { CanEdit = true };
+        adapter.Candidates = [CreateTextBlockCandidate(1, "Listing 1"), CreateTextBlockCandidate(2, "Listing 2")];
+
+        adapter.HandleCandidateClick(1, shiftKey: false);
+        Assert.True(adapter.Range.HasAnchor);
+
+        adapter.TogglePickAllVisible();
+        Assert.False(adapter.Range.HasAnchor);
+    }
+
+    #endregion
+
+    #region PhotoTemplate Tests
+
+    [Fact]
+    public void PhotoTemplate_RangeSelection_SelectsContiguousRange()
+    {
+        var adapter = new PhotoTemplatePageAdapter { CanEdit = true };
+        adapter.Candidates =
+        [
+            CreatePhotoTemplateCandidate(1, "Photo 1", hasPhoto: false),
+            CreatePhotoTemplateCandidate(2, "Photo 2", hasPhoto: true),
+            CreatePhotoTemplateCandidate(3, "Photo 3", hasPhoto: false),
+            CreatePhotoTemplateCandidate(4, "Photo 4", hasPhoto: true),
+        ];
+
+        adapter.HandleCandidateClick(1, shiftKey: false);
+        Assert.Equal([1], adapter.Picked.Order());
+
+        adapter.HandleCandidateClick(3, shiftKey: true);
+        Assert.Equal([1, 2, 3], adapter.Picked.Order());
+        Assert.Equal(1, adapter.Range.AnchorKey);
+    }
+
+    [Fact]
+    public void PhotoTemplate_WhenNotAdmin_ClicksAreIgnored()
+    {
+        var adapter = new PhotoTemplatePageAdapter { CanEdit = false };
+        adapter.Candidates = [CreatePhotoTemplateCandidate(1, "Photo 1"), CreatePhotoTemplateCandidate(2, "Photo 2")];
+
+        adapter.HandleCandidateClick(1, shiftKey: false);
+        Assert.Empty(adapter.Picked);
+        Assert.False(adapter.Range.HasAnchor);
+    }
+
+    [Fact]
+    public void PhotoTemplate_TogglePickAllVisible_ResetsRangeAnchor()
+    {
+        var adapter = new PhotoTemplatePageAdapter { CanEdit = true };
+        adapter.Candidates = [CreatePhotoTemplateCandidate(1, "Photo 1"), CreatePhotoTemplateCandidate(2, "Photo 2")];
+
+        adapter.HandleCandidateClick(1, shiftKey: false);
+        Assert.True(adapter.Range.HasAnchor);
+
+        adapter.TogglePickAllVisible();
         Assert.False(adapter.Range.HasAnchor);
     }
 
