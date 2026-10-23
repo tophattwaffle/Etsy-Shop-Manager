@@ -222,10 +222,10 @@
                                     @onclick="@((MouseEventArgs e) => { if (_selecting) HandleRowClick(row.Id, e); })">
                                     @if (_selecting)
                                     {
-                                        <td class="lp-list-check" @onclick:stopPropagation="true"
-                                            @onclick="@((MouseEventArgs e) => HandleRowClick(row.Id, e))">
-                                            <MudCheckBox T="bool" Value="@_selected.Contains(row.Id)"
-                                                         Size="Size.Small" Dense="true" aria-label="@($"Select {row.Title}")" />
+                                        <td class="lp-list-check">
+                                            <RangeCheckBox Value="@_selected.Contains(row.Id)"
+                                                           Clicked="@((MouseEventArgs e) => HandleRowClick(row.Id, e))"
+                                                           AriaLabel="@($"Select {row.Title}")" />
                                         </td>
                                     }
                                     <td class="lp-list-photo">

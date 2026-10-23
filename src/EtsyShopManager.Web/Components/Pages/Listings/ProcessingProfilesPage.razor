@@ -170,11 +170,13 @@
                 @foreach (var c in _candidateSort.Apply(VisibleCandidates))
                 {
                     var isPicked = _picked.Contains(c.ListingId);
-                    <tr>
-                        <td @onclick="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))">
-                            <MudCheckBox T="bool" Value="isPicked" Dense="true" aria-label="@($"Select {c.Title}")" />
+                    <tr @onclick="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))">
+                        <td>
+                            <RangeCheckBox Value="isPicked"
+                                           Clicked="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))"
+                                           AriaLabel="@($"Select {c.Title}")" />
                         </td>
-                        <td><a href="@($"listings/{c.ListingId}/edit")">@c.Title</a></td>
+                        <td><a href="@($"listings/{c.ListingId}/edit")" @onclick:stopPropagation="true">@c.Title</a></td>
                         <td>@c.ShopName</td>
                         <td>@(c.IsMissingOnEtsy ? "Gone from Etsy" : ListingFormat.Humanize(c.State))</td>
                         <td>@c.CurrentProfileName</td>

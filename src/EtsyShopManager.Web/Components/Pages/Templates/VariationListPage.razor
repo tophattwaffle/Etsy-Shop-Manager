@@ -255,11 +255,14 @@ else
                             @foreach (var c in _candidateSort.Apply(VisibleCandidates))
                             {
                                 var key = (c.ListingId, c.PropertyId);
-                                <tr>
-                                    <td @onclick="@((MouseEventArgs e) => HandleCandidateClick(key, e))">
-                                        <MudCheckBox T="bool" Value="@_picked.Contains(key)" aria-label="@($"Link {c.Title}")" Dense="true" Disabled="!_canEdit" />
+                                <tr @onclick="@((MouseEventArgs e) => HandleCandidateClick(key, e))">
+                                    <td>
+                                        <RangeCheckBox Value="@_picked.Contains(key)"
+                                                       Clicked="@((MouseEventArgs e) => HandleCandidateClick(key, e))"
+                                                       AriaLabel="@($"Link {c.Title}")"
+                                                       Disabled="!_canEdit" />
                                     </td>
-                                    <td><a href="@($"listings/{c.ListingId}")">@c.Title</a> <span class="muted small">· @c.ShopName</span></td>
+                                    <td><a href="@($"listings/{c.ListingId}")" @onclick:stopPropagation="true">@c.Title</a> <span class="muted small">· @c.ShopName</span></td>
                                     <td>@c.VariationName</td>
                                     <td>@c.InList of @c.Values values</td>
                                 </tr>

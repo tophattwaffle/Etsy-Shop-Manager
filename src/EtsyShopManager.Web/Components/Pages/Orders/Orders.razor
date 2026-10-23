@@ -405,11 +405,9 @@
         <div class="order-card @(!history && due.Urgent ? "urgent" : "")" style="@ShopStyle(o.ShopId)">
             <div class="order-head">
                 <div class="order-pick">
-                    <span class="d-inline-flex" @onclick:stopPropagation="true"
-                          @onclick="@((MouseEventArgs e) => HandleOrderClick(o.Id, e, history))">
-                        <MudCheckBox T="bool" Value="@picked" Dense="true"
-                                     Size="Size.Small" aria-label="@($"Select order {o.EtsyReceiptId} to print")" />
-                    </span>
+                    <RangeCheckBox Value="@picked"
+                                   Clicked="@((MouseEventArgs e) => HandleOrderClick(o.Id, e, history))"
+                                   AriaLabel="@($"Select order {o.EtsyReceiptId} to print")" />
                     <div>
                         <div class="order-buyer">
                             @(o.BuyerName ?? $"#{o.EtsyReceiptId}")

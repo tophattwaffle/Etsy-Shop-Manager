@@ -76,10 +76,11 @@ else
                     var warnings = row.Preview.Warnings;
                     <tr style="@ShopStyle(row.ShopId)" class="@RowClass(row)"
                         @onclick="@((MouseEventArgs e) => HandleRowClick(row.ListingId, e))">
-                        <td class="lp-list-check" @onclick:stopPropagation="true"
-                            @onclick="@((MouseEventArgs e) => HandleRowClick(row.ListingId, e))">
-                            <MudCheckBox T="bool" Value="@_selected.Contains(row.ListingId)"
-                                         Disabled="@(!row.CanPush)" Size="Size.Small" Dense="true" aria-label="@($"Select {row.Title}")" />
+                        <td class="lp-list-check">
+                            <RangeCheckBox Value="@_selected.Contains(row.ListingId)"
+                                           Clicked="@((MouseEventArgs e) => HandleRowClick(row.ListingId, e))"
+                                           Disabled="@(!row.CanPush)"
+                                           AriaLabel="@($"Select {row.Title}")" />
                         </td>
                         <td class="lp-list-photo">
                             @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
