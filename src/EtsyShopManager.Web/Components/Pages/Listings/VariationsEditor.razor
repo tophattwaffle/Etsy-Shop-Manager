@@ -79,10 +79,11 @@
                     }
                 }
             </div>
-            @if (GetLink(v.PropertyId) is { } link)
+            @if (GetLink(v.PropertyId) is not null)
             {
+                var names = Links!.Where(l => l.PropertyId == v.PropertyId).Select(l => l.ListName).ToList();
                 <MudText Typo="Typo.caption" Class="muted mt-1 d-block">
-                    Value order is controlled by template @link.ListName.
+                    Value order is controlled by @(names.Count > 1 ? $"templates {string.Join(", then ", names)}" : $"template {names[0]}").
                 </MudText>
             }
             <div class="esm-variation-add">

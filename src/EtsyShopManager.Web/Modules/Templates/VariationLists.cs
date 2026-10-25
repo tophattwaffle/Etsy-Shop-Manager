@@ -31,6 +31,8 @@ public enum VariationListUseStatus
     VariationMissing,
     /// <summary>The listing's variations changed on Etsy since the last sync; resolve that in the editor first.</summary>
     ChangedOnEtsy,
+    /// <summary>Applying would give the variation more options than Etsy allows; nothing is changed until some are switched off.</summary>
+    TooManyOptions,
 }
 
 /// <summary>What applying a list would do to one listing's local inventory.</summary>
@@ -39,10 +41,21 @@ public enum VariationListUseStatus
 public sealed record VariationListPlan(JsonObject Inventory, List<VariationListOption> Applied, IReadOnlyList<string> Changes,
     IReadOnlyList<string> Notes);
 
+/// <summary>A list a listing's variation follows, with its link (the options as last applied).</summary>
+public sealed record VariationListSource(VariationList List, ListingVariationList Link);
+
+/// <summary>What applying every list a variation follows would do (see <see cref="VariationListService.PlanCombined"/>).</summary>
+/// <param name="Applied">The options each source now reflects, in the order of the sources.</param>
+/// <param name="Blocker">Why nothing can be applied (too many options for Etsy), or null.</param>
+public sealed record VariationListCombinedPlan(JsonObject Inventory, IReadOnlyList<List<VariationListOption>> Applied, IReadOnlyList<string> Changes,
+    IReadOnlyList<string> Notes, string? Blocker);
+
+/// <param name="CombinedWith">The other lists the variation follows, in order (empty when it follows only this one).</param>
 public sealed record VariationListUse(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
     string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
     long PropertyId, string VariationName,
-    VariationListUseStatus Status, IReadOnlyList<string> Changes, IReadOnlyList<string> Notes, bool InventoryPending) : ITemplateListingItem;
+    VariationListUseStatus Status, IReadOnlyList<string> Changes, IReadOnlyList<string> Notes, bool InventoryPending,
+    IReadOnlyList<string>? CombinedWith = null) : ITemplateListingItem;
 
 public sealed record VariationListSummary(int Id, string Name, int Options, int Enabled, int Listings, int WithChanges, int NeedAttention,
     DateTime UpdatedAtUtc);
@@ -62,11 +75,14 @@ public sealed record VariationListLinkPreview(int InList, int Values, string? Wa
 /// <summary>A listing the list can be added to as a new variation, with the variations it already has.</summary>
 public sealed record VariationListAddable(int ListingId, string Title, string ShopName, IReadOnlyList<string> Variations);
 
-/// <summary>A listing variation not linked yet whose values are mostly in the list.</summary>
+/// <summary>
+/// A listing variation not linked to the list whose values are mostly in it. When the variation already follows other lists,
+/// only the values those lists don't cover are counted, and linking combines this list with them (<paramref name="CombinedWith"/>).
+/// </summary>
 public sealed record VariationListCandidate(int ListingId, string Title, int ShopId, string ShopName, long EtsyListingId,
     string State, bool IsMissingOnEtsy, IReadOnlyList<string> Skus, IReadOnlyList<string> Tags,
     long PropertyId, string VariationName,
-    int InList, int Values) : ITemplateListingItem;
+    int InList, int Values, IReadOnlyList<string>? CombinedWith = null) : ITemplateListingItem;
 
 /// <summary>
 /// Shared variation lists (Phase 4, variation templates). A list is a named set of options; a linked listing's variation
@@ -82,15 +98,16 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     /// <summary>A variation is offered for linking when at least this many of its values are in the list (and at least half).</summary>
     public const int MinOverlap = 2;
     /// <summary>Etsy's limit on a variation's options (a listing with one variation has at most 70 products).</summary>
-    public const int MaxOptions = 70;
+    public const int MaxOptions = VariationEditor.MaxValues;
 
     /// <summary>
     /// The plan for one listing (pure). Options are taken in the list's order; new ones go at the end of the listing's
-    /// values (Etsy shows new values last).
+    /// values (Etsy shows new values last). <paramref name="reorder"/> false leaves the value order alone (the combined
+    /// plan orders once, for all the lists).
     /// </summary>
     public static VariationListPlan Plan(VariationList list, ListingVariationList link, JsonNode localInventory,
         VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest, decimal? customPrice = null,
-        string? skuPattern = null, string? baseSku = null)
+        string? skuPattern = null, string? baseSku = null, bool reorder = true)
     {
         var inventory = (JsonObject)localInventory.DeepClone();
         var changes = new List<string>();
@@ -199,7 +216,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
 
         var desiredOrder = VariationEditor.OrderValuesByTemplate(currentListingValues, templateOrder);
 
-        if (templateOrderChanged || inventoryOrderDiffers)
+        if (!reorder) { }
+        else if (templateOrderChanged || inventoryOrderDiffers)
         {
             try
             {
@@ -232,6 +250,106 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         return new VariationListPlan(inventory, newApplied, changes, notes);
     }
 
+    /// <summary>
+    /// The plan for a variation that follows one or more lists, in order (pure). One list is exactly <see cref="Plan"/>.
+    /// With several, each list's changes are worked out in turn as <see cref="Plan"/> does, then the values are ordered
+    /// once: the lists' switched-on options in list order, the listing's own values after them. An option in more than one
+    /// list belongs to the first (a note says so): later lists neither add, rename, switch nor remove it. A plan that would
+    /// leave the variation with more than Etsy's <see cref="MaxOptions"/> changes nothing and says why (<c>Blocker</c>).
+    /// </summary>
+    public static VariationListCombinedPlan PlanCombined(IReadOnlyList<VariationListSource> sources, JsonNode localInventory,
+        VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest, decimal? customPrice = null,
+        string? skuPattern = null, string? baseSku = null)
+    {
+        if (sources.Count == 0) throw new ArgumentException("A variation needs at least one list to follow.");
+        var propertyId = sources[0].Link.PropertyId;
+        int Count(JsonNode inv) => VariationEditor.Variations(inv).FirstOrDefault(v => v.PropertyId == propertyId)?.Values.Count ?? 0;
+        VariationListCombinedPlan Limited(VariationListCombinedPlan plan)
+        {
+            var count = Count(plan.Inventory);
+            if (count <= MaxOptions || count <= Count(localInventory)) return plan;
+            var names = string.Join(" and ", sources.Select(s => s.List.Name));
+            return new((JsonObject)localInventory.DeepClone(), [.. sources.Select(s => s.Link.AppliedOptions)], [], plan.Notes,
+                $"Applying {names} would give this variation {count} options; Etsy allows at most {MaxOptions}. " +
+                "Switch some options off, or stop using one of the templates on this listing.");
+        }
+
+        if (sources.Count == 1)
+        {
+            var single = Plan(sources[0].List, sources[0].Link, localInventory, strategy, customPrice, skuPattern, baseSku);
+            return Limited(new(single.Inventory, [single.Applied], single.Changes, single.Notes, null));
+        }
+
+        var inventory = (JsonObject)localInventory.DeepClone();
+        var label = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == propertyId)?.Name ?? "the variation";
+        var originalValues = VariationEditor.GetValueOrder(inventory, propertyId);
+        var changes = new List<string>();
+        var notes = new List<string>();
+        var applied = new List<List<VariationListOption>>();
+        var claimed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // option name → the list it belongs to
+        var order = new List<string>();
+        foreach (var (list, link) in sources)
+        {
+            var duplicates = list.Options.Where(o => claimed.ContainsKey(o.Name)).ToList();
+            foreach (var d in duplicates)
+                notes.Add($"{d.Name} is in both {claimed[d.Name]} and {list.Name}; the listing has it once, following {claimed[d.Name]}.");
+            var duplicateIds = duplicates.Select(d => d.Id).ToHashSet();
+            var effective = new VariationList { Id = list.Id, Name = list.Name, Options = [.. list.Options.Where(o => !duplicateIds.Contains(o.Id))] };
+            var effectiveLink = new ListingVariationList
+            {
+                PropertyId = propertyId, Listing = link.Listing,
+                AppliedOptions = [.. link.AppliedOptions.Where(o => !duplicateIds.Contains(o.Id) && !claimed.ContainsKey(o.Name))],
+            };
+            var plan = Plan(effective, effectiveLink, inventory, strategy, customPrice, skuPattern, baseSku, reorder: false);
+            inventory = plan.Inventory;
+            changes.AddRange(plan.Changes.Skip(1)); // without the "Color:" heading
+            notes.AddRange(plan.Notes);
+            applied.Add(plan.Applied);
+            foreach (var o in list.Options) claimed.TryAdd(o.Name, list.Name);
+            order.AddRange(effective.Options.Where(o => o.Enabled).Select(o => o.Name));
+        }
+
+        // One order for all the lists. A reorder of values the listing already had is a change of its own; new values
+        // only need putting in their place.
+        if (VariationEditor.Variations(inventory).Any(v => v.PropertyId == propertyId))
+        {
+            var current = VariationEditor.GetValueOrder(inventory, propertyId);
+            var desired = VariationEditor.OrderValuesByTemplate(current, order);
+            if (!desired.SequenceEqual(current, StringComparer.Ordinal))
+            {
+                bool Existing(string v) => originalValues.Contains(v, StringComparer.OrdinalIgnoreCase);
+                var existingMoved = !current.Where(Existing).SequenceEqual(desired.Where(Existing), StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    inventory = VariationEditor.ReorderValues(inventory, propertyId, desired);
+                    if (existingMoved) changes.Add($"Reorders options in {label}");
+                }
+                catch (ArgumentException ex) { notes.Add(ex.Message); }
+            }
+        }
+        if (changes.Count > 0) changes.Insert(0, $"{label}:");
+        return Limited(new(inventory, applied, changes, notes, null));
+    }
+
+    /// <summary>The lists a listing's variation follows, in order (tracked unless <paramref name="tracked"/> is false).</summary>
+    private static async Task<List<ListingVariationList>> FollowedAsync(AppDbContext db, int listingId, long propertyId, CancellationToken ct,
+        bool tracked = true)
+    {
+        var query = db.ListingVariationLists.Include(l => l.VariationList).Include(l => l.Listing)
+            .Where(l => l.ListingId == listingId && l.PropertyId == propertyId);
+        return await (tracked ? query : query.AsNoTracking()).OrderBy(l => l.Position).ThenBy(l => l.Id).ToListAsync(ct);
+    }
+
+    private static List<VariationListSource> Sources(IEnumerable<ListingVariationList> links) =>
+        [.. links.OrderBy(l => l.Position).ThenBy(l => l.Id).Select(l => new VariationListSource(l.VariationList, l))];
+
+    /// <summary>The values of a variation not covered by the given lists (by option name).</summary>
+    private static List<string> Uncovered(IReadOnlyList<string> values, IEnumerable<VariationList> lists)
+    {
+        var covered = lists.SelectMany(l => l.Options).Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. values.Where(v => !covered.Contains(v))];
+    }
+
     /// <summary>The options a list starts a link with: those the listing has, as they are on the listing (available or not).</summary>
     public static List<VariationListOption> InitialApplied(VariationList list, long propertyId, JsonNode inventory)
     {
@@ -251,7 +369,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             var uses = await UsesAsync(db, list, ct);
             result.Add(new VariationListSummary(list.Id, list.Name, list.Options.Count, list.Options.Count(o => o.Enabled), uses.Count,
                 uses.Count(u => u.Status == VariationListUseStatus.HasChanges),
-                uses.Count(u => u.Status is VariationListUseStatus.VariationMissing or VariationListUseStatus.ChangedOnEtsy), list.UpdatedAtUtc));
+                uses.Count(u => u.Status is VariationListUseStatus.VariationMissing or VariationListUseStatus.ChangedOnEtsy
+                    or VariationListUseStatus.TooManyOptions), list.UpdatedAtUtc));
         }
         return result;
     }
@@ -318,56 +437,104 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     {
         var links = await db.ListingVariationLists.AsNoTracking().Where(l => l.VariationListId == list.Id)
             .Include(l => l.Listing).ThenInclude(l => l.EtsyState).Include(l => l.Listing).ThenInclude(l => l.Shop).ToListAsync(ct);
-        return [.. links.Where(l => l.Listing.EtsyState is not null).Select(l => Use(list, l))
+        // The other lists each linked variation follows too (a combination is planned as a whole).
+        var listingIds = links.Select(l => l.ListingId).ToList();
+        var all = await db.ListingVariationLists.AsNoTracking().Include(l => l.VariationList)
+            .Where(l => listingIds.Contains(l.ListingId)).ToListAsync(ct);
+        return [.. links.Where(l => l.Listing.EtsyState is not null).Select(l =>
+            {
+                var followed = all.Where(o => o.ListingId == l.ListingId && o.PropertyId == l.PropertyId)
+                    .Select(o => o.VariationListId == list.Id ? l : WithListing(o, l.Listing)).ToList();
+                l.VariationList = list;
+                return Use(list, l, Sources(followed));
+            })
             .OrderBy(u => u.Status == VariationListUseStatus.UpToDate).ThenBy(u => u.Title, StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static VariationListUse Use(VariationList list, ListingVariationList link)
+    private static ListingVariationList WithListing(ListingVariationList link, Listing listing)
+    {
+        link.Listing = listing;
+        return link;
+    }
+
+    private static VariationListUse Use(VariationList list, ListingVariationList link, IReadOnlyList<VariationListSource> sources)
     {
         var listing = link.Listing;
+        var combinedWith = sources.Where(s => s.List.Id != list.Id).Select(s => s.List.Name).ToList();
         var model = ListingEditModel.Parse(listing.EtsyState!.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         var inventory = model.Local(ListingFields.Inventory) ?? new JsonObject();
         var pending = !JsonNode.DeepEquals(inventory, model.Etsy[ListingFields.Inventory]);
         var variation = VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == link.PropertyId);
         if (model.DriftFields.Contains(ListingFields.Inventory))
-            return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, variation?.Name ?? "", VariationListUseStatus.ChangedOnEtsy, [], [], pending);
+            return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, variation?.Name ?? "", VariationListUseStatus.ChangedOnEtsy, [], [], pending, combinedWith);
         if (variation is null)
             return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, "", VariationListUseStatus.VariationMissing, [],
-                ["The linked variation isn't on this listing any more. Unlink it, or add the variation back in the editor."], pending);
-        var plan = Plan(list, link, inventory);
+                ["The linked variation isn't on this listing any more. Unlink it, or add the variation back in the editor."], pending, combinedWith);
+        var plan = PlanCombined(sources, inventory);
+        if (plan.Blocker is not null)
+            return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, variation.Name ?? "",
+                VariationListUseStatus.TooManyOptions, [], [plan.Blocker, .. plan.Notes], pending, combinedWith);
         return new(listing.Id, listing.Title, listing.ShopId, listing.Shop.Name, listing.EtsyListingId, listing.State, listing.IsMissingOnEtsy, listing.Skus, listing.Tags, link.PropertyId, variation.Name ?? "",
-            plan.Changes.Count > 0 ? VariationListUseStatus.HasChanges : VariationListUseStatus.UpToDate, plan.Changes, plan.Notes, pending);
+            plan.Changes.Count > 0 ? VariationListUseStatus.HasChanges : VariationListUseStatus.UpToDate, plan.Changes, plan.Notes, pending, combinedWith);
     }
 
-    /// <summary>Listing variations not linked to this list whose values are mostly in it.</summary>
+    /// <summary>
+    /// Listing variations not linked to this list whose values are mostly in it. A variation that already follows other
+    /// lists counts only the values they don't cover (linking then combines the lists); a listing that already uses this
+    /// list on any variation isn't offered.
+    /// </summary>
     public async Task<IReadOnlyList<VariationListCandidate>> CandidatesAsync(int listId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var list = await db.VariationLists.AsNoTracking().FirstOrDefaultAsync(l => l.Id == listId, ct);
         if (list is null) return [];
-        var linked = (await db.ListingVariationLists.Select(l => new { l.ListingId, l.PropertyId }).ToListAsync(ct))
-            .Select(l => (l.ListingId, l.PropertyId)).ToHashSet();
+        var links = await db.ListingVariationLists.AsNoTracking().Include(l => l.VariationList).ToListAsync(ct);
+        var usingList = links.Where(l => l.VariationListId == listId).Select(l => l.ListingId).ToHashSet();
         var names = list.Options.Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var listings = await db.Listings.AsNoTracking().Include(l => l.EtsyState).Include(l => l.Shop)
             .Where(l => l.EtsyState != null).ToListAsync(ct);
         var result = new List<VariationListCandidate>();
-        foreach (var l in listings)
+        foreach (var l in listings.Where(l => !usingList.Contains(l.Id)))
         {
             var model = ListingEditModel.Parse(l.EtsyState!.ManagedJson, l.EtsyState.BaseJson, l.DraftJson);
             if (model.Local(ListingFields.Inventory) is not { } inventory) continue;
-            foreach (var v in VariationEditor.Variations(inventory).Where(v => !linked.Contains((l.Id, v.PropertyId))))
+            foreach (var v in VariationEditor.Variations(inventory))
             {
-                var inList = v.Values.Count(names.Contains);
-                if (inList >= MinOverlap && inList * 2 >= v.Values.Count)
-                    result.Add(new VariationListCandidate(l.Id, l.Title, l.ShopId, l.Shop.Name, l.EtsyListingId, l.State, l.IsMissingOnEtsy, l.Skus, l.Tags, v.PropertyId, v.Name ?? $"Variation {v.PropertyId}", inList, v.Values.Count));
+                var followed = links.Where(k => k.ListingId == l.Id && k.PropertyId == v.PropertyId)
+                    .OrderBy(k => k.Position).ThenBy(k => k.Id).Select(k => k.VariationList).ToList();
+                var values = Uncovered(v.Values, followed);
+                var inList = values.Count(names.Contains);
+                if (inList >= MinOverlap && inList * 2 >= values.Count)
+                    result.Add(new VariationListCandidate(l.Id, l.Title, l.ShopId, l.Shop.Name, l.EtsyListingId, l.State, l.IsMissingOnEtsy, l.Skus, l.Tags, v.PropertyId, v.Name ?? $"Variation {v.PropertyId}", inList, values.Count,
+                        [.. followed.Select(f => f.Name)]));
             }
         }
         return [.. result.OrderByDescending(c => (double)c.InList / c.Values).ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>
-    /// Links listing variations to the list. Automatically reorders each listing's variation values
-    /// to follow the template option order, saving updated draft inventory if order changes. Returns how many were linked.
+    /// A new link of a variation to the list, after the lists it already follows (<paramref name="followed"/>, in order): its
+    /// position, and the options it starts with (those the listing has that the earlier lists don't cover). Also the plan
+    /// for the whole combination, so callers can refuse one that goes over Etsy's limit.
+    /// </summary>
+    private static (ListingVariationList Link, VariationListCombinedPlan Plan) NewLink(VariationList list, Listing listing, long propertyId,
+        JsonNode inventory, IReadOnlyList<ListingVariationList> followed, DateTime now)
+    {
+        var covered = followed.SelectMany(f => f.VariationList.Options).Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var link = new ListingVariationList
+        {
+            ListingId = listing.Id, Listing = listing, VariationListId = list.Id, VariationList = list, PropertyId = propertyId,
+            Position = followed.Count == 0 ? 0 : followed.Max(f => f.Position) + 1,
+            AppliedOptions = [.. InitialApplied(list, propertyId, inventory).Where(o => !covered.Contains(o.Name))], LinkedAtUtc = now,
+        };
+        return (link, PlanCombined(Sources([.. followed, link]), inventory));
+    }
+
+    /// <summary>
+    /// Links listing variations to the list. A variation that follows no list yet has its values reordered to follow the
+    /// template (saved as a draft if the order changes); one that already follows other lists gets this one after them,
+    /// and the next apply orders them together. Variations whose combined options would go over Etsy's limit are skipped.
+    /// Returns how many were linked.
     /// </summary>
     public async Task<int> LinkAsync(int listId, IEnumerable<(int ListingId, long PropertyId)> variations, string? user, CancellationToken ct = default)
     {
@@ -382,7 +549,17 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             var model = ListingEditModel.Parse(listing.EtsyState.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
             if (model.Local(ListingFields.Inventory) is not { } inventory
                 || VariationEditor.Variations(inventory).All(v => v.PropertyId != propertyId)) continue;
-            if (await db.ListingVariationLists.AnyAsync(l => l.ListingId == listingId && l.PropertyId == propertyId, ct)) continue;
+            if (await db.ListingVariationLists.AnyAsync(l => l.ListingId == listingId && l.VariationListId == listId, ct)) continue;
+            var followed = await FollowedAsync(db, listingId, propertyId, ct, tracked: false);
+            if (followed.Count > 0)
+            {
+                var (combined, plan) = NewLink(list, listing, propertyId, inventory, followed, time.GetUtcNow().UtcDateTime);
+                if (plan.Blocker is not null) continue;
+                (combined.Listing, combined.VariationList) = (null!, null!);
+                db.ListingVariationLists.Add(combined);
+                count++;
+                continue;
+            }
 
             var currentValues = VariationEditor.GetValueOrder(inventory, propertyId);
             var desiredOrder = VariationEditor.OrderValuesByTemplate(currentValues, templateOrder);
@@ -509,30 +686,37 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             : (null, null, $"{listing.Title} has no inventory imported; refresh it from Etsy first.");
     }
 
-    /// <summary>The lists a listing's variations follow.</summary>
+    /// <summary>The lists a listing's variations follow (a variation's lists in the order they're combined).</summary>
     public async Task<IReadOnlyList<VariationListLink>> ListingLinksAsync(int listingId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         return await db.ListingVariationLists.AsNoTracking().Where(l => l.ListingId == listingId)
+            .OrderBy(l => l.PropertyId).ThenBy(l => l.Position).ThenBy(l => l.Id)
             .Select(l => new VariationListLink(l.VariationListId, l.VariationList.Name, l.PropertyId)).ToListAsync(ct);
     }
 
     /// <summary>
     /// What linking one of a listing's variations to a list means (nothing is saved): how many of its values are in the
     /// list, a warning when few are, and what applying the list would then change. Any list can be chosen here (no match
-    /// threshold, unlike <see cref="CandidatesAsync"/>).
+    /// threshold, unlike <see cref="CandidatesAsync"/>). When the variation already follows other lists, the list is
+    /// combined with them (after them): only the values they don't cover are counted, and the changes are the combination's.
     /// </summary>
     public async Task<(VariationListLinkPreview? Preview, string? Error)> PreviewLinkAsync(int listId, int listingId, long propertyId,
         CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var (list, inventory, error) = await LinkSourceAsync(db, listId, listingId, propertyId, ct);
+        var (list, listing, inventory, followed, error) = await LinkSourceAsync(db, listId, listingId, propertyId, ct);
         if (error is not null) return (null, error);
         var variation = VariationEditor.Variations(inventory!).Single(v => v.PropertyId == propertyId);
         var names = list!.Options.Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var (_, plan) = NewLink(list, listing!, propertyId, inventory!, followed!, time.GetUtcNow().UtcDateTime);
+        if (plan.Blocker is not null) return (null, plan.Blocker);
+        if (followed!.Count > 0)
+        {
+            var values = Uncovered(variation.Values, followed.Select(f => f.VariationList));
+            return (new VariationListLinkPreview(values.Count(names.Contains), values.Count, null, plan.Changes, plan.Notes), null);
+        }
         var inList = variation.Values.Count(names.Contains);
-        var link = new ListingVariationList { PropertyId = propertyId, AppliedOptions = InitialApplied(list, propertyId, inventory!) };
-        var plan = Plan(list, link, inventory!);
         string? warning = inList >= MinOverlap && inList * 2 >= variation.Values.Count ? null
             : inList == 0 ? $"None of {variation.Name}'s values are in {list.Name}; applying it adds all of the template's options next to them."
             : $"Only {inList} of {variation.Values.Count} values are in {list.Name}; the others stay as the listing's own.";
@@ -540,14 +724,27 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     }
 
     /// <summary>
-    /// Links one variation of a listing to a list. Automatically reorders the listing's variation values
-    /// to follow the template option order, saving updated draft inventory if order changes.
+    /// Links one variation of a listing to a list. A variation that follows no list yet has its values reordered to follow
+    /// the template (saved as a draft if the order changes). One that already follows other lists gets this one after
+    /// them (combined); that only records the link, and the next apply brings in its options and orders them together.
+    /// Refused when the combined options would go over Etsy's limit.
     /// </summary>
     public async Task<string?> LinkVariationAsync(int listId, int listingId, long propertyId, string? user, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var (list, inventory, error) = await LinkSourceAsync(db, listId, listingId, propertyId, ct);
+        var (list, listing, inventory, followed, error) = await LinkSourceAsync(db, listId, listingId, propertyId, ct);
         if (error is not null) return error;
+        var (combined, plan) = NewLink(list!, listing!, propertyId, inventory!, followed!, time.GetUtcNow().UtcDateTime);
+        if (plan.Blocker is not null) return plan.Blocker;
+        if (followed!.Count > 0)
+        {
+            (combined.Listing, combined.VariationList) = (null!, null!);
+            db.ListingVariationLists.Add(combined);
+            await db.SaveChangesAsync(ct);
+            await audit.WriteAsync("variation-list.linked", nameof(VariationList), listId.ToString(),
+                $"{list!.Name}: listing {listingId}, combined with {string.Join(", ", followed.Select(f => f.VariationList.Name))}, from its editor", user, ct);
+            return null;
+        }
 
         var currentValues = VariationEditor.GetValueOrder(inventory!, propertyId);
         var templateOrder = list!.Options.Select(o => o.Name).ToList();
@@ -569,32 +766,56 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
         return null;
     }
 
-    private static async Task<(VariationList? List, JsonNode? Inventory, string? Error)> LinkSourceAsync(AppDbContext db, int listId, int listingId,
-        long propertyId, CancellationToken ct)
+    private static async Task<(VariationList? List, Listing? Listing, JsonNode? Inventory, List<ListingVariationList>? Followed, string? Error)>
+        LinkSourceAsync(AppDbContext db, int listId, int listingId, long propertyId, CancellationToken ct)
     {
         var list = await db.VariationLists.AsNoTracking().FirstOrDefaultAsync(l => l.Id == listId, ct);
-        if (list is null) return (null, null, "That list no longer exists.");
+        if (list is null) return (null, null, null, null, "That list no longer exists.");
         var listing = await db.Listings.AsNoTracking().Include(l => l.EtsyState).FirstOrDefaultAsync(l => l.Id == listingId, ct);
-        if (listing?.EtsyState is null) return (null, null, "That listing hasn't been imported.");
+        if (listing?.EtsyState is null) return (null, null, null, null, "That listing hasn't been imported.");
         var model = ListingEditModel.Parse(listing.EtsyState.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson);
         if (model.Local(ListingFields.Inventory) is not { } inventory
             || VariationEditor.Variations(inventory).FirstOrDefault(v => v.PropertyId == propertyId) is not { } variation)
-            return (null, null, "This listing doesn't have that variation.");
-        if (await db.ListingVariationLists.Where(l => l.ListingId == listingId && l.PropertyId == propertyId)
-                .Select(l => l.VariationList.Name).FirstOrDefaultAsync(ct) is { } other)
-            return (null, null, $"{variation.Name} already follows {other}; unlink it first.");
+            return (null, null, null, null, "This listing doesn't have that variation.");
+        var followed = await FollowedAsync(db, listingId, propertyId, ct, tracked: false);
+        if (followed.Any(f => f.VariationListId == listId))
+            return (null, null, null, null, $"{variation.Name} already follows {list.Name}.");
         if (await db.ListingVariationLists.AnyAsync(l => l.ListingId == listingId && l.VariationListId == listId, ct))
-            return (null, null, $"Another variation of this listing already follows {list.Name}.");
+            return (null, null, null, null, $"Another variation of this listing already follows {list.Name}.");
         if (model.DriftFields.Contains(ListingFields.Inventory))
-            return (null, null, "This listing's variations changed on Etsy; resolve that first.");
-        return (list, inventory, null);
+            return (null, null, null, null, "This listing's variations changed on Etsy; resolve that first.");
+        return (list, listing, inventory, followed, null);
     }
 
+    /// <summary>
+    /// Stops a listing following the list. Its values stay on the listing as its own; other lists the variation follows
+    /// are unaffected.
+    /// </summary>
     public async Task UnlinkAsync(int listId, int listingId, string? user, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         await db.ListingVariationLists.Where(l => l.VariationListId == listId && l.ListingId == listingId).ExecuteDeleteAsync(ct);
         await audit.WriteAsync("variation-list.unlinked", nameof(VariationList), listId.ToString(), $"listing {listingId} (keeps its variation)", user, ct);
+    }
+
+    /// <summary>
+    /// Moves a list earlier (<paramref name="by"/> -1) or later (+1) among the lists a listing's variation follows. Only the
+    /// order is recorded: the next apply reorders the values and settles options that are in more than one list.
+    /// </summary>
+    public async Task MoveAsync(int listId, int listingId, int by, string? user, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var link = await db.ListingVariationLists.AsNoTracking().FirstOrDefaultAsync(l => l.VariationListId == listId && l.ListingId == listingId, ct);
+        if (link is null) return;
+        var followed = await FollowedAsync(db, listingId, link.PropertyId, ct);
+        var index = followed.FindIndex(f => f.VariationListId == listId);
+        var target = index + by;
+        if (target < 0 || target >= followed.Count) return;
+        (followed[index], followed[target]) = (followed[target], followed[index]);
+        for (var i = 0; i < followed.Count; i++) followed[i].Position = i;
+        await db.SaveChangesAsync(ct);
+        await audit.WriteAsync("variation-list.reordered", nameof(VariationList), listId.ToString(),
+            $"listing {listingId}: {string.Join(", then ", followed.Select(f => f.VariationList.Name))}", user, ct);
     }
 
     /// <summary>
@@ -621,7 +842,8 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             var priceOn = (inventory[VariationEditor.PriceOnProperty]?.AsArray() ?? []).Select(x => (long)x!).ToHashSet();
             if (!priceOn.Contains(link.PropertyId)) continue;
 
-            var plan = Plan(list, link, inventory);
+            var plan = PlanCombined(Sources(await FollowedAsync(db, link.ListingId, link.PropertyId, ct, tracked: false)), inventory);
+            if (plan.Blocker is not null) continue;
             var addedOptions = plan.Changes
                 .Where(c => c.StartsWith("Adds ", StringComparison.OrdinalIgnoreCase))
                 .Select(c => c["Adds ".Length..].Trim())
@@ -640,9 +862,10 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
     }
 
     /// <summary>
-    /// Brings every linked listing in line with the list, as drafts (nothing is sent to Etsy). Listings whose variations
-    /// changed on Etsy, or that lost the variation, are skipped. Returns the listings changed. With <paramref name="listingId"/>,
-    /// only that listing (the editor's "Apply list now").
+    /// Brings every linked listing in line with the list, as drafts (nothing is sent to Etsy). A variation that follows
+    /// other lists too is brought in line with all of them together (the combination is one variation). Listings whose
+    /// variations changed on Etsy, that lost the variation, or that would go over Etsy's option limit are skipped. Returns
+    /// the listings changed. With <paramref name="listingId"/>, only that listing (the editor's "Apply list now").
     /// </summary>
     public async Task<int> ApplyAsync(int listId, string? user, VariationPricingStrategy strategy = VariationPricingStrategy.TakeHighest,
         IReadOnlyDictionary<int, decimal>? customPrices = null, CancellationToken ct = default, int? listingId = null)
@@ -658,13 +881,16 @@ public sealed class VariationListService(IDbContextFactory<AppDbContext> dbFacto
             if (model.DriftFields.Contains(ListingFields.Inventory) || model.Local(ListingFields.Inventory) is not { } inventory
                 || VariationEditor.Variations(inventory).All(v => v.PropertyId != link.PropertyId)) continue;
             decimal? customPrice = customPrices is not null && customPrices.TryGetValue(link.ListingId, out var cp) ? cp : null;
-            var plan = Plan(list, link, inventory, strategy, customPrice);
+            var followed = await FollowedAsync(db, link.ListingId, link.PropertyId, ct);
+            var plan = PlanCombined(Sources(followed), inventory, strategy, customPrice);
+            if (plan.Blocker is not null) continue;
             if (plan.Changes.Count > 0)
             {
                 await editor.SaveAsync(link.ListingId, new Dictionary<string, JsonNode?> { [ListingFields.Inventory] = plan.Inventory }, user, ct);
                 changed++;
             }
-            link.AppliedOptions = plan.Applied;
+            var sources = Sources(followed);
+            for (var i = 0; i < sources.Count; i++) sources[i].Link.AppliedOptions = plan.Applied[i];
         }
         await db.SaveChangesAsync(ct);
         if (changed > 0)

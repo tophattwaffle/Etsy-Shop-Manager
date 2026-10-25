@@ -162,7 +162,13 @@ else
                         {
                             <tr>
                                 <td><a href="@(_canEdit ? $"listings/{u.ListingId}/edit" : $"listings/{u.ListingId}")">@u.Title</a> <span class="muted small">· @u.ShopName</span></td>
-                                <td>@u.VariationName</td>
+                                <td>
+                                    @u.VariationName
+                                    @if (u.CombinedWith is { Count: > 0 } others)
+                                    {
+                                        <div class="small muted">Combined with @string.Join(", ", others)</div>
+                                    }
+                                </td>
                                 <td>
                                     <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
                                     @foreach (var c in u.Changes.Skip(1)) { <div class="small">@c</div> }
@@ -234,7 +240,8 @@ else
                 <MudText Typo="Typo.h6" Class="mb-2">Listings with matching variations</MudText>
                 <MudText Typo="Typo.body2" Class="muted mb-2">
                     Variations whose values are mostly in this list. Linking changes nothing yet: the next apply adds the list's
-                    missing options to them and switches retired ones off.
+                    missing options to them and switches retired ones off. A variation that already follows another template
+                    is counted on the values that template doesn't cover, and linking adds this one after it.
                 </MudText>
                 @if (VisibleCandidates.Count == 0)
                 {
@@ -263,8 +270,14 @@ else
                                                        Disabled="!_canEdit" />
                                     </td>
                                     <td><a href="@($"listings/{c.ListingId}")" @onclick:stopPropagation="true">@c.Title</a> <span class="muted small">· @c.ShopName</span></td>
-                                    <td>@c.VariationName</td>
-                                    <td>@c.InList of @c.Values values</td>
+                                    <td>
+                                        @c.VariationName
+                                        @if (c.CombinedWith is { Count: > 0 } others)
+                                        {
+                                            <div class="small muted">Follows @string.Join(", ", others); linking combines them</div>
+                                        }
+                                    </td>
+                                    <td>@c.InList of @c.Values @(c.CombinedWith is { Count: > 0 } ? "other values" : "values")</td>
                                 </tr>
                             }
                         </tbody>
@@ -468,6 +481,7 @@ else
         VariationListUseStatus.UpToDate => u.InventoryPending ? "Up to date, not pushed yet" : "Up to date",
         VariationListUseStatus.HasChanges => "Will change",
         VariationListUseStatus.VariationMissing => "The linked variation is gone",
+        VariationListUseStatus.TooManyOptions => "Too many options for Etsy",
         _ => "Variations changed on Etsy: resolve it in the listing's editor first",
     };
 
@@ -570,9 +584,13 @@ else
 
     private async Task LinkAsync()
     {
+        var picked = _picked.Count;
         var count = await Lists.LinkAsync(_saved!.Id, _picked.Select(k => (k.Item1, k.Item2)), await User());
         await LoadAsync();
         Snackbar.Add($"{count} listing{(count == 1 ? "" : "s")} linked.", Severity.Success);
+        if (count < picked)
+            Snackbar.Add($"{picked - count} not linked: their variation would have more than {VariationListService.MaxOptions} options with this template, " +
+                "or it changed meanwhile.", Severity.Warning);
     }
 
     private async Task<IEnumerable<VariationListAddable>> SearchAddableAsync(string? text, CancellationToken ct)

@@ -171,34 +171,51 @@ else
                     {
                         @foreach (var v in VariationEditor.Variations(inventoryNode, VariationEditor.EtsyOrder(l)))
                         {
-                            var link = _links.FirstOrDefault(k => k.PropertyId == v.PropertyId);
+                            var followed = _links.Where(k => k.PropertyId == v.PropertyId).ToList();
                             var propertyId = v.PropertyId;
+                            var pickable = _variationLists.Where(x => _links.All(k => k.ListId != x.Id)).ToList();
                             <div class="esm-variation">
-                                <div class="esm-variation-name">@v.Name: variation template</div>
-                                @if (link is not null)
+                                <div class="esm-variation-name">@v.Name: variation @(followed.Count > 1 ? "templates" : "template")</div>
+                                @if (followed.Count > 0)
                                 {
+                                    @foreach (var (link, index) in followed.Select((k, i) => (k, i)))
+                                    {
+                                        <div class="esm-variation-add">
+                                            @if (followed.Count > 1)
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Disabled="@(index == 0)"
+                                                               aria-label="@($"Move {link.ListName} earlier")" OnClick="@(() => MoveLinkAsync(link, -1))" />
+                                                <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Disabled="@(index == followed.Count - 1)"
+                                                               aria-label="@($"Move {link.ListName} later")" OnClick="@(() => MoveLinkAsync(link, 1))" />
+                                            }
+                                            <span>@(index == 0 ? "Follows" : "then") <a href="@($"templates/variations/{link.ListId}")">@link.ListName</a></span>
+                                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkListAsync(link))">Unlink</MudButton>
+                                        </div>
+                                    }
                                     <div class="esm-variation-add">
-                                        <span>Follows <a href="@($"templates/variations/{link.ListId}")">@link.ListName</a>.</span>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyLinkedAsync(link))">Apply template now</MudButton>
-                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkListAsync(link))">Unlink</MudButton>
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyLinkedAsync(followed[0]))">
+                                            Apply @(followed.Count > 1 ? "templates" : "template") now
+                                        </MudButton>
                                     </div>
                                     <div class="small muted">
-                                        Apply template now brings this listing in line with the template as unpushed edits. Unlink keeps the values as they are.
+                                        Apply brings this listing in line with @(followed.Count > 1 ? "its templates, in the order shown (an option in two of them is kept once, where it comes first)" : "the template")
+                                        as unpushed edits. Unlink keeps that template's values on the listing as its own.
                                     </div>
                                 }
-                                else
+                                @if (pickable.Count > 0)
                                 {
                                     <div class="esm-variation-add">
                                         <MudSelect T="int?" Value="@_linkPick.GetValueOrDefault(propertyId)" ValueChanged="@(id => PickLinkAsync(propertyId, id))"
-                                                   Label="Link to variation template" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
-                                            @foreach (var (listId, listName) in _variationLists)
+                                                   Label="@(followed.Count > 0 ? "Combine with another template" : "Link to variation template")"
+                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                                            @foreach (var (listId, listName) in pickable)
                                             {
                                                 <MudSelectItem T="int?" Value="@listId">@listName</MudSelectItem>
                                             }
                                         </MudSelect>
                                         <MudButton Variant="Variant.Outlined" Size="Size.Small"
                                                    Disabled="@(_linkPreview.GetValueOrDefault(propertyId).Preview is null)"
-                                                   OnClick="@(() => LinkListAsync(propertyId))">Link</MudButton>
+                                                   OnClick="@(() => LinkListAsync(propertyId))">@(followed.Count > 0 ? "Combine" : "Link")</MudButton>
                                     </div>
                                     @if (_linkPreview.TryGetValue(propertyId, out var lp))
                                     {
@@ -209,13 +226,27 @@ else
                                         else if (lp.Preview is { } p)
                                         {
                                             <div class="small">
-                                                @p.InList of @p.Values value@(p.Values == 1 ? " is" : "s are") in the template.
+                                                @if (followed.Count > 0)
+                                                {
+                                                    @($"Comes after {string.Join(" and ", followed.Select(k => k.ListName))}. {p.InList} of the {p.Values} value{(p.Values == 1 ? "" : "s")} they don't cover {(p.InList == 1 ? "is" : "are")} in it. ")
+                                                }
+                                                else
+                                                {
+                                                    @($"{p.InList} of {p.Values} value{(p.Values == 1 ? " is" : "s are")} in the template. ")
+                                                }
                                                 @(p.Changes.Count == 0 ? "Applying it changes nothing now." : $"Applying it then: {string.Join(", ", p.Changes.Skip(1))}.")
                                                 Linking only records the link.
                                             </div>
                                             @if (p.Warning is not null)
                                             {
                                                 <MudText Typo="Typo.body2" Class="warning-text">@p.Warning</MudText>
+                                            }
+                                            @if (followed.Count > 0)
+                                            {
+                                                @foreach (var note in p.Notes)
+                                                {
+                                                    <MudText Typo="Typo.body2" Class="warning-text">@note</MudText>
+                                                }
                                             }
                                         }
                                     }
@@ -775,6 +806,13 @@ else
         await VariationLists.UnlinkAsync(link.ListId, Id, await User());
         await LoadAsync();
         Snackbar.Add($"Unlinked from {link.ListName}; the values stay as they are.", Severity.Success);
+    }
+
+    private async Task MoveLinkAsync(EtsyShopManager.Web.Modules.Templates.VariationListLink link, int by)
+    {
+        await VariationLists.MoveAsync(link.ListId, Id, by, await User());
+        await LoadAsync(keepForm: Unsaved);
+        Snackbar.Add("Order of the templates changed. Apply the templates to reorder the values.", Severity.Success);
     }
 
     private async Task ReviewAsync()

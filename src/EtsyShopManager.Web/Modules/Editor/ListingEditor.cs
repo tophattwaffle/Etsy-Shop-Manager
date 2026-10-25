@@ -309,6 +309,9 @@ public sealed class ListingEditor(
             if (v.Values.Any(string.IsNullOrWhiteSpace)) yield return $"{label} has an empty value.";
             foreach (var dup in v.Values.GroupBy(x => x.Trim(), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
                 yield return $"{label} has \"{dup.Key}\" more than once.";
+            if (v.Values.Count > VariationEditor.MaxValues)
+                yield return $"{label} has {v.Values.Count} options; Etsy allows at most {VariationEditor.MaxValues} in a variation. " +
+                    "Remove some, or switch them off in its variation templates and apply again.";
         }
         var combinations = variations.Aggregate(1, (n, v) => n * v.Values.Count);
         if (products.Any(p => (p["property_values"]?.AsArray().Count ?? 0) != variations.Count)

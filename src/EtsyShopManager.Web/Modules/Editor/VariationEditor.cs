@@ -23,6 +23,8 @@ public static class VariationEditor
     public const long CustomProperty1 = 513;
     public const long CustomProperty2 = 514;
     public const int MaxVariations = 2;
+    /// <summary>Etsy's limit on the options (values) of one variation.</summary>
+    public const int MaxValues = 70;
     public const string PriceOnProperty = "price_on_property";
     public const string ProcessingOnProperty = "readiness_state_on_property";
 

@@ -21,7 +21,10 @@ public class VariationList
 /// <param name="Enabled">Off means "retired": linked listings keep the value but its combinations aren't available.</param>
 public sealed record VariationListOption(int Id, string Name, bool Enabled);
 
-/// <summary>A listing's variation (by property) driven by a list, with the options as last applied to that listing.</summary>
+/// <summary>
+/// A listing's variation (by property) driven by a list, with the options as last applied to that listing. A variation can
+/// follow several lists at once (e.g. "Basic Colors" then "Special Colors"); <see cref="Position"/> is their order.
+/// </summary>
 public class ListingVariationList
 {
     public int Id { get; set; }
@@ -31,6 +34,8 @@ public class ListingVariationList
     public VariationList VariationList { get; set; } = null!;
     /// <summary>The listing's variation (Etsy property id, e.g. 513 or 200).</summary>
     public long PropertyId { get; set; }
+    /// <summary>Where this list comes among the lists the variation follows (lowest first; ties by id).</summary>
+    public int Position { get; set; }
 
     /// <summary>
     /// The list's options as this listing last reflected them (only those the listing has, under the name it has them).
