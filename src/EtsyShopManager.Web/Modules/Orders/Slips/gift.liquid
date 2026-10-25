@@ -61,6 +61,7 @@
             <div class="gift-qty">Quantity: {{ item.quantity }}</div>
         </div>
         {%- endfor %}
+        {%- if order.seller_note %}<div class="gift-seller-note"><div class="gift-strong">Note from {{ shop.name }}</div><div>{{ order.seller_note }}</div></div>{% endif %}
     </div>
 
     <div class="gift-right">

@@ -132,6 +132,72 @@ public class OrderOverrideTests
     }
 
     [Fact]
+    public async Task A_seller_note_is_saved_shown_again_and_cleared()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, Item());
+        var audit = new RecordingAudit();
+        var service = new OrderOverrideService(db, audit);
+
+        var form = (await service.GetFormAsync(1))!;
+        Assert.Equal("", form.SellerNote);
+        form.SellerNote = new string('x', OrderOverrides.MaxSellerNoteLength + 1);
+        Assert.Equal($"Keep the seller note to {OrderOverrides.MaxSellerNoteLength} characters.", await service.SaveAsync(form, "tophattwaffle"));
+
+        form.SellerNote = "  Buyer called: ship Monday \n";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.Include(o => o.Items).SingleAsync();
+            Assert.Equal("Buyer called: ship Monday", order.SellerNote);
+            Assert.False(OrderOverrides.HasOverride(order)); // a note isn't a change to what ships
+        }
+        Assert.Equal("seller note set", Assert.Single(audit.Entries).Details);
+
+        form = (await service.GetFormAsync(1))!;
+        Assert.Equal("Buyer called: ship Monday", form.SellerNote);
+        form.SellerNote = "   ";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+            Assert.Null((await ctx.Orders.SingleAsync()).SellerNote);
+        Assert.Equal("seller note removed", audit.Entries[^1].Details);
+    }
+
+    [Fact]
+    public async Task A_seller_note_prints_on_slips_only_when_included()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, Item());
+        var service = new OrderOverrideService(db, new RecordingAudit());
+
+        var form = (await service.GetFormAsync(1))!;
+        form.SellerNote = "Made the large one in blue,\nas you asked.";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        Assert.DoesNotContain("Note from SampleShop", await RenderSlipsAsync(db)); // shown on the order card only
+
+        form = (await service.GetFormAsync(1))!;
+        Assert.False(form.SellerNoteOnSlips);
+        form.SellerNoteOnSlips = true;
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        var slip = await RenderSlipsAsync(db);
+        Assert.Contains("Note from SampleShop", slip);
+        Assert.Contains("Made the large one in blue,", slip); // the line break is kept (encoded; slip-pre shows it)
+        Assert.Contains("as you asked.", slip);
+
+        await using (var ctx = db.CreateDbContext())
+            await ctx.Orders.ExecuteUpdateAsync(s => s.SetProperty(o => o.IsGift, true));
+        Assert.Contains("class=\"gift-seller-note\"", await RenderSlipsAsync(db));
+
+        // Clearing the note turns printing off too, so a later note doesn't print unasked.
+        form = (await service.GetFormAsync(1))!;
+        form.SellerNote = "";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+            Assert.False((await ctx.Orders.SingleAsync()).SellerNoteOnSlips);
+        Assert.DoesNotContain("Note from SampleShop", await RenderSlipsAsync(db));
+    }
+
+    [Fact]
     public async Task Saving_keeps_only_real_changes_and_checks_them()
     {
         using var db = new TestDb();

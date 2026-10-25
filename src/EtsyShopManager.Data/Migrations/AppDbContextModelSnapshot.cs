@@ -965,6 +965,12 @@ namespace EtsyShopManager.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SellerNote")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("SellerNoteOnSlips")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("ShipByUtc")
                         .HasColumnType("TEXT");
 

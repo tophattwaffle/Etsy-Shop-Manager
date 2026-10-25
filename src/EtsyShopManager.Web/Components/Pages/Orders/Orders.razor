@@ -429,7 +429,7 @@
                     @if (o.IsOpen)
                     {
                         <AuthorizeView Roles="@Roles.Admin">
-                            <MudTooltip Text="Change personalization, variations or address">
+                            <MudTooltip Text="Change personalization, variations, address or seller note">
                                 <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => ChangeOrderAsync(o)"
                                                aria-label="@($"Change order {o.EtsyReceiptId}")" />
                             </MudTooltip>
@@ -502,6 +502,10 @@
             @if (o.MessageFromBuyer is not null)
             {
                 <div class="order-message"><b>Note from buyer:</b> @o.MessageFromBuyer</div>
+            }
+            @if (o.SellerNote is not null)
+            {
+                <div class="order-message"><b>Seller note@(o.SellerNoteOnSlips ? " (on packing slip)" : ""):</b> @o.SellerNote</div>
             }
             @if (o.IsGift)
             {

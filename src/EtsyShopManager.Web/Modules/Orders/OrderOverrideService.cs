@@ -19,6 +19,13 @@ public sealed class OrderChangesForm
 
     public bool ChangeAddress { get; set; }
     public string Address { get; set; } = "";
+
+    /// <summary>The seller's own note on the order (empty: none).</summary>
+    public string SellerNote { get; set; } = "";
+
+    /// <summary>Whether the seller note prints on the order's packing slip.</summary>
+    public bool SellerNoteOnSlips { get; set; }
+
     public List<ItemChangesForm> Items { get; init; } = [];
 }
 
@@ -77,7 +84,9 @@ public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFacto
             EtsyAddress = etsyAddress,
             ChangeAddress = order.AddressOverride is not null,
             Address = order.AddressOverride ?? etsyAddress,
-            Items = [.. order.Items.OrderBy(i => i.EtsyTransactionId).Select(i =>
+            SellerNote = order.SellerNote ?? "",
+            SellerNoteOnSlips = order.SellerNoteOnSlips,
+            Items =[.. order.Items.OrderBy(i => i.EtsyTransactionId).Select(i =>
             {
                 var properties = products.Where(p => p.EtsyListingId == i.EtsyListingId).SelectMany(p => p.PropertyValues).ToList();
                 var buyers = OrderOverrides.BuyersPersonalization(i);
@@ -147,6 +156,15 @@ public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFacto
         }
         if (address != order.AddressOverride) changes.Add(address is null ? "address back to Etsy's" : "address changed");
         order.AddressOverride = address;
+
+        var note = string.IsNullOrWhiteSpace(form.SellerNote) ? null : form.SellerNote.Trim();
+        if (note?.Length > OrderOverrides.MaxSellerNoteLength) return $"Keep the seller note to {OrderOverrides.MaxSellerNoteLength} characters.";
+        if (note != order.SellerNote) changes.Add(note is null ? "seller note removed" : "seller note set");
+        order.SellerNote = note;
+        var onSlips = note is not null && form.SellerNoteOnSlips; // no note, nothing to print
+        if (note is not null && onSlips != order.SellerNoteOnSlips)
+            changes.Add(onSlips ? "seller note on packing slips" : "seller note off packing slips");
+        order.SellerNoteOnSlips = onSlips;
 
         foreach (var f in form.Items)
         {
