@@ -1,0 +1,214 @@
+@page "/listings/changed-on-etsy"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@implements IDisposable
+@inject EtsyConflictService Conflicts
+@inject IJobEvents JobEvents
+@inject TimeProvider Time
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
+
+<PageTitle>Changed on Etsy · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="listings" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> Back to listings
+</MudLink>
+
+<PageHeader Title="Changed on Etsy">
+    <Summary>
+        @if (_rows is { Count: > 0 })
+        {
+            @($"{_rows.Count:N0} listing{(_rows.Count == 1 ? " was" : "s were")} changed on etsy.com and need{(_rows.Count == 1 ? "s" : "")} your choice")
+        }
+    </Summary>
+    <Actions>
+        @if (_rows is { Count: > 0 })
+        {
+            <MudButton Variant="Variant.Text" OnClick="ToggleAll">@(AllSelected ? "Clear selection" : "Select all")</MudButton>
+            <MudButton Variant="Variant.Outlined" Disabled="@(Selected.Count == 0 || _resolving)" OnClick="() => ResolveAsync(DriftResolution.KeepMine)">
+                Keep mine for @Count(Selected.Count, "listing", "listings")
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Disabled="@(Selected.Count == 0 || _resolving)" OnClick="() => ResolveAsync(DriftResolution.TakeEtsy)">
+                Take Etsy's for @Count(Selected.Count, "listing", "listings")
+            </MudButton>
+        }
+    </Actions>
+</PageHeader>
+
+@if (_rows is null)
+{
+    <MudProgressLinear Indeterminate="true" Class="my-6" />
+}
+else if (_rows.Count == 0)
+{
+    <div class="lp-empty">
+        <p>No listing was changed on etsy.com since the app last synced, so there's nothing to review. Listings edited on Etsy show up here after the next import.</p>
+        <a class="esm-button esm-button-secondary" href="listings">Back to listings</a>
+    </div>
+}
+else
+{
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        These listings were edited on etsy.com since the app last agreed with Etsy. Open one to see each field side by side
+        and choose keep mine or take Etsy's; its pushes are blocked until every field is resolved. Or select listings and
+        resolve every field of each at once. Nothing is sent to Etsy either way: keep mine leaves your values to push later.
+    </MudText>
+    <div class="lp-list-wrap">
+        <table class="lp-list pc-list">
+            <thead>
+                <tr>
+                    <th scope="col" class="lp-list-check">
+                        <MudCheckBox T="bool" Value="@AllSelected" ValueChanged="SelectAll" Size="Size.Small" Dense="true"
+                                     aria-label="Select all listings" />
+                    </th>
+                    <th scope="col"><span class="visually-hidden">Photo</span></th>
+                    <SortHeader Sort="_sort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                    <SortHeader Sort="_sort" Column="fields" Changed="StateHasChanged">Changed on Etsy</SortHeader>
+                    <SortHeader Sort="_sort" Column="updated" Changed="StateHasChanged">Updated on Etsy</SortHeader>
+                    <th scope="col"><span class="visually-hidden">Review</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _sort.Apply(_rows))
+                {
+                    <tr style="@ShopStyle(row.ShopId)" class="@($"is-selectable {(_selected.Contains(row.ListingId) ? "is-selected" : "")}")"
+                        @onclick="@((MouseEventArgs e) => HandleRowClick(row.ListingId, e))">
+                        <td class="lp-list-check">
+                            <RangeCheckBox Value="@_selected.Contains(row.ListingId)"
+                                           Clicked="@((MouseEventArgs e) => HandleRowClick(row.ListingId, e))"
+                                           AriaLabel="@($"Select {row.Title}")" />
+                        </td>
+                        <td class="lp-list-photo">
+                            @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
+                            {
+                                <img src="@thumb" alt="" loading="lazy" />
+                            }
+                        </td>
+                        <td class="pc-listing">
+                            <a class="lp-list-title" href="@EditLink(row)" @onclick:stopPropagation="true">@row.Title</a>
+                            <span class="lp-list-sub">@row.ShopName, #@row.EtsyListingId</span>
+                        </td>
+                        <td class="pc-changes">
+                            <div class="ec-fields">
+                                @foreach (var f in row.Fields) { <span class="ec-field">@f</span> }
+                            </div>
+                            @if (row.HasLocalEdits)
+                            {
+                                <div class="small muted">Also has unpushed edits in this app</div>
+                            }
+                        </td>
+                        <td class="muted pc-edited">@(row.EtsyUpdatedAtUtc is { } at ? ListingFormat.Ago(at, Now) : "")</td>
+                        <td class="ec-review" @onclick:stopPropagation="true">
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Href="@EditLink(row)">Review changes</MudButton>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private const int FallbackAccentCount = 4; // --esm-shop-fallback-N in app.css, as on the listings page
+
+    private IReadOnlyList<EtsyConflictListing>? _rows;
+    private readonly HashSet<int> _selected = [];
+    private readonly RangeSelection<int> _range = new();
+    private bool _resolving;
+    private readonly Dictionary<int, string> _accents = [];
+    private List<int> _shopOrder = [];
+    private IDisposable? _live;
+
+    private readonly TableSort<EtsyConflictListing> _sort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["fields"] = r => string.Join(", ", r.Fields),
+        ["updated"] = r => r.EtsyUpdatedAtUtc,
+    };
+
+    private DateTime Now => Time.GetUtcNow().UtcDateTime;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // An import brings in new changes from Etsy; a push settles a listing's.
+        _live = JobEvents.Subscribe(c => c.IsFinal && c.JobType is PushListingJob.Type or ImportShopListingsJob.Type,
+            _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+    }
+
+    private async Task LoadAsync()
+    {
+        var rows = await Conflicts.ListAsync();
+        _rows = rows;
+        // Keep the selection across reloads, for listings still listed.
+        _selected.IntersectWith(rows.Select(r => r.ListingId));
+        _shopOrder = [.. rows.Select(r => r.ShopId).Distinct().Order()];
+        foreach (var (id, color) in await ShopAccents.GetEffectiveAsync(_shopOrder)) _accents[id] = color;
+    }
+
+    private static string EditLink(EtsyConflictListing row) => $"listings/{row.ListingId}/edit";
+
+    private IReadOnlyList<EtsyConflictListing> Selected => _rows?.Where(r => _selected.Contains(r.ListingId)).ToList() ?? [];
+    private bool AllSelected => _rows is { Count: > 0 } && _rows.All(r => _selected.Contains(r.ListingId));
+
+    private static string Count(int n, string one, string many) => $"{n:N0} {(n == 1 ? one : many)}";
+
+    private void HandleRowClick(int listingId, MouseEventArgs e)
+    {
+        var visible = _rows is null ? [] : _sort.Apply(_rows).Select(r => r.ListingId).ToList();
+        _range.HandleClick(listingId, e.ShiftKey, visible, _selected);
+    }
+
+    private void SelectAll(bool selected)
+    {
+        foreach (var row in _rows ?? []) { if (selected) _selected.Add(row.ListingId); else _selected.Remove(row.ListingId); }
+        _range.Reset();
+    }
+
+    private void ToggleAll() => SelectAll(!AllSelected);
+
+    private async Task ResolveAsync(DriftResolution resolution)
+    {
+        var picked = Selected;
+        if (picked.Count == 0) return;
+        var listings = Count(picked.Count, "listing", "listings");
+        var fields = Count(picked.Sum(r => r.Fields.Count), "field", "fields");
+        var keep = resolution == DriftResolution.KeepMine;
+        var ok = await Dialogs.ShowMessageBoxAsync(keep ? "Keep mine" : "Take Etsy's",
+            keep
+                ? $"Keep this app's values for {fields} changed on Etsy, across {listings}? Etsy's changes are set aside and " +
+                  "nothing is sent to Etsy now: your values go to Etsy the next time you push these listings."
+                : $"Take Etsy's values for {fields} changed on Etsy, across {listings}? They replace this app's values for " +
+                  "those fields, along with any unpushed edits of them. Nothing is sent to Etsy.",
+            yesText: keep ? $"Keep mine for {listings}" : $"Take Etsy's for {listings}", cancelText: "Cancel");
+        if (ok != true) return;
+        _resolving = true;
+        try
+        {
+            var results = await Conflicts.ResolveAsync(picked.ToDictionary(r => r.ListingId, r => r.Reviewed), resolution, (await AuthState).User);
+            var done = results.Where(r => r.Problem is null).ToList();
+            if (done.Count > 0)
+                Snackbar.Add($"{(keep ? "Kept your values" : "Took Etsy's values")} for {Count(done.Sum(r => r.Resolved), "field", "fields")} " +
+                             $"across {Count(done.Count, "listing", "listings")}.", Severity.Success);
+            foreach (var r in results.Where(r => r.Problem is not null)) Snackbar.Add($"{r.Title}: {r.Problem}", Severity.Warning);
+            _selected.Clear();
+            _range.Reset();
+            await LoadAsync();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _resolving = false; }
+    }
+
+    private string ShopStyle(int shopId) =>
+        $"--shop: {(_accents.TryGetValue(shopId, out var c) ? c : $"var(--esm-shop-fallback-{Math.Max(0, _shopOrder.IndexOf(shopId)) % FallbackAccentCount})")}";
+
+    public void Dispose() => _live?.Dispose();
+}
