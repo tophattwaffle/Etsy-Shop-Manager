@@ -1,0 +1,128 @@
+@page "/listings/changed-on-etsy"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Modules.Editor
+@using EtsyShopManager.Web.Modules.Listings
+@implements IDisposable
+@inject EtsyConflictService Conflicts
+@inject IJobEvents JobEvents
+@inject TimeProvider Time
+@inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
+
+<PageTitle>Changed on Etsy · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="listings" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> Back to listings
+</MudLink>
+
+<PageHeader Title="Changed on Etsy">
+    <Summary>
+        @if (_rows is { Count: > 0 })
+        {
+            @($"{_rows.Count:N0} listing{(_rows.Count == 1 ? " was" : "s were")} changed on etsy.com and need{(_rows.Count == 1 ? "s" : "")} your choice")
+        }
+    </Summary>
+</PageHeader>
+
+@if (_rows is null)
+{
+    <MudProgressLinear Indeterminate="true" Class="my-6" />
+}
+else if (_rows.Count == 0)
+{
+    <div class="lp-empty">
+        <p>No listing was changed on etsy.com since the app last synced, so there's nothing to review. Listings edited on Etsy show up here after the next import.</p>
+        <a class="esm-button esm-button-secondary" href="listings">Back to listings</a>
+    </div>
+}
+else
+{
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        These listings were edited on etsy.com since the app last agreed with Etsy. Open one to see each field side by side
+        and choose keep mine or take Etsy's; its pushes are blocked until every field is resolved.
+    </MudText>
+    <div class="lp-list-wrap">
+        <table class="lp-list pc-list">
+            <thead>
+                <tr>
+                    <th scope="col"><span class="visually-hidden">Photo</span></th>
+                    <SortHeader Sort="_sort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                    <SortHeader Sort="_sort" Column="fields" Changed="StateHasChanged">Changed on Etsy</SortHeader>
+                    <SortHeader Sort="_sort" Column="updated" Changed="StateHasChanged">Updated on Etsy</SortHeader>
+                    <th scope="col"><span class="visually-hidden">Review</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _sort.Apply(_rows))
+                {
+                    <tr style="@ShopStyle(row.ShopId)">
+                        <td class="lp-list-photo">
+                            @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
+                            {
+                                <img src="@thumb" alt="" loading="lazy" />
+                            }
+                        </td>
+                        <td class="pc-listing">
+                            <a class="lp-list-title" href="@EditLink(row)">@row.Title</a>
+                            <span class="lp-list-sub">@row.ShopName, #@row.EtsyListingId</span>
+                        </td>
+                        <td class="pc-changes">
+                            <div class="ec-fields">
+                                @foreach (var f in row.Fields) { <span class="ec-field">@f</span> }
+                            </div>
+                            @if (row.HasLocalEdits)
+                            {
+                                <div class="small muted">Also has unpushed edits in this app</div>
+                            }
+                        </td>
+                        <td class="muted pc-edited">@(row.EtsyUpdatedAtUtc is { } at ? ListingFormat.Ago(at, Now) : "")</td>
+                        <td class="ec-review">
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Href="@EditLink(row)">Review changes</MudButton>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private const int FallbackAccentCount = 4; // --esm-shop-fallback-N in app.css, as on the listings page
+
+    private IReadOnlyList<EtsyConflictListing>? _rows;
+    private readonly Dictionary<int, string> _accents = [];
+    private List<int> _shopOrder = [];
+    private IDisposable? _live;
+
+    private readonly TableSort<EtsyConflictListing> _sort = new()
+    {
+        ["listing"] = r => r.Title,
+        ["fields"] = r => string.Join(", ", r.Fields),
+        ["updated"] = r => r.EtsyUpdatedAtUtc,
+    };
+
+    private DateTime Now => Time.GetUtcNow().UtcDateTime;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // An import brings in new changes from Etsy; a push settles a listing's.
+        _live = JobEvents.Subscribe(c => c.IsFinal && c.JobType is PushListingJob.Type or ImportShopListingsJob.Type,
+            _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+    }
+
+    private async Task LoadAsync()
+    {
+        var rows = await Conflicts.ListAsync();
+        _rows = rows;
+        _shopOrder = [.. rows.Select(r => r.ShopId).Distinct().Order()];
+        foreach (var (id, color) in await ShopAccents.GetEffectiveAsync(_shopOrder)) _accents[id] = color;
+    }
+
+    private static string EditLink(EtsyConflictListing row) => $"listings/{row.ListingId}/edit";
+
+    private string ShopStyle(int shopId) =>
+        $"--shop: {(_accents.TryGetValue(shopId, out var c) ? c : $"var(--esm-shop-fallback-{Math.Max(0, _shopOrder.IndexOf(shopId)) % FallbackAccentCount})")}";
+
+    public void Dispose() => _live?.Dispose();
+}

@@ -456,6 +456,10 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .pc-notes summary { cursor: pointer; }
 .pc-edited { white-space: nowrap; }
 .pc-ready { min-width: 180px; }
+/* Changed on Etsy page: the fields that need keep mine / take Etsy's, as warning-edged pills. */
+.ec-fields { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.ec-field { padding: 2px 10px; border: 1px solid var(--esm-warning); border-radius: 999px; font-size: 0.85rem; }
+.ec-review { white-space: nowrap; text-align: right; }
 .lp-bulk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .lp-bulk-fields { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .lp-bulk-fields .mud-input-control { flex: 1 1 160px; margin: 0; }
