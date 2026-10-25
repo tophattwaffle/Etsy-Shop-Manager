@@ -60,14 +60,7 @@ public sealed class PhotoTemplateService(IDbContextFactory<AppDbContext> dbFacto
     public static PhotoTemplatePlan Plan(JsonArray local, IReadOnlyList<(PhotoTemplate Template, ListingPhotoTemplate Link)> templates)
     {
         var items = local.Select(p => p!.AsObject()).ToList();
-        var claimed = new Dictionary<int, JsonObject>(); // template id -> its photo on the listing
-        foreach (var (t, link) in templates)
-        {
-            var photo = items.FirstOrDefault(p => !claimed.ContainsValue(p) && (
-                (string?)p["file_name"] is { } file && (file == t.FileName || file == link.PendingFileName)
-                || (string?)p["alt_text"] is { Length: > 0 } alt && (alt == t.AltText || alt == link.AppliedAltText)));
-            if (photo is not null) claimed[t.Id] = photo;
-        }
+        var claimed = Claim(items, templates);
 
         var changes = new Dictionary<int, string>();
         var uploads = new Dictionary<int, string>();
@@ -106,6 +99,42 @@ public sealed class PhotoTemplateService(IDbContextFactory<AppDbContext> dbFacto
                 changes[t.Id] = "Moves the photo into its place";
         var numbered = new JsonArray([.. result.Select((p, i) => { p["rank"] = i + 1; return (JsonNode)p; })]);
         return new PhotoTemplatePlan(numbered, changes, uploads, result.Count > PhotoEditor.MaxPhotos);
+    }
+
+    /// <summary>Each linked template's photo among the listing's photos (template id -> the photo), by its file or alt text.</summary>
+    private static Dictionary<int, JsonObject> Claim(List<JsonObject> items, IReadOnlyList<(PhotoTemplate Template, ListingPhotoTemplate Link)> templates)
+    {
+        var claimed = new Dictionary<int, JsonObject>();
+        foreach (var (t, link) in templates)
+        {
+            var photo = items.FirstOrDefault(p => !claimed.ContainsValue(p) && (
+                (string?)p["file_name"] is { } file && (file == t.FileName || file == link.PendingFileName)
+                || (string?)p["alt_text"] is { Length: > 0 } alt && (alt == t.AltText || alt == link.AppliedAltText)));
+            if (photo is not null) claimed[t.Id] = photo;
+        }
+        return claimed;
+    }
+
+    /// <summary>The photos that come from a linked template (photo index -> its template), found as <see cref="Plan"/> finds them.</summary>
+    public static IReadOnlyDictionary<int, PhotoTemplate> TemplatePhotos(JsonArray photos,
+        IReadOnlyList<(PhotoTemplate Template, ListingPhotoTemplate Link)> templates)
+    {
+        var items = photos.Select(p => p!.AsObject()).ToList();
+        var byId = templates.ToDictionary(x => x.Template.Id, x => x.Template);
+        return Claim(items, templates).ToDictionary(c => items.IndexOf(c.Value), c => byId[c.Key]);
+    }
+
+    /// <summary>
+    /// Why a push must wait: a linked template's photo is on Etsy but no longer in the listing's local photos. A template's
+    /// photo only leaves a listing by unlinking it (<see cref="UnlinkAsync"/>), never by removing it in the editor.
+    /// </summary>
+    public static IEnumerable<string> RemovalBlockers(JsonArray etsy, JsonArray local,
+        IReadOnlyList<(PhotoTemplate Template, ListingPhotoTemplate Link)> templates)
+    {
+        var onListing = TemplatePhotos(local, templates).Values.Select(t => t.Id).ToHashSet();
+        return TemplatePhotos(etsy, templates).Values.Where(t => !onListing.Contains(t.Id))
+            .Select(t => $"The photo from the photo template \"{t.Name}\" was removed. It stays while the listing is linked to the template: " +
+                         "put it back (discard the photo edits), or use Unlink on that photo to take it off.");
     }
 
     public async Task<IReadOnlyList<PhotoTemplateSummary>> ListAsync(CancellationToken ct = default)
@@ -258,11 +287,51 @@ public sealed class PhotoTemplateService(IDbContextFactory<AppDbContext> dbFacto
         return listings.Count;
     }
 
-    public async Task UnlinkAsync(int templateId, int listingId, string? user, CancellationToken ct = default)
+    /// <summary>The photo templates one listing is linked to, with their link rows.</summary>
+    public async Task<IReadOnlyList<(PhotoTemplate Template, ListingPhotoTemplate Link)>> ListingLinksAsync(int listingId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await ListingLinksAsync(db, listingId, ct);
+    }
+
+    internal static async Task<IReadOnlyList<(PhotoTemplate Template, ListingPhotoTemplate Link)>> ListingLinksAsync(AppDbContext db, int listingId,
+        CancellationToken ct) =>
+        [.. (await db.ListingPhotoTemplates.AsNoTracking().Include(l => l.PhotoTemplate).Where(l => l.ListingId == listingId).ToListAsync(ct))
+            .Select(l => (l.PhotoTemplate, l))];
+
+    /// <summary>
+    /// Unlinks one listing from a template. With <paramref name="removePhoto"/> (Unlink on the photo in the editor) the
+    /// template's photo also comes off the listing as an unpushed edit (the other photos keep their order; the push gives
+    /// them positions 1..n); without it (the template's page) the listing keeps the photo as one of its own. The template
+    /// and its other listings stay as they are. Returns whether the photo was removed.
+    /// </summary>
+    public async Task<bool> UnlinkAsync(int templateId, int listingId, string? user, bool removePhoto = false, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        if (!removePhoto)
+        {
+            await db.ListingPhotoTemplates.Where(l => l.PhotoTemplateId == templateId && l.ListingId == listingId).ExecuteDeleteAsync(ct);
+            await audit.WriteAsync("photo-template.unlinked", nameof(PhotoTemplate), templateId.ToString(), $"listing {listingId} (keeps the photo)", user, ct);
+            return false;
+        }
+        return await UnlinkAndRemoveAsync(db, templateId, listingId, user, ct);
+    }
+
+    private async Task<bool> UnlinkAndRemoveAsync(AppDbContext db, int templateId, int listingId, string? user, CancellationToken ct)
+    {
+        var links = await ListingLinksAsync(db, listingId, ct);
+        if (links.All(l => l.Template.Id != templateId)) return false;
+        var listing = await db.Listings.AsNoTracking().Include(l => l.EtsyState).FirstOrDefaultAsync(l => l.Id == listingId, ct);
+        var local = listing?.EtsyState is null ? []
+            : ListingEditModel.Parse(listing.EtsyState.ManagedJson, listing.EtsyState.BaseJson, listing.DraftJson).Local(ListingFields.Images) as JsonArray ?? [];
+        var index = TemplatePhotos(local, links).Where(p => p.Value.Id == templateId).Select(p => (int?)p.Key).FirstOrDefault();
+
         await db.ListingPhotoTemplates.Where(l => l.PhotoTemplateId == templateId && l.ListingId == listingId).ExecuteDeleteAsync(ct);
-        await audit.WriteAsync("photo-template.unlinked", nameof(PhotoTemplate), templateId.ToString(), $"listing {listingId} (keeps the photo)", user, ct);
+        if (index is { } i)
+            await editor.SaveAsync(listingId, new Dictionary<string, JsonNode?> { [ListingFields.Images] = PhotoEditor.Remove(local, i) }, user, ct);
+        await audit.WriteAsync("photo-template.unlinked", nameof(PhotoTemplate), templateId.ToString(),
+            $"listing {listingId} ({(index is null ? "it didn't have the photo" : "photo removed as an unpushed edit")})", user, ct);
+        return index is not null;
     }
 
     /// <summary>

@@ -143,6 +143,62 @@ public class PhotoTemplateTests
     }
 
     [Fact]
+    public async Task Unlink_on_the_photo_removes_it_as_an_unpushed_edit_and_only_a_push_takes_it_off_Etsy()
+    {
+        var (shop, id) = await SetupAsync((11, 1, "Front"), (12, 2, "Side"), (13, 3, SwatchAlt));
+        using var _ = shop;
+        var templateId = await TemplateAsync(shop);
+        await Templates(shop).LinkAsync(templateId, [id], "tophattwaffle");
+        var editor = shop.Provider.GetRequiredService<ListingEditor>();
+        var links = await Templates(shop).ListingLinksAsync(id);
+        var local = (await editor.LoadAsync(id))!.Model.Local(ListingFields.Images)!.AsArray();
+        Assert.Equal(2, Assert.Single(PhotoTemplateService.TemplatePhotos(local, links)).Key);
+
+        Assert.True(await Templates(shop).UnlinkAsync(templateId, id, "tophattwaffle", removePhoto: true));
+        Assert.Empty(await Templates(shop).ListingLinksAsync(id));
+        Assert.Empty(shop.Writes); // nothing reaches Etsy yet
+        var model = (await editor.LoadAsync(id))!.Model;
+        Assert.Equal(["Front", "Side"], model.Local(ListingFields.Images)!.AsArray().Select(p => (string)p!["alt_text"]!));
+        Assert.Equal(["Front", "Side", SwatchAlt], EtsyOrder(shop));
+
+        var (pushId, blockers) = await editor.RequestPushAsync(id, "tophattwaffle");
+        Assert.Empty(blockers);
+        await shop.Provider.GetRequiredService<PushListingJob>().HandleAsync(new JobExecutionContext
+        {
+            JobId = pushId!.Value, JobType = PushListingJob.Type, Attempt = 1,
+            PayloadJson = System.Text.Json.JsonSerializer.Serialize(new PushPayload(pushId.Value), JobJson.Options),
+        }, CancellationToken.None);
+        Assert.Contains(shop.Writes, w => w.Method == "DELETE" && w.Path.EndsWith("/images/13"));
+        Assert.Equal(["Front", "Side"], EtsyOrder(shop));
+    }
+
+    [Fact]
+    public async Task A_linked_template_photo_removed_any_other_way_blocks_the_push()
+    {
+        var (shop, id) = await SetupAsync((11, 1, "Front"), (12, 2, SwatchAlt));
+        using var _ = shop;
+        var templateId = await TemplateAsync(shop);
+        await Templates(shop).LinkAsync(templateId, [id], "tophattwaffle");
+        var editor = shop.Provider.GetRequiredService<ListingEditor>();
+        async Task RemoveSwatchAsync()
+        {
+            var local = (await editor.LoadAsync(id))!.Model.Local(ListingFields.Images)!.AsArray();
+            await editor.SaveAsync(id, new Dictionary<string, JsonNode?> { [ListingFields.Images] = PhotoEditor.Remove(local, 1) }, "tophattwaffle");
+        }
+
+        await RemoveSwatchAsync();
+        var blocker = Assert.Single((await editor.PreviewAsync(id)).Blockers);
+        Assert.Contains("photo template \"Swatch\"", blocker);
+
+        // Unlinked on the template's page the listing keeps the photo as its own, and then it can be removed like any other.
+        await editor.DiscardAsync(id, null, "tophattwaffle");
+        Assert.False(await Templates(shop).UnlinkAsync(templateId, id, "tophattwaffle"));
+        Assert.False((await editor.LoadAsync(id))!.Model.HasDraft);
+        await RemoveSwatchAsync();
+        Assert.True((await editor.PreviewAsync(id)).CanPush);
+    }
+
+    [Fact]
     public async Task Template_rules_and_the_image_cleanup_keeps_template_files()
     {
         var (shop, _) = await SetupAsync();

@@ -9,6 +9,7 @@
 <div class="esm-photo-strip">
     @foreach (var (photo, i) in Images.Select((p, i) => (p!, i)))
     {
+        var template = TemplatePhotos.GetValueOrDefault(i);
         <div class="esm-photo-edit">
             <div class="esm-photo-thumb">
                 @if (Thumb(photo) is { } src)
@@ -19,14 +20,26 @@
             </div>
             <MudTextField T="string" Value="@((string?)photo["alt_text"])" ValueChanged="@(v => Change(PhotoEditor.SetAltText(Images, i, v)))"
                           Placeholder="Alt text" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="@PhotoEditor.MaxAltTextLength"
-                          aria-label="@($"Alt text of photo {i + 1}")" />
+                          Disabled="@(template is not null)" aria-label="@($"Alt text of photo {i + 1}")" />
+            @if (template is not null)
+            {
+                <span class="small muted">From the photo template @template</span>
+            }
             <div class="esm-photo-actions">
                 <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" Disabled="@(i == 0)"
                                OnClick="@(() => Change(PhotoEditor.Move(Images, i, i - 1)))" aria-label="@($"Move photo {i + 1} left")" />
                 <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Disabled="@(i == Images.Count - 1)"
                                OnClick="@(() => Change(PhotoEditor.Move(Images, i, i + 1)))" aria-label="@($"Move photo {i + 1} right")" />
-                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
-                           OnClick="@(() => Change(PhotoEditor.Remove(Images, i)))">Remove</MudButton>
+                @if (template is not null)
+                {
+                    <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" Disabled="@(!OnUnlink.HasDelegate)"
+                               OnClick="@(() => OnUnlink.InvokeAsync(i))" aria-label="@($"Unlink photo {i + 1} from its template")">Unlink</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error"
+                               OnClick="@(() => Change(PhotoEditor.Remove(Images, i)))">Remove</MudButton>
+                }
             </div>
         </div>
     }
@@ -58,6 +71,15 @@
     [Parameter, EditorRequired] public IReadOnlyList<ListingImage> Imported { get; set; } = [];
 
     [Parameter, EditorRequired] public EventCallback<JsonArray> ImagesChanged { get; set; }
+
+    /// <summary>
+    /// The photos that come from a linked photo template (photo index -> template name). Those can't be removed or relabelled
+    /// here: their Remove becomes Unlink, which unlinks the listing from the template and takes the photo off.
+    /// </summary>
+    [Parameter] public IReadOnlyDictionary<int, string> TemplatePhotos { get; set; } = new Dictionary<int, string>();
+
+    /// <summary>Unlink on a template's photo (its index).</summary>
+    [Parameter] public EventCallback<int> OnUnlink { get; set; }
 
     private bool _adding;
     private string? _error;
