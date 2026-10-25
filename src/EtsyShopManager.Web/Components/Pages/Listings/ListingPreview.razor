@@ -80,9 +80,9 @@
 
     private string Describe(string key, JsonNode? value)
     {
-        if (key == ListingFields.Video)
+        if (key == ListingFields.Videos)
         {
-            return ListingEditor.DescribeVideo(value);
+            return ListingEditor.DescribeVideos(value);
         }
         return Lookups?.Describe(key, value) ?? value?.ToString() ?? "—";
     }

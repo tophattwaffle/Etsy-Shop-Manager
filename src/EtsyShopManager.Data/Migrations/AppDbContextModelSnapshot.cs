@@ -867,6 +867,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<int>("ListingId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("Rank")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("SourceThumbUrl")
                         .HasColumnType("TEXT");
 

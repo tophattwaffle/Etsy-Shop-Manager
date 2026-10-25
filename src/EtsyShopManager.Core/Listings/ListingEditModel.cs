@@ -15,7 +15,7 @@ public static class ListingFields
 {
     public const string Inventory = "inventory";
     public const string Images = "images";
-    public const string Video = "video";
+    public const string Videos = "videos";
     public const string Attributes = "attributes";
     public const string Personalization = "personalization";
     public const string State = "state";
@@ -25,7 +25,7 @@ public static class ListingFields
         new("title", "Title", true, true),
         new("description", "Description", true, true),
         new(Images, "Photos", true, true),
-        new(Video, "Video", true, true),
+        new(Videos, "Videos", true, true),
         new(Inventory, "Variations, prices and processing", true, true),
         new("tags", "Tags", true, true),
         new("materials", "Materials", true, true),

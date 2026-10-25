@@ -407,9 +407,9 @@ public class Milestone1Challenge2Tests
     }
 
     [Fact]
-    public void ManagedListingState_V6_HandlesVideosAndNullDefaults()
+    public void ManagedListingState_V7_HandlesVideosAndNullDefaults()
     {
-        Assert.Equal(6, ManagedListingState.CurrentVersion);
+        Assert.Equal(7, ManagedListingState.CurrentVersion);
 
         var listing = new Listing
         {
@@ -419,9 +419,9 @@ public class Milestone1Challenge2Tests
             PriceDivisor = 100,
         };
 
-        // 1. Empty videos -> null
+        // 1. Empty videos -> empty list
         var state1 = ManagedListingState.From(listing);
-        Assert.Null(state1.Video);
+        Assert.Empty(state1.Videos);
 
         // 2. Video with VideoState = null defaults to "active"
         listing.Videos.Add(new ListingVideo
@@ -433,9 +433,9 @@ public class Milestone1Challenge2Tests
             SourceUrl = "https://example.com/video.mp4"
         });
         var state2 = ManagedListingState.From(listing);
-        Assert.NotNull(state2.Video);
-        Assert.Equal("active", state2.Video.VideoState);
-        Assert.Equal(555L, state2.Video.EtsyVideoId);
+        var video = Assert.Single(state2.Videos);
+        Assert.Equal("active", video.VideoState);
+        Assert.Equal(555L, video.EtsyVideoId);
 
         // 3. SkuPattern does not alter ManagedListingState hash
         var hashBeforeSku = ManagedListingState.Hash(state2.ToCanonicalJson());

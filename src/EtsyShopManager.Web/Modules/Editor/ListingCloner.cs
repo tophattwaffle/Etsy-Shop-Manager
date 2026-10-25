@@ -129,8 +129,7 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
             calls.Add($"POST /v3/application/shops/{shop}/listings/(new)/images  image={p.File}, rank={i}, overwrite=false" +
                       (string.IsNullOrEmpty(p.Alt) ? "" : $", alt_text={p.Alt}"));
         if (photos.Count > 1) calls.Add("…then, only if Etsy shows two photos at one position, give each photo its own position (overwrite=false).");
-        var videoFile = VideoFile(source, local);
-        if (!string.IsNullOrEmpty(videoFile) && fileExists(videoFile))
+        foreach (var videoFile in VideoFiles(source, local).Where(fileExists))
             calls.Add($"POST /v3/application/shops/{shop}/listings/(new)/videos  video={videoFile}");
         calls.Add("Then the new draft is imported into the app.");
         return new ClonePlan(calls, blockers, warnings);
@@ -196,15 +195,15 @@ public sealed class ListingCloner(IDbContextFactory<AppDbContext> dbFactory, Ima
             return (file, (string?)p["alt_text"] ?? "");
         });
 
-    internal static string? VideoFile(Listing source, JsonObject local)
+    /// <summary>The stored files of the listing's videos (the app's version), in order; videos without a file are skipped.</summary>
+    internal static IReadOnlyList<string> VideoFiles(Listing source, JsonObject local)
     {
-        if (local.ContainsKey(ListingFields.Video))
-        {
-            var node = local[ListingFields.Video];
-            if (node is null) return null;
-            if ((string?)node["file_name"] is { Length: > 0 } file) return file;
-        }
-        return source.Videos.FirstOrDefault(v => v.VideoState != "deleted")?.FileName;
+        var etsyVideos = source.Videos.Where(v => v.VideoState != "deleted").OrderBy(v => v.Rank).ThenBy(v => v.EtsyVideoId).ToList();
+        if (!local.ContainsKey(ListingFields.Videos))
+            return etsyVideos.Select(v => v.FileName).OfType<string>().Where(f => f.Length > 0).ToList();
+        return VideoPlan.Items(local[ListingFields.Videos])
+            .Select(v => VideoPlan.FileName(v) ?? etsyVideos.FirstOrDefault(e => e.EtsyVideoId == VideoPlan.EtsyId(v))?.FileName)
+            .OfType<string>().Where(f => f.Length > 0).ToList();
     }
 
     internal static long? ListingReadiness(Listing source, JsonObject local) =>
@@ -354,10 +353,10 @@ public sealed class ListingCloneJob(IDbContextFactory<AppDbContext> dbFactory, L
                 }
             }
 
-            // 4b. Video (if source listing has a video and file exists locally, upload to target listing)
-            var videoFile = ListingCloner.VideoFile(source, local);
-            if (!string.IsNullOrEmpty(videoFile) && videoStore is not null && videoStore.Exists(videoFile))
+            // 4b. Videos (those with a file here), in order: Etsy keeps them in upload order.
+            foreach (var videoFile in ListingCloner.VideoFiles(source, local))
             {
+                if (videoStore is null || !videoStore.Exists(videoFile)) continue;
                 var videoBytes = await File.ReadAllBytesAsync(videoStore.PathFor(videoFile), ct);
                 await etsy.UploadListingVideoAsync(shop, newEtsyId.Value, videoBytes, videoFile, auth, ct);
                 log.Add($"Uploaded video ({videoFile}).");

@@ -144,13 +144,14 @@ else
             </MudPaper>
 
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-                <MudText Typo="Typo.h6" Class="mb-2">Video</MudText>
+                <MudText Typo="Typo.h6" Class="mb-2">Videos</MudText>
                 <MudText Typo="Typo.body2" Class="muted mb-2">
-                    Etsy allows up to 1 video per listing (MP4 or MOV, up to 100 MB). @Pending(ListingFields.Video)
+                    Etsy allows up to @VideoPlan.MaxVideos videos per listing (MP4 or MOV, up to 100 MB). Etsy shows them in the
+                    order they were added and can't reorder them, so a new or replacing video goes after the others.
+                    @Pending(ListingFields.Videos)
                 </MudText>
-                <VideoEditor Video="@_form![ListingFields.Video]"
-                             Imported="@l.Videos.FirstOrDefault(v => v.VideoState != "deleted")"
-                             VideoChanged="@(v => Set(ListingFields.Video, v))" />
+                <VideoEditor Videos="@_form![ListingFields.Videos]" Imported="@l.Videos"
+                             VideosChanged="@(v => Set(ListingFields.Videos, v))" />
             </MudPaper>
 
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">

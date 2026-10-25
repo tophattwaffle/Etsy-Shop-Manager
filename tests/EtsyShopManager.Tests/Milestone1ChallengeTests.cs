@@ -172,9 +172,9 @@ public class Milestone1ChallengeTests
     }
 
     [Fact]
-    public void ManagedListingState_CurrentVersion_is_6()
+    public void ManagedListingState_CurrentVersion_is_7()
     {
-        Assert.Equal(6, ManagedListingState.CurrentVersion);
+        Assert.Equal(7, ManagedListingState.CurrentVersion);
     }
 
     [Fact]
@@ -205,13 +205,13 @@ public class Milestone1ChallengeTests
         var state1 = ManagedListingState.From(listing1);
         var state2 = ManagedListingState.From(listing2);
 
-        Assert.Null(state1.Video);
-        Assert.Null(state2.Video);
+        Assert.Empty(state1.Videos);
+        Assert.Empty(state2.Videos);
 
         var json1 = state1.ToCanonicalJson();
         var json2 = state2.ToCanonicalJson();
 
-        Assert.Contains("\"video\":null", json1);
+        Assert.Contains("\"videos\":[]", json1);
         Assert.Equal(json1, json2);
 
         var hash1 = ManagedListingState.Hash(json1);
@@ -260,11 +260,11 @@ public class Milestone1ChallengeTests
         };
 
         var stateWithVideo = ManagedListingState.From(listingWithVideo);
-        Assert.NotNull(stateWithVideo.Video);
-        Assert.Equal(101, stateWithVideo.Video.EtsyVideoId);
-        Assert.Equal("active", stateWithVideo.Video.VideoState);
-        Assert.Equal(1920, stateWithVideo.Video.Width);
-        Assert.Equal(1080, stateWithVideo.Video.Height);
+        var video = Assert.Single(stateWithVideo.Videos);
+        Assert.Equal(101, video.EtsyVideoId);
+        Assert.Equal("active", video.VideoState);
+        Assert.Equal(1920, video.Width);
+        Assert.Equal(1080, video.Height);
 
         var hashWithVideo = ManagedListingState.Hash(stateWithVideo.ToCanonicalJson());
         Assert.NotEqual(hashNoVideo, hashWithVideo);
@@ -337,7 +337,7 @@ public class Milestone1ChallengeTests
         };
 
         var state = ManagedListingState.From(listingWithDeleted);
-        Assert.Null(state.Video);
+        Assert.Empty(state.Videos);
         var hashDeleted = ManagedListingState.Hash(state.ToCanonicalJson());
         Assert.Equal(hashNoVideo, hashDeleted);
 
@@ -358,9 +358,9 @@ public class Milestone1ChallengeTests
         };
 
         var stateMultiple = ManagedListingState.From(listingMultiple);
-        Assert.NotNull(stateMultiple.Video);
-        Assert.Equal(303, stateMultiple.Video.EtsyVideoId);
-        Assert.Equal("active", stateMultiple.Video.VideoState);
+        var active = Assert.Single(stateMultiple.Videos);
+        Assert.Equal(303, active.EtsyVideoId);
+        Assert.Equal("active", active.VideoState);
     }
 
     [Fact]

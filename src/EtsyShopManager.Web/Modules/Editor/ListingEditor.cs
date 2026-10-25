@@ -213,31 +213,20 @@ public sealed class ListingEditor(
             warnings.AddRange(calls.Select(c => c.Describe(listing.Shop?.EtsyShopId ?? 0, listing.EtsyListingId)));
         }
         var shopId = listing.Shop?.EtsyShopId ?? 0;
-        if (changes.Any(c => c.Key == ListingFields.Video))
+        if (changes.Any(c => c.Key == ListingFields.Videos))
         {
-            var localVideo = local[ListingFields.Video];
-            if (localVideo is not null)
-            {
-                if ((string?)localVideo["file_name"] is { Length: > 0 } file && fileExists is not null && !fileExists(file))
-                    blockers.Add("The video file was added here but its file is gone; remove it and add it again.");
-            }
+            var videos = VideoPlan.Items(local[ListingFields.Videos]);
+            if (videos.Count > VideoPlan.MaxVideos)
+                blockers.Add($"Etsy allows {VideoPlan.MaxVideos} videos per listing; remove {videos.Count - VideoPlan.MaxVideos}.");
+            if (fileExists is not null && videos.Any(v => VideoPlan.FileName(v) is { } f && VideoPlan.EtsyId(v) is null && !fileExists(f)))
+                blockers.Add("The video file was added here but its file is gone; remove it and add it again.");
 
-            var etsyVideo = model.Etsy[ListingFields.Video];
-            var fromId = (long?)etsyVideo?["etsy_video_id"];
-            var toFile = (string?)localVideo?["name"] ?? (string?)localVideo?["file_name"];
-
-            if (etsyVideo is not null && localVideo is null)
-            {
-                warnings.Add($"Video: 1 call to Etsy (DELETE /v3/application/shops/{shopId}/listings/{listing.EtsyListingId}/videos/{fromId}) to remove the video.");
-            }
-            else if (etsyVideo is not null && localVideo is not null)
-            {
-                warnings.Add($"Video: 2 calls to Etsy (DELETE existing video #{fromId}, then POST to upload {(toFile is not null ? $"\"{toFile}\"" : "video")}).");
-            }
-            else if (etsyVideo is null && localVideo is not null)
-            {
-                warnings.Add($"Video: 1 call to Etsy (POST /v3/application/shops/{shopId}/listings/{listing.EtsyListingId}/videos) to upload {(toFile is not null ? $"\"{toFile}\"" : "video")}.");
-            }
+            var (deletes, uploads) = VideoPlan.Plan(model.Etsy[ListingFields.Videos], local[ListingFields.Videos]);
+            var count = deletes.Count + uploads.Count;
+            var path = $"/v3/application/shops/{shopId}/listings/{listing.EtsyListingId}/videos";
+            warnings.Add($"Videos: {count} call{(count == 1 ? "" : "s")} to Etsy, removals first. Etsy adds new videos after the ones it keeps.");
+            warnings.AddRange(deletes.Select(id => $"DELETE {path}/{id}  (take video #{id} off the listing)"));
+            warnings.AddRange(uploads.Select(v => $"POST {path}  video={(string?)v["name"] ?? VideoPlan.FileName(v)}  (add the new video)"));
         }
         if (changes.Any(c => c.Key == ListingFields.Attributes))
         {
@@ -429,6 +418,10 @@ public sealed class ListingEditor(
         }
         return "Video";
     }
+
+    /// <summary>A listing's videos in one line, in order.</summary>
+    public static string DescribeVideos(JsonNode? videos) =>
+        VideoPlan.Items(videos) is { Count: > 0 } items ? string.Join(" · ", items.Select(DescribeVideo)) : "No video";
 
     public static string DescribeVideoChange(JsonNode? from, JsonNode? to)
     {

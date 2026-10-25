@@ -239,17 +239,17 @@ public class RequirementE2ETests_R5_R6
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(localListing.Id, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = fileName,
                 ["name"] = "mug_spin.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var preview = await editor.PreviewAsync(localListing.Id);
         Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
-        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Video);
-        Assert.Contains(preview.Warnings, w => w.Contains("Video: 1 call to Etsy (POST"));
+        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Videos);
+        Assert.Contains(preview.Warnings, w => w.Contains("Videos: 1 call to Etsy"));
 
         var (pushId, blockers) = await editor.RequestPushAsync(localListing.Id, "tophattwaffle");
         Assert.Empty(blockers);
@@ -294,11 +294,11 @@ public class RequirementE2ETests_R5_R6
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(localListing.Id, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = replacementFile,
                 ["name"] = "vase_v2.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var (pushId, blockers) = await editor.RequestPushAsync(localListing.Id, "tophattwaffle");
@@ -342,7 +342,7 @@ public class RequirementE2ETests_R5_R6
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(localListing.Id, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = null,
+            [ListingFields.Videos] = new JsonArray(),
         }, "tophattwaffle");
 
         var (pushId, blockers) = await editor.RequestPushAsync(localListing.Id, "tophattwaffle");
@@ -826,16 +826,16 @@ public class RequirementE2ETests_R5_R6
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(localId, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = videoFile,
                 ["name"] = "vase_preview.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var preview = await editor.PreviewAsync(localId);
         Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
-        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Video);
+        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Videos);
 
         // 3. Push draft to Etsy with video
         var (pushId, blockers) = await editor.RequestPushAsync(localId, "tophattwaffle");
@@ -891,11 +891,11 @@ public class RequirementE2ETests_R5_R6
         await editor.SaveAsync(localListing.Id, new Dictionary<string, JsonNode?>
         {
             [ListingFields.Inventory] = inventory,
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = videoFile,
                 ["name"] = "hoodie_spin.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var (pushId, blockers) = await editor.RequestPushAsync(localListing.Id, "tophattwaffle");
@@ -1158,17 +1158,17 @@ public class RequirementE2ETests_R5_R6
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(localId, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = videoFile,
                 ["name"] = "wheel_demo.mp4",
-            },
+            }),
         }, "adminUser");
 
         // 4. Verify preview and push
         var preview = await editor.PreviewAsync(localId);
         Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
-        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Video);
+        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Videos);
 
         var (pushId, blockers) = await editor.RequestPushAsync(localId, "adminUser");
         Assert.Empty(blockers);
