@@ -29,7 +29,7 @@ public static class DriftDiff
         "tags" or "materials" => Chips(key, Strings(mine), Strings(etsy)),
         "production_partner_ids" => Chips(key, Ids(mine).Select(i => lookups.ProductionPartners.GetValueOrDefault(i, $"#{i}")).ToList(),
             Ids(etsy).Select(i => lookups.ProductionPartners.GetValueOrDefault(i, $"#{i}")).ToList()),
-        ListingFields.Inventory or ListingFields.Images or ListingFields.Video or ListingFields.Attributes or ListingFields.Personalization =>
+        ListingFields.Inventory or ListingFields.Images or ListingFields.Videos or ListingFields.Attributes or ListingFields.Personalization =>
             Rows(key, Lines(key, mine, lookups), Lines(key, etsy, lookups)),
         _ => Value(key, lookups.Describe(key, mine), lookups.Describe(key, etsy)),
     };
@@ -153,11 +153,10 @@ public static class DriftDiff
                 return value.AsArray().Select(p =>
                     ((long?)p!["etsy_image_id"] is > 0 and long id ? $"Photo #{id}" : "New photo") +
                     ((string?)p["alt_text"] is { Length: > 0 } alt ? $" ({alt})" : "")).ToList();
-            case ListingFields.Video:
-                return value.GetValueKind() == JsonValueKind.Object
-                    ? [$"Video #{((long?)value["etsy_video_id"])?.ToString(CultureInfo.InvariantCulture) ?? "?"}" +
-                       ((string?)value["video_state"] is { Length: > 0 } s ? $" ({ListingFormat.Humanize(s)})" : "")]
-                    : [];
+            case ListingFields.Videos:
+                return VideoPlan.Items(value).Select(v =>
+                    (VideoPlan.EtsyId(v) is { } id ? $"Video #{id.ToString(CultureInfo.InvariantCulture)}" : "New video") +
+                    ((string?)v["video_state"] is { Length: > 0 } s ? $" ({ListingFormat.Humanize(s)})" : "")).ToList();
             default:
                 var text = lookups.Describe(key, value);
                 return text == "None" ? [] : text.Split(" · ");

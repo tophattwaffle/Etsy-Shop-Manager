@@ -412,7 +412,7 @@ public sealed class ListingImporter(
         set.RemoveRange(current.Where(e => !seen.Contains(entityKey(e))));
     }
 
-    /// <summary>Brings the local videos in line with Etsy's, matched by video_id.</summary>
+    /// <summary>Brings the local videos in line with Etsy's, matched by video_id, keeping Etsy's order.</summary>
     private static void SyncVideos(Listing target, IReadOnlyList<EtsyListingVideo>? source)
     {
         var incoming = (source ?? [])
@@ -421,7 +421,7 @@ public sealed class ListingImporter(
         var ids = incoming.Select(v => v.VideoId).ToHashSet();
         target.Videos.RemoveAll(v => !ids.Contains(v.EtsyVideoId));
 
-        foreach (var src in incoming)
+        foreach (var (src, rank) in incoming.Select((v, i) => (v, i)))
         {
             var vid = target.Videos.FirstOrDefault(v => v.EtsyVideoId == src.VideoId);
             if (vid is null)
@@ -447,6 +447,7 @@ public sealed class ListingImporter(
             vid.Height = src.Height;
             vid.Width = src.Width;
             vid.VideoState = src.VideoState;
+            vid.Rank = rank;
         }
     }
 

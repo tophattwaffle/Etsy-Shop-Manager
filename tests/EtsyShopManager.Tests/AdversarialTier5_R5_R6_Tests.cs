@@ -426,11 +426,11 @@ public class AdversarialTier5_R5_R6_Tests
 
         await editor.SaveAsync(localId, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = missingFileName,
                 ["name"] = "mug_tour.mp4"
-            }
+            })
         }, "tophattwaffle");
 
         var preview = await editor.PreviewAsync(localId);
@@ -461,23 +461,23 @@ public class AdversarialTier5_R5_R6_Tests
         // Step A: Add video -> 1 call warning
         await editor.SaveAsync(localId, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject { ["file_name"] = videoFile, ["name"] = "bowl.mp4" }
+            [ListingFields.Videos] = new JsonArray(new JsonObject { ["file_name"] = videoFile, ["name"] = "bowl.mp4" })
         }, "tophattwaffle");
 
         var prevAdd = await editor.PreviewAsync(localId);
         Assert.True(prevAdd.CanPush);
-        Assert.Contains(prevAdd.Warnings, w => w.Contains("Video: 1 call to Etsy (POST"));
+        Assert.Contains(prevAdd.Warnings, w => w.Contains("Videos: 1 call to Etsy"));
 
         // Step B: Simulate Etsy having existing video #8888
         await using (var db = shop.Db.CreateDbContext())
         {
             var l = await db.Listings.Include(x => x.EtsyState).SingleAsync(x => x.Id == localId);
             var managed = JsonNode.Parse(l.EtsyState!.ManagedJson)!.AsObject();
-            managed[ListingFields.Video] = new JsonObject
+            managed[ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["etsy_video_id"] = 8888L,
                 ["video_state"] = "active"
-            };
+            });
             l.EtsyState.ManagedJson = managed.ToJsonString();
             l.EtsyState.BaseJson = managed.ToJsonString();
             await db.SaveChangesAsync();
@@ -487,22 +487,24 @@ public class AdversarialTier5_R5_R6_Tests
         var newFile = await shop.VideoStore.SaveAsync("new-bytes"u8.ToArray(), ".mp4");
         await editor.SaveAsync(localId, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject { ["file_name"] = newFile, ["name"] = "bowl_v2.mp4" }
+            [ListingFields.Videos] = new JsonArray(new JsonObject { ["file_name"] = newFile, ["name"] = "bowl_v2.mp4" })
         }, "tophattwaffle");
 
         var prevReplace = await editor.PreviewAsync(localId);
         Assert.True(prevReplace.CanPush);
-        Assert.Contains(prevReplace.Warnings, w => w.Contains("Video: 2 calls to Etsy (DELETE existing video #8888, then POST to upload"));
+        Assert.Contains(prevReplace.Warnings, w => w.Contains("Videos: 2 calls to Etsy"));
+        Assert.Contains(prevReplace.Warnings, w => w.StartsWith("DELETE /v3/application/shops/42/listings/202/videos/8888"));
+        Assert.Contains(prevReplace.Warnings, w => w.StartsWith("POST /v3/application/shops/42/listings/202/videos") && w.Contains("bowl_v2.mp4"));
 
         // Step C: Delete video -> 1 call warning (DELETE)
         await editor.SaveAsync(localId, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = null
+            [ListingFields.Videos] = new JsonArray()
         }, "tophattwaffle");
 
         var prevDelete = await editor.PreviewAsync(localId);
         Assert.True(prevDelete.CanPush);
-        Assert.Contains(prevDelete.Warnings, w => w.Contains("Video: 1 call to Etsy (DELETE /v3/application/shops/42/listings/202/videos/8888) to remove the video."));
+        Assert.Contains(prevDelete.Warnings, w => w.StartsWith("DELETE /v3/application/shops/42/listings/202/videos/8888  (take video #8888 off the listing)"));
     }
 
     [Fact]
@@ -551,11 +553,11 @@ public class AdversarialTier5_R5_R6_Tests
 
         await editor.SaveAsync(localId, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = newFile,
                 ["name"] = "planter_360.mp4"
-            }
+            })
         }, "tophattwaffle");
 
         var (pushId, blockers) = await editor.RequestPushAsync(localId, "tophattwaffle");
@@ -617,11 +619,11 @@ public class AdversarialTier5_R5_R6_Tests
 
         await editor.SaveAsync(localId, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = newFile,
                 ["name"] = "lamp_spin.mp4"
-            }
+            })
         }, "tophattwaffle");
 
         var (pushId, blockers) = await editor.RequestPushAsync(localId, "tophattwaffle");
@@ -695,7 +697,7 @@ public class AdversarialTier5_R5_R6_Tests
             var l = await db.Listings.SingleAsync(x => x.Id == localId);
             l.DraftJson = JsonSerializer.Serialize(new Dictionary<string, JsonNode?>
             {
-                [ListingFields.Video] = null
+                [ListingFields.Videos] = new JsonArray()
             });
             await db.SaveChangesAsync();
         }
@@ -711,7 +713,7 @@ public class AdversarialTier5_R5_R6_Tests
             var l = await db.Listings.SingleAsync(x => x.Id == localId);
             l.DraftJson = JsonSerializer.Serialize(new Dictionary<string, JsonNode?>
             {
-                [ListingFields.Video] = new JsonObject { ["file_name"] = newFile }
+                [ListingFields.Videos] = new JsonArray(new JsonObject { ["file_name"] = newFile })
             });
             await db.SaveChangesAsync();
         }

@@ -217,8 +217,10 @@ public static class ListingMapper
         if (state.ManagedHash != hash || state.ManagedVersion != ManagedListingState.CurrentVersion)
         {
             if (state.ManagedHash != "") state.ManagedChangedAtUtc = nowUtc;
-            // A new managed-field definition makes the old base incomparable: start again from Etsy's state.
-            if (state.ManagedVersion != ManagedListingState.CurrentVersion) state.BaseJson = null;
+            // A new managed-field definition makes the old base incomparable: carry it over where the change allows,
+            // otherwise start again from Etsy's state.
+            if (state.ManagedVersion != ManagedListingState.CurrentVersion)
+                state.BaseJson = ManagedListingState.UpgradeBase(state.BaseJson, state.ManagedVersion);
             state.ManagedHash = hash;
             state.ManagedJson = managedJson;
             state.ManagedVersion = ManagedListingState.CurrentVersion;

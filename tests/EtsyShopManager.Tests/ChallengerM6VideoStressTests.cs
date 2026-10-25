@@ -31,18 +31,18 @@ public class ChallengerM6VideoStressTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = fileName,
                 ["name"] = "desk_spin.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         // Preview checks
         var preview = await editor.PreviewAsync(1);
         Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
-        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Video);
-        Assert.Contains(preview.Warnings, w => w.Contains("Video: 1 call to Etsy (POST"));
+        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Videos);
+        Assert.Contains(preview.Warnings, w => w.Contains("Videos: 1 call to Etsy"));
 
         // Push execution
         var (pushId, blockers) = await editor.RequestPushAsync(1, "tophattwaffle");
@@ -91,17 +91,19 @@ public class ChallengerM6VideoStressTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = replacementFile,
                 ["name"] = "chair_v2.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         // Preview checks
         var preview = await editor.PreviewAsync(1);
         Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
-        Assert.Contains(preview.Warnings, w => w.Contains("Video: 2 calls to Etsy (DELETE existing video #5501, then POST to upload \"chair_v2.mp4\")"));
+        Assert.Contains(preview.Warnings, w => w.Contains("Videos: 2 calls to Etsy"));
+        Assert.Contains(preview.Warnings, w => w.StartsWith("DELETE /v3/application/shops/42/listings/1/videos/5501"));
+        Assert.Contains(preview.Warnings, w => w.StartsWith("POST /v3/application/shops/42/listings/1/videos") && w.Contains("chair_v2.mp4"));
 
         // Push execution
         var (pushId, blockers) = await editor.RequestPushAsync(1, "tophattwaffle");
@@ -147,13 +149,13 @@ public class ChallengerM6VideoStressTests
         // Explicitly set Video to null (removal)
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = null,
+            [ListingFields.Videos] = new JsonArray(),
         }, "tophattwaffle");
 
         // Preview checks
         var preview = await editor.PreviewAsync(1);
         Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
-        Assert.Contains(preview.Warnings, w => w.Contains("Video: 1 call to Etsy (DELETE /v3/application/shops/42/listings/1/videos/5502)"));
+        Assert.Contains(preview.Warnings, w => w.StartsWith("DELETE /v3/application/shops/42/listings/1/videos/5502"));
 
         var (pushId, blockers) = await editor.RequestPushAsync(1, "tophattwaffle");
         Assert.Empty(blockers);
@@ -204,8 +206,8 @@ public class ChallengerM6VideoStressTests
 
         var preview = await editor.PreviewAsync(1);
         Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
-        Assert.DoesNotContain(preview.Changes, c => c.Key == ListingFields.Video);
-        Assert.DoesNotContain(preview.Warnings, w => w.Contains("Video:"));
+        Assert.DoesNotContain(preview.Changes, c => c.Key == ListingFields.Videos);
+        Assert.DoesNotContain(preview.Warnings, w => w.Contains("Videos:"));
 
         var (pushId, blockers) = await editor.RequestPushAsync(1, "tophattwaffle");
         Assert.Empty(blockers);
@@ -260,7 +262,7 @@ public class ChallengerM6VideoStressTests
         }
 
         var driftEvent = Assert.Single(shop.Events.Events.OfType<DriftDetected>());
-        Assert.Contains(ListingFields.Video, driftEvent.Fields);
+        Assert.Contains(ListingFields.Videos, driftEvent.Fields);
 
         // Verify ListingEditor preview blocks push
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
@@ -269,7 +271,7 @@ public class ChallengerM6VideoStressTests
         Assert.Contains(preview.Blockers, b => b.Contains("Changed on Etsy since the last sync: Video"));
 
         // Resolve drift by taking Etsy's video
-        await editor.ResolveDriftAsync(1, ListingFields.Video, DriftResolution.TakeEtsy, "tophattwaffle");
+        await editor.ResolveDriftAsync(1, ListingFields.Videos, DriftResolution.TakeEtsy, "tophattwaffle");
 
         await using (var db = shop.Db.CreateDbContext())
         {
@@ -308,7 +310,7 @@ public class ChallengerM6VideoStressTests
         Assert.Contains(preview.Blockers, b => b.Contains("Changed on Etsy since the last sync: Video"));
 
         // Resolve drift by keeping mine (local agreed state restored to draft)
-        await editor.ResolveDriftAsync(1, ListingFields.Video, DriftResolution.KeepMine, "tophattwaffle");
+        await editor.ResolveDriftAsync(1, ListingFields.Videos, DriftResolution.KeepMine, "tophattwaffle");
 
         await using (var db = shop.Db.CreateDbContext())
         {
@@ -391,7 +393,7 @@ public class ChallengerM6VideoStressTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = null,
+            [ListingFields.Videos] = new JsonArray(),
         }, "tophattwaffle");
 
         var cloner = shop.Provider.GetRequiredService<ListingCloner>();
@@ -447,11 +449,11 @@ public class ChallengerM6VideoStressTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = videoFile,
                 ["name"] = "scarf_close.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var cloner = shop.Provider.GetRequiredService<ListingCloner>();
@@ -549,11 +551,11 @@ public class ChallengerM6VideoStressTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = fileName,
                 ["name"] = "bell.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var (pushId, blockers) = await editor.RequestPushAsync(1, "tophattwaffle");

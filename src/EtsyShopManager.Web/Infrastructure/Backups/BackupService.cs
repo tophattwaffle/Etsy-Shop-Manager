@@ -618,9 +618,10 @@ public sealed partial class BackupService(
                                 source_url = img.SourceUrl,
                                 byte_size = img.ByteSize
                             }),
-                            videos = listing.Videos.Select(v => new
+                            videos = listing.Videos.OrderBy(v => v.Rank).Select(v => new
                             {
                                 etsy_video_id = v.EtsyVideoId,
+                                rank = v.Rank,
                                 width = v.Width,
                                 height = v.Height,
                                 video_state = v.VideoState,

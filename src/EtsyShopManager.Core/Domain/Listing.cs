@@ -185,6 +185,9 @@ public class ListingVideo
     public int ListingId { get; set; }
     public Listing Listing { get; set; } = null!;
     public long EtsyVideoId { get; set; }
+    /// <summary>Position in Etsy's list of the listing's videos (0 first). Etsy has no rank field for videos; its list
+    /// is in upload order, and that is the order buyers see.</summary>
+    public int Rank { get; set; }
     public int? Height { get; set; }
     public int? Width { get; set; }
     public string? VideoState { get; set; }

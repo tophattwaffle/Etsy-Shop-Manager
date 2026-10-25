@@ -41,7 +41,7 @@ public sealed class PushListingJob(
 
     /// <summary>Fields written by their own calls rather than updateListing.</summary>
     private static readonly HashSet<string> SeparateCalls =
-        [ListingFields.Inventory, ListingFields.Images, ListingFields.Video, ListingFields.Attributes, ListingFields.Personalization];
+        [ListingFields.Inventory, ListingFields.Images, ListingFields.Videos, ListingFields.Attributes, ListingFields.Personalization];
 
     public async Task HandleAsync(JobExecutionContext context, CancellationToken ct)
     {
@@ -110,7 +110,7 @@ public sealed class PushListingJob(
         var attributesChanged = preview.Changes.Any(c => c.Key == ListingFields.Attributes);
         var personalizationChanged = preview.Changes.Any(c => c.Key == ListingFields.Personalization);
         var photosChanged = preview.Changes.Any(c => c.Key == ListingFields.Images);
-        var videoChanged = preview.Changes.Any(c => c.Key == ListingFields.Video);
+        var videosChanged = preview.Changes.Any(c => c.Key == ListingFields.Videos);
         var inventoryChanged = preview.Changes.Any(c => c.Key == ListingFields.Inventory);
 
         // 2. Snapshot what Etsy holds right now.
@@ -158,8 +158,8 @@ public sealed class PushListingJob(
             }
             if (photosChanged)
                 await PushPhotosAsync(listing, local[ListingFields.Images]!.AsArray(), auth, uploaded, () => wrote = true, ct);
-            if (videoChanged)
-                await PushVideoAsync(listing, model, local, auth, () => wrote = true, ct);
+            if (videosChanged)
+                await PushVideosAsync(listing, model.Etsy[ListingFields.Videos], local[ListingFields.Videos], auth, () => wrote = true, ct);
             if (inventoryChanged)
             {
                 var body = InventoryWriter.FromLocal(inventory, local[ListingFields.Inventory]!);
@@ -215,16 +215,9 @@ public sealed class PushListingJob(
         // New variation values got their ids from Etsy just now; the draft has none for them yet.
         if (after.Draft[ListingFields.Inventory] is JsonObject draftInventory && newEtsy[ListingFields.Inventory] is { } etsyInventory)
             after.Draft[ListingFields.Inventory] = VariationEditor.AdoptValueIds(draftInventory, etsyInventory);
-        // If video was in draft, adopt Etsy's new state
-        if (after.Draft.ContainsKey(ListingFields.Video))
-        {
-            var draftVideo = after.Draft[ListingFields.Video];
-            var etsyVideo = newEtsy[ListingFields.Video];
-            if (draftVideo is null && etsyVideo is null)
-                after.Draft.Remove(ListingFields.Video);
-            else if (draftVideo is not null && etsyVideo is not null)
-                after.Draft.Remove(ListingFields.Video);
-        }
+        // Uploaded videos are on Etsy now under new ids; the draft still refers to them by file.
+        if (after.Draft.ContainsKey(ListingFields.Videos) && VideoPlan.Applied(after.Draft[ListingFields.Videos], newEtsy[ListingFields.Videos]))
+            after.Draft.Remove(ListingFields.Videos);
         var notApplied = after.AcceptPushed(newEtsy);
         ListingMapper.Apply(row, after);
         var push = await db.ListingPushes.FirstAsync(p => p.Id == pushId, ct);
@@ -273,42 +266,25 @@ public sealed class PushListingJob(
         }
     }
 
-    private async Task PushVideoAsync(Listing listing, ListingEditModel model, JsonObject local, EtsyAuth auth, Action markWrote, CancellationToken ct)
+    /// <summary>Deletes the videos the list dropped, then uploads the new ones in order (see <see cref="VideoPlan"/>).</summary>
+    private async Task PushVideosAsync(Listing listing, JsonNode? etsyVideos, JsonNode? localVideos, EtsyAuth auth, Action markWrote, CancellationToken ct)
     {
-        var currentEtsyVideo = model.Etsy[ListingFields.Video];
-        var currentEtsyVideoId = (long?)currentEtsyVideo?["etsy_video_id"]
-            ?? listing.Videos.FirstOrDefault(v => v.VideoState != "deleted")?.EtsyVideoId;
         var shopId = listing.Shop.EtsyShopId;
-        var localVideo = local[ListingFields.Video];
-
-        if (localVideo is null)
+        var (deletes, uploads) = VideoPlan.Plan(etsyVideos, localVideos);
+        foreach (var id in deletes)
         {
-            if (currentEtsyVideoId is { } existingId)
-            {
-                logger.LogInformation("Deleting video {VideoId} for listing {ListingId}", existingId, listing.EtsyListingId);
-                await etsy.DeleteListingVideoAsync(shopId, listing.EtsyListingId, existingId, auth, ct);
-                markWrote();
-            }
+            logger.LogInformation("Deleting video {VideoId} for listing {ListingId}", id, listing.EtsyListingId);
+            await etsy.DeleteListingVideoAsync(shopId, listing.EtsyListingId, id, auth, ct);
+            markWrote();
         }
-        else
+        foreach (var video in uploads)
         {
-            var fileName = (string?)localVideo["file_name"];
-            if (!string.IsNullOrEmpty(fileName))
-            {
-                if (currentEtsyVideoId is { } existingId)
-                {
-                    logger.LogInformation("Replacing video: deleting existing video {VideoId} for listing {ListingId}", existingId, listing.EtsyListingId);
-                    await etsy.DeleteListingVideoAsync(shopId, listing.EtsyListingId, existingId, auth, ct);
-                    markWrote();
-                }
-
-                var videoPath = videoStore?.PathFor(fileName) ?? fileName;
-                var videoBytes = await File.ReadAllBytesAsync(videoPath, ct);
-                var uploadName = (string?)localVideo["name"] ?? fileName;
-                logger.LogInformation("Uploading video {FileName} ({Bytes} bytes) for listing {ListingId}", uploadName, videoBytes.Length, listing.EtsyListingId);
-                await etsy.UploadListingVideoAsync(shopId, listing.EtsyListingId, videoBytes, uploadName, auth, ct);
-                markWrote();
-            }
+            var fileName = VideoPlan.FileName(video)!;
+            var videoBytes = await File.ReadAllBytesAsync(videoStore?.PathFor(fileName) ?? fileName, ct);
+            var uploadName = (string?)video["name"] ?? fileName;
+            logger.LogInformation("Uploading video {FileName} ({Bytes} bytes) for listing {ListingId}", uploadName, videoBytes.Length, listing.EtsyListingId);
+            await etsy.UploadListingVideoAsync(shopId, listing.EtsyListingId, videoBytes, uploadName, auth, ct);
+            markWrote();
         }
     }
 

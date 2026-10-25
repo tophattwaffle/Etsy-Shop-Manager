@@ -1,48 +1,57 @@
 @using System.Text.Json.Nodes
 @using EtsyShopManager.Core.Domain
 @using EtsyShopManager.Web.Infrastructure.Storage
+@using EtsyShopManager.Web.Modules.Editor
 @using EtsyShopManager.Web.Modules.Listings
 @inject VideoStore Store
 
-@* The video of a listing being edited: preview, replace, remove, and upload. Changes go back to the editor
-   as the new local "video" node; nothing reaches Etsy until a reviewed push. *@
+@* The videos of a listing being edited: preview, replace, remove, and upload, up to Etsy's limit. Changes go back to the
+   editor as the new local "videos" list; nothing reaches Etsy until a reviewed push. Etsy keeps videos in upload order
+   and can't reorder them, so new videos always go after the ones already on Etsy (VideoPlan). *@
 
-@if (HasVideo)
+@if (Items.Count > 0)
 {
-    <MudStack Spacing="2">
-        @if (VideoUrl is { } url)
+    <div class="esm-video-list">
+        @foreach (var (video, index) in Items.Select((v, i) => (v, i)))
         {
-            @* No poster: Etsy's thumbnail is a 105 px square, which sized the player to it. The #t fragment makes
-               browsers that skip preloading (Safari) still show the first frame. *@
-            <video controls playsinline preload="metadata" src="@PlayerUrl(url)" class="esm-video"
-                   style="@AspectStyle(VideoWidth, VideoHeight)"></video>
-        }
-        <div class="small muted">
-            @VideoDescription
-        </div>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudFileUpload T="IBrowserFile" FilesChanged="UploadAsync" Accept=".mp4,.mov" Disabled="_uploading">
-                <CustomContent>
-                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.SwapHoriz"
-                               Disabled="_uploading" OnClick="@(() => context.OpenFilePickerAsync())">
-                        Replace video
+            var imported = ImportedFor(video);
+            <div class="esm-video-item" @key="KeyFor(video)">
+                @if (VideoUrl(video, imported) is { } url)
+                {
+                    @* No poster: Etsy's thumbnail is a 105 px square, which sized the player to it. The #t fragment makes
+                       browsers that skip preloading (Safari) still show the first frame. *@
+                    <video controls playsinline preload="metadata" src="@PlayerUrl(url)" class="esm-video"
+                           style="@AspectStyle(Dimension(video, "width") ?? imported?.Width, Dimension(video, "height") ?? imported?.Height)"></video>
+                }
+                <div class="small muted">Video @(index + 1): @Describe(video)</div>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudFileUpload T="IBrowserFile" FilesChanged="@(f => UploadAsync(f, index))" Accept=".mp4,.mov" Disabled="_uploading">
+                        <CustomContent>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.SwapHoriz"
+                                       Disabled="_uploading" OnClick="@(() => context.OpenFilePickerAsync())"
+                                       aria-label="@($"Replace video {index + 1}")">
+                                Replace
+                            </MudButton>
+                        </CustomContent>
+                    </MudFileUpload>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" Disabled="_uploading"
+                               OnClick="@(() => RemoveAsync(index))" aria-label="@($"Remove video {index + 1}")">
+                        Remove
                     </MudButton>
-                </CustomContent>
-            </MudFileUpload>
-            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" Disabled="_uploading" OnClick="RemoveAsync">
-                Remove video
-            </MudButton>
-        </MudStack>
-    </MudStack>
+                </MudStack>
+            </div>
+        }
+    </div>
 }
-else
+
+@if (Items.Count < VideoPlan.MaxVideos)
 {
-    <div class="esm-variation-add">
-        <MudFileUpload T="IBrowserFile" FilesChanged="UploadAsync" Accept=".mp4,.mov" Disabled="_uploading">
+    <div class="esm-variation-add @(Items.Count > 0 ? "mt-3" : "")">
+        <MudFileUpload T="IBrowserFile" FilesChanged="@(f => UploadAsync(f, null))" Accept=".mp4,.mov" Disabled="_uploading">
             <CustomContent>
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
                            Disabled="_uploading" OnClick="@(() => context.OpenFilePickerAsync())">
-                    Add a video
+                    @(Items.Count == 0 ? "Add a video" : "Add another video")
                 </MudButton>
             </CustomContent>
         </MudFileUpload>
@@ -58,38 +67,41 @@ else
 @code {
     private const long MaxBytes = 100 * 1024 * 1024;
 
-    [Parameter] public JsonNode? Video { get; set; }
-    [Parameter] public ListingVideo? Imported { get; set; }
-    [Parameter] public EventCallback<JsonNode?> VideoChanged { get; set; }
+    [Parameter] public JsonNode? Videos { get; set; }
+    [Parameter] public IReadOnlyList<ListingVideo> Imported { get; set; } = [];
+    [Parameter] public EventCallback<JsonNode?> VideosChanged { get; set; }
 
     private bool _uploading;
     private string? _error;
 
-    private bool HasVideo => Video is not null;
+    private List<JsonObject> Items => VideoPlan.Items(Videos);
 
-    private string? VideoUrl
+    // A newly uploaded video has no imported row (and no known size yet).
+    private ListingVideo? ImportedFor(JsonObject video) =>
+        VideoPlan.EtsyId(video) is { } id ? Imported.FirstOrDefault(v => v.EtsyVideoId == id) : null;
+
+    private string? VideoUrl(JsonObject video, ListingVideo? imported)
     {
-        get
-        {
-            if (Video is null) return null;
-            if ((string?)Video["file_name"] is { Length: > 0 } file)
-                return VideoStore.UrlFor(file);
-            if ((long?)Video["etsy_video_id"] is > 0)
-            {
-                if (Imported?.FileName is { Length: > 0 } impFile && Store.Exists(impFile))
-                    return VideoStore.UrlFor(impFile);
-                return Imported?.SourceUrl;
-            }
-            return null;
-        }
+        if (VideoPlan.EtsyId(video) is null)
+            return VideoStore.UrlFor(VideoPlan.FileName(video));
+        if (imported?.FileName is { Length: > 0 } file && Store.Exists(file))
+            return VideoStore.UrlFor(file);
+        return imported?.SourceUrl is { Length: > 0 } source ? source : null;
     }
 
-    // A newly uploaded video has no known size yet; the imported one's size only applies to the Etsy video.
-    private bool IsEtsyVideo => (long?)Video?["etsy_video_id"] is > 0;
-    private int? VideoWidth => Dimension("width") ?? (IsEtsyVideo ? Imported?.Width : null);
-    private int? VideoHeight => Dimension("height") ?? (IsEtsyVideo ? Imported?.Height : null);
+    // Each video keeps its own player when one before it is removed.
+    private static string KeyFor(JsonObject video) =>
+        VideoPlan.EtsyId(video) is { } id ? $"etsy:{id}" : $"file:{VideoPlan.FileName(video)}";
 
-    private int? Dimension(string key) => Video?[key] is JsonValue v && v.TryGetValue<int>(out var n) ? n : null;
+    private static int? Dimension(JsonObject video, string key) =>
+        video[key] is JsonValue v && v.TryGetValue<int>(out var n) ? n : null;
+
+    private static string Describe(JsonObject video)
+    {
+        if (VideoPlan.EtsyId(video) is { } id)
+            return $"Etsy video #{id} ({(string?)video["video_state"] ?? "active"})";
+        return $"new video ({(string?)video["name"] ?? VideoPlan.FileName(video) ?? "video"}) · unpushed";
+    }
 
     /// <summary>The player's source: the video URL with a start-time fragment, so the first frame shows before play.</summary>
     public static string PlayerUrl(string url) => url.Contains('#') ? url : url + "#t=0.001";
@@ -98,19 +110,7 @@ else
     public static string? AspectStyle(int? width, int? height) =>
         width is > 0 && height is > 0 ? $"--esm-video-ratio: {width} / {height}" : null;
 
-    private string VideoDescription
-    {
-        get
-        {
-            if (Video is null) return "No video";
-            if ((long?)Video["etsy_video_id"] is { } id)
-                return $"Etsy video #{id} ({(string?)Video["video_state"] ?? "active"})";
-            var name = (string?)Video["name"] ?? (string?)Video["file_name"] ?? "new video";
-            return $"New video ({name}) · unpushed";
-        }
-    }
-
-    private async Task UploadAsync(IBrowserFile? file)
+    private async Task UploadAsync(IBrowserFile? file, int? replacing)
     {
         if (file is null) return;
         _error = null;
@@ -123,14 +123,13 @@ else
         try
         {
             using var stream = file.OpenReadStream(MaxBytes);
-            var ext = Path.GetExtension(file.Name);
-            var fileName = await Store.SaveAsync(stream, ext);
+            var fileName = await Store.SaveAsync(stream, Path.GetExtension(file.Name));
             var node = new JsonObject
             {
                 ["file_name"] = fileName,
                 ["name"] = file.Name,
             };
-            await VideoChanged.InvokeAsync(node);
+            await VideosChanged.InvokeAsync(VideoPlan.Add(Videos, node, replacing));
         }
         catch (Exception ex)
         {
@@ -142,9 +141,9 @@ else
         }
     }
 
-    private async Task RemoveAsync()
+    private async Task RemoveAsync(int index)
     {
         _error = null;
-        await VideoChanged.InvokeAsync(null);
+        await VideosChanged.InvokeAsync(VideoPlan.Remove(Videos, index));
     }
 }

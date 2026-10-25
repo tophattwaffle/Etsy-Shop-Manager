@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using EtsyShopManager.Core.Domain;
 
@@ -23,8 +24,8 @@ public sealed record ManagedListingState
     /// names such as "Bulk Pricing", needed to add or rename variations). 4: photo alt text is HTML-decoded too.
     /// 5: attributes and personalization become editable: attributes without their name (Etsy's name for a property can
     /// differ from the taxonomy's), values in id order; personalization as decoded questions without Etsy's ids.
-    /// 6: listing video state tracking.</remarks>
-    public const int CurrentVersion = 6;
+    /// 6: listing video state tracking. 7: every video of the listing (Etsy allows more than one), in Etsy's order.</remarks>
+    public const int CurrentVersion = 7;
 
     public string State { get; init; } = "";
     public string Title { get; init; } = "";
@@ -60,7 +61,7 @@ public sealed record ManagedListingState
     public List<ManagedAttribute> Attributes { get; init; } = [];
     public ManagedInventory Inventory { get; init; } = new();
     public List<ManagedImage> Images { get; init; } = [];
-    public ManagedVideo? Video { get; init; }
+    public List<ManagedVideo> Videos { get; init; } = [];
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -106,10 +107,24 @@ public sealed record ManagedListingState
         Inventory = ManagedInventory.From(listing),
         Images = [.. listing.Images.OrderBy(i => i.Rank).ThenBy(i => i.EtsyImageId)
             .Select(i => new ManagedImage(i.EtsyImageId, i.Rank, i.AltText ?? ""))],
-        Video = listing.Videos.FirstOrDefault(v => v.VideoState != "deleted") is { } v
-            ? new ManagedVideo(v.EtsyVideoId, v.VideoState ?? "active", v.Width, v.Height)
-            : null,
+        Videos = [.. listing.Videos.Where(v => v.VideoState != "deleted").OrderBy(v => v.Rank).ThenBy(v => v.EtsyVideoId)
+            .Select(v => new ManagedVideo(v.EtsyVideoId, v.VideoState ?? "active", v.Width, v.Height))],
     };
+
+    /// <summary>
+    /// A base (agreed state) stored under an older version, in the current form, where the change between the versions
+    /// can be carried over; null when it can't (then the base starts again from Etsy's state). Keeping it keeps any
+    /// "changed on Etsy" that hasn't been resolved yet.
+    /// </summary>
+    public static string? UpgradeBase(string? baseJson, int fromVersion)
+    {
+        // 6 → 7: the single "video" (object or null) became the "videos" list.
+        if (fromVersion != 6 || string.IsNullOrWhiteSpace(baseJson) || JsonNode.Parse(baseJson) is not JsonObject state) return null;
+        var video = state["video"];
+        state.Remove("video");
+        state["videos"] = video is null ? new JsonArray() : new JsonArray(video.DeepClone());
+        return state.ToJsonString();
+    }
 
     public string ToCanonicalJson() => JsonSerializer.Serialize(this, JsonOptions);
 

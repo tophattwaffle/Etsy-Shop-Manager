@@ -52,6 +52,9 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
     display: block; width: 100%; max-width: 560px; height: auto; max-height: 70vh; aspect-ratio: var(--esm-video-ratio, auto);
     border-radius: var(--esm-radius-sm); background: var(--esm-sunk);
 }
+/* A listing's videos side by side (Etsy allows two), one column on narrow panels. */
+.esm-video-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.esm-video-item { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .esm-minw-sm { min-width: 160px; }
 .esm-minw-md { min-width: 220px; }
 .esm-minw-price { min-width: 110px; }

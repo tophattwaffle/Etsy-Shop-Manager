@@ -113,7 +113,7 @@ public class ListingVideoTests
         Assert.True(listing.HasDrift);
 
         var driftEvent = Assert.Single(shop.Events.Events.OfType<DriftDetected>());
-        Assert.Contains(ListingFields.Video, driftEvent.Fields);
+        Assert.Contains(ListingFields.Videos, driftEvent.Fields);
     }
 
     [Fact]
@@ -128,11 +128,11 @@ public class ListingVideoTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = "nonexistent_video.mp4",
                 ["name"] = "my_video.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var preview = await editor.PreviewAsync(1);
@@ -155,16 +155,16 @@ public class ListingVideoTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = fileName,
                 ["name"] = "demo.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var preview = await editor.PreviewAsync(1);
         Assert.True(preview.CanPush, string.Join("; ", preview.Blockers));
-        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Video);
+        Assert.Contains(preview.Changes, c => c.Key == ListingFields.Videos);
 
         var (pushId, blockers) = await editor.RequestPushAsync(1, "tophattwaffle");
         Assert.Empty(blockers);
@@ -208,11 +208,11 @@ public class ListingVideoTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = new JsonObject
+            [ListingFields.Videos] = new JsonArray(new JsonObject
             {
                 ["file_name"] = fileName,
                 ["name"] = "replacement.mp4",
-            },
+            }),
         }, "tophattwaffle");
 
         var (pushId, blockers) = await editor.RequestPushAsync(1, "tophattwaffle");
@@ -255,7 +255,7 @@ public class ListingVideoTests
         var editor = shop.Provider.GetRequiredService<ListingEditor>();
         await editor.SaveAsync(1, new Dictionary<string, JsonNode?>
         {
-            [ListingFields.Video] = null,
+            [ListingFields.Videos] = new JsonArray(),
         }, "tophattwaffle");
 
         var (pushId, blockers) = await editor.RequestPushAsync(1, "tophattwaffle");
