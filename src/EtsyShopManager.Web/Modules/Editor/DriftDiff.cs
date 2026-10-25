@@ -82,14 +82,15 @@ public static class DriftDiff
         {
             for (var i = 0; i < Math.Max(removed.Count, added.Count); i++)
             {
-                if (i < removed.Count && i < added.Count)
+                var words = i < removed.Count && i < added.Count ? TextDiff.Words(removed[i], added[i]) : null;
+                if (words is not null && Alike(words, removed[i], added[i]))
                 {
-                    var words = TextDiff.Words(removed[i], added[i]);
                     left.Add(new DiffLine(DiffKind.Removed, TextDiff.OldSide(words)));
                     right.Add(new DiffLine(DiffKind.Added, TextDiff.NewSide(words)));
+                    continue;
                 }
-                else if (i < removed.Count) left.Add(DiffLine.Of(DiffKind.Removed, removed[i]));
-                else right.Add(DiffLine.Of(DiffKind.Added, added[i]));
+                if (i < removed.Count) left.Add(DiffLine.Of(DiffKind.Removed, removed[i]));
+                if (i < added.Count) right.Add(DiffLine.Of(DiffKind.Added, added[i]));
             }
             removed.Clear();
             added.Clear();
@@ -107,9 +108,16 @@ public static class DriftDiff
         if (left.Count == 0) left.Add(DiffLine.Of(DiffKind.Same, "None"));
         if (right.Count == 0) right.Add(DiffLine.Of(DiffKind.Same, "None"));
         var note = left.All(l => l.Kind == DiffKind.Same) && right.All(l => l.Kind == DiffKind.Same)
-            ? "Shown the same here; the difference is in details the app doesn't display (such as Etsy's ids)" : null;
+            ? "Shown the same here; the difference is in details the app doesn't display (such as Etsy's ids)"
+            : mine.Order(StringComparer.Ordinal).SequenceEqual(etsy.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+                ? "Same items in a different order" : null;
         return new FieldDiff(key, DiffLayout.Rows, left, right, note);
     }
+
+    // A changed row is shown as an edit of the row it replaced (changed words highlighted) only when most of it stayed;
+    // otherwise they are different items (another photo, another variation) and each is highlighted whole.
+    private static bool Alike(IReadOnlyList<DiffPiece> words, string mine, string etsy) =>
+        words.Where(p => p.Kind == DiffKind.Same).Sum(p => p.Text.Length) * 2 >= Math.Max(mine.Length, etsy.Length);
 
     /// <summary>A single value: old and new, each highlighted whole when they differ.</summary>
     public static FieldDiff Value(string key, string mine, string etsy)
@@ -141,8 +149,9 @@ public static class DriftDiff
                 }).ToList();
             }
             case ListingFields.Images:
-                return value.AsArray().Select((p, i) =>
-                    $"{i + 1}. {((long?)p!["etsy_image_id"] is > 0 and long id ? $"Photo #{id}" : "New photo")}" +
+                // In order, without position numbers: a moved photo then reads as removed in one place and added in another.
+                return value.AsArray().Select(p =>
+                    ((long?)p!["etsy_image_id"] is > 0 and long id ? $"Photo #{id}" : "New photo") +
                     ((string?)p["alt_text"] is { Length: > 0 } alt ? $" ({alt})" : "")).ToList();
             case ListingFields.Video:
                 return value.GetValueKind() == JsonValueKind.Object

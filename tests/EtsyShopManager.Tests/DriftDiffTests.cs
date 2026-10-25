@@ -208,8 +208,30 @@ public class DriftDiffTests
         JsonObject Photo(long id, string alt) => new() { ["etsy_image_id"] = id, ["rank"] = 1, ["alt_text"] = alt };
         var d = DriftDiff.For(ListingFields.Images, new JsonArray(Photo(1, "front"), Photo(2, "side")),
             new JsonArray(Photo(2, "side")), Lookups);
-        Assert.Equal(["1. Photo #1 (front)", "2. Photo #2 (side)"], d.Mine.Select(l => string.Concat(l.Pieces.Select(p => p.Text))));
-        Assert.Equal(["1. Photo #2 (side)"], d.Etsy.Select(l => string.Concat(l.Pieces.Select(p => p.Text))));
+        Assert.Equal(["[-Photo #1 (front)-]", "Photo #2 (side)"], d.Mine.Select(Marked));
+        Assert.Equal(["Photo #2 (side)"], d.Etsy.Select(Marked));
+    }
+
+    [Fact]
+    public void Swapped_photos_read_as_a_move_not_as_edits_of_each_other()
+    {
+        JsonObject Photo(long id, string alt) => new() { ["etsy_image_id"] = id, ["rank"] = 1, ["alt_text"] = alt };
+        var d = DriftDiff.For(ListingFields.Images,
+            new JsonArray(Photo(1, "front"), Photo(6, "Color swatches - Magic colors"), Photo(7, "Shop custom image - White paw prints")),
+            new JsonArray(Photo(1, "front"), Photo(7, "Shop custom image - White paw prints"), Photo(6, "Color swatches - Magic colors")), Lookups);
+        Assert.Equal(1, d.Mine.Count(l => l.Kind == DiffKind.Removed));
+        Assert.Equal(1, d.Etsy.Count(l => l.Kind == DiffKind.Added));
+        Assert.All(d.Mine.Concat(d.Etsy), l => Assert.Single(l.Pieces));
+        Assert.Equal("Same items in a different order", d.Note);
+    }
+
+    [Fact]
+    public void Unrelated_rows_are_highlighted_whole_and_similar_rows_word_by_word()
+    {
+        var d = DriftDiff.Rows("attributes", ["Primary color: Black", "Holiday: Halloween"], ["Primary color: Blue", "Occasion: Birthday party"]);
+        Assert.Equal(["Primary color: [-Black-]", "[-Holiday: Halloween-]"], d.Mine.Select(Marked));
+        Assert.Equal(["Primary color: {+Blue+}", "{+Occasion: Birthday party+}"], d.Etsy.Select(Marked));
+        Assert.Null(d.Note);
     }
 
     [Fact]
