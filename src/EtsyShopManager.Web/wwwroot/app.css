@@ -46,6 +46,12 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-w-sm { max-width: 220px; }
 .esm-w-md { max-width: 360px; }
 .esm-w-lg { max-width: 420px; }
+/* A listing's video in the editor: full panel width up to a cap, shaped like the video (--esm-video-ratio, set from
+   its width and height), never sized by a poster image. */
+.esm-video {
+    display: block; width: 100%; max-width: 560px; height: auto; max-height: 70vh; aspect-ratio: var(--esm-video-ratio, auto);
+    border-radius: var(--esm-radius-sm); background: var(--esm-sunk);
+}
 .esm-minw-sm { min-width: 160px; }
 .esm-minw-md { min-width: 220px; }
 .esm-minw-price { min-width: 110px; }
@@ -384,6 +390,16 @@ tr.esm-clickable { cursor: pointer; }
     box-shadow: inset 0 -3px 0 var(--shop, transparent);
 }
 .lp-card:hover { border-color: var(--esm-muted); }
+/* Edit button over the card photo's top-right corner, always shown (touch screens have no hover). */
+.lp-card-wrap { position: relative; display: flex; flex-direction: column; }
+.lp-card-wrap > .lp-card { flex: 1; }
+.lp-card-edit {
+    position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 999px; background: var(--esm-paper); color: var(--esm-ink);
+    border: 1px solid var(--esm-line); text-decoration: none;
+}
+.lp-card-edit:hover { background: var(--esm-hover); border-color: var(--esm-muted); }
+.lp-card-edit:focus-visible, .lp-row-edit:focus-visible { outline: 2px solid var(--esm-ink); outline-offset: 2px; }
 .lp-card:hover .lp-title { text-decoration: underline; }
 .lp-photo { position: relative; aspect-ratio: 1 / 1; background: var(--esm-sunk); }
 .lp-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -443,6 +459,20 @@ th.text-right .esm-sort, th.num .esm-sort { flex-direction: row-reverse; }
 .lp-list-title:hover { text-decoration: underline; }
 .lp-list-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--esm-muted); font-size: 0.8rem; }
 .lp-list-check { width: 44px; padding-right: 0 !important; }
+/* Edit button at the end of each row, kept in view when the table scrolls sideways (phones); icon only on phones. */
+.lp-list .lp-list-actions {
+    position: sticky; right: 0; width: 1%; white-space: nowrap; text-align: right; background: var(--esm-paper);
+}
+.lp-list tbody tr:hover .lp-list-actions { background: linear-gradient(var(--esm-hover), var(--esm-hover)), var(--esm-paper); }
+.lp-row-edit {
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border: 2px solid var(--esm-ink);
+    border-radius: 999px; color: var(--esm-ink); font-size: 0.8rem; font-weight: 600; text-decoration: none;
+}
+.lp-row-edit:hover { background: var(--esm-hover); }
+@media (max-width: 599.98px) {
+    .lp-row-edit { padding: 4px; }
+    .lp-row-edit-label { display: none; }
+}
 .lp-list tbody tr.is-selected { background: var(--esm-sunk); }
 .lp-list tbody tr.is-selectable { cursor: pointer; user-select: none; }
 .lp-list tbody tr.is-selectable .lp-list-title:hover { text-decoration: none; }
