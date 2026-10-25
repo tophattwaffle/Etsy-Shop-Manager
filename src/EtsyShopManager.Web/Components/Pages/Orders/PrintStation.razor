@@ -1,0 +1,41 @@
+@page "/orders/print-station"
+
+@attribute [ExcludeFromInteractiveRouting]
+@layout EtsyShopManager.Web.Components.Layout.AccountLayout
+@inject NavigationManager Nav
+
+@* Static SSR page left open on a PC by the printer: print-station.js asks the app for queued packing slips every few
+   seconds (AutoPrintService.ClaimAsync), prints them in a hidden frame with the same printout as Orders → Print packing
+   slips, and reports them printed. Started with the browser's silent-print switch, nothing needs clicking. *@
+<PageTitle>Print station · Etsy Shop Manager</PageTitle>
+
+<h1>Print station</h1>
+
+<p id="ps-status" class="print-station-status" role="status" aria-live="polite">Starting…</p>
+
+<p class="muted">
+    Leave this page open on a computer that can print. It checks for packing slips every 10 seconds and prints them
+    on this computer's default printer, then marks them printed. Slips queued while it's closed print when it opens again.
+</p>
+
+<p>
+    <button type="button" id="ps-test" class="btn">Print a test page</button>
+</p>
+
+<h2 class="print-station-heading">Printed here</h2>
+<ul id="ps-log" class="print-station-log">
+    <li class="muted">Nothing yet.</li>
+</ul>
+
+<h2 class="print-station-heading">Printing without a dialog</h2>
+<p class="muted">
+    Browsers show a print dialog unless they are started with silent printing. Open the station with this command (Chrome
+    takes the same switches; the separate profile keeps it apart from other Edge windows), and make the slip printer
+    Windows' default printer:
+</p>
+<code class="print-station-command">msedge --kiosk-printing --user-data-dir=%LOCALAPPDATA%\EsmPrintStation --app=@(Nav.BaseUri)orders/print-station</code>
+<p class="muted">
+    Put that command in a shortcut in the Startup folder to open the station whenever the computer signs in.
+</p>
+
+<script src="print-station.js"></script>

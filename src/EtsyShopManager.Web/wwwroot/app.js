@@ -153,26 +153,29 @@ window.esm = {
 
     // Opens the print dialog for a same-origin printout page (pick list, packing slips) without leaving this page: the
     // page loads in a hidden frame and, once its images and fonts are in, the frame prints itself. The previous frame
-    // is removed first.
+    // is removed first. Resolves once the print dialog has closed (print() waits for it).
     printPage: function (url) {
         document.querySelectorAll("iframe.esm-print-frame").forEach(f => f.remove());
-        const frame = document.createElement("iframe");
-        frame.className = "esm-print-frame";
-        frame.setAttribute("aria-hidden", "true");
-        frame.tabIndex = -1;
-        frame.onload = async () => {
-            const win = frame.contentWindow;
-            const doc = win.document;
-            try {
-                await Promise.all([...doc.images].map(img => img.complete ? null
-                    : new Promise(done => { img.onload = img.onerror = done; })));
-                if (doc.fonts) await doc.fonts.ready;
-            } catch { }
-            win.focus();
-            win.print();
-        };
-        frame.src = url;
-        document.body.appendChild(frame);
+        return new Promise(resolve => {
+            const frame = document.createElement("iframe");
+            frame.className = "esm-print-frame";
+            frame.setAttribute("aria-hidden", "true");
+            frame.tabIndex = -1;
+            frame.onload = async () => {
+                const win = frame.contentWindow;
+                const doc = win.document;
+                try {
+                    await Promise.all([...doc.images].map(img => img.complete ? null
+                        : new Promise(done => { img.onload = img.onerror = done; })));
+                    if (doc.fonts) await doc.fonts.ready;
+                } catch { }
+                win.focus();
+                win.print();
+                resolve();
+            };
+            frame.src = url;
+            document.body.appendChild(frame);
+        });
     },
 
     // The dominant colour of a same-origin image, as "#rrggbb", or null. Used to give each shop an accent colour

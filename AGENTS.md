@@ -147,6 +147,11 @@ Packing slips (the Packing slips section) are Liquid templates rendered with Flu
 packing and gift layouts are embedded from `Modules/Orders/Slips`, Admins save copies as `SlipLayout` rows, and each shop
 picks one per kind. A gift slip is half a sheet and `SlipSheets` prints two per sheet (a gift with a changed address gets a sheet of its own, the note in the cut-away top half). A layout's CSS is nested under `.slip-layout-{key}` so it only reaches its own slips; values are
 HTML-encoded unless a template uses `| raw`. Change the built-in look in those files, not in Razor.
+Automatic printing (`AutoPrint.cs`): the server has no printer, so slips join a queue (`Order.SlipQueuedAtUtc`, by the
+timing mode set on the Packing slips page: on `OrderReceived`, or a daily batch from `AutoPrintScheduler`) and the print
+station page (`/orders/print-station`, `print-station.js`, a browser left open by the printer with `--kiosk-printing`)
+claims them, prints `orders/print/slips` in a hidden frame and reports back, which stamps `Order.SlipPrintedAtUtc` (the
+printed icon on order cards). Printing slips from the Orders page stamps it too, once the print dialog closes.
 
 ### Hosting details
 - Live data root defaults to `C:\ProgramData\EtsyShopManager` (DB, images, Data Protection keys, backups, logs).

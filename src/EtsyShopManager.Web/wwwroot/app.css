@@ -233,6 +233,16 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .account-card .alert-error { color: var(--esm-error); }
 .account-card .alert ul { margin: 0; padding-left: 18px; }
 
+/* The print station page (Orders/PrintStation.razor), in the account card. */
+.print-station-status { font-weight: 600; }
+.print-station-status.is-problem { color: var(--esm-error); }
+.account-card .print-station-heading { font-size: 1.05rem; font-weight: 600; margin: 20px 0 8px; }
+.print-station-log { margin: 0; padding-left: 18px; max-height: 12rem; overflow-y: auto; }
+.print-station-command {
+    display: block; padding: 8px 10px; border-radius: var(--esm-radius-sm); background: var(--esm-sunk);
+    border: 1px solid var(--esm-line); font-size: 0.85rem; overflow-wrap: anywhere; user-select: all;
+}
+
 /* ---- Shops ---- */
 .shop-icon { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
 .redirect-uri { padding: 2px 6px; border-radius: 6px; background: var(--esm-sunk); word-break: break-all; }
@@ -359,6 +369,13 @@ td > .esm-colorbox-note { margin-top: 0; min-width: 160px; }
 }
 .esm-changed-mark:hover { background: var(--esm-hover); }
 .esm-changed-tip { max-width: 280px; white-space: normal; }
+/* An order's packing slip printed (green) or waiting for the print station (muted); PrintedMark.razor. */
+.esm-printed-mark {
+    display: inline-flex; align-items: center; vertical-align: middle; padding: 0 2px; border: 0;
+    border-radius: var(--esm-radius-sm); background: none; color: var(--esm-success); cursor: pointer;
+}
+.esm-printed-mark.is-queued { color: var(--esm-muted); }
+.esm-printed-mark:hover { background: var(--esm-hover); }
 .esm-change-group + .esm-change-group { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--esm-line); }
 .esm-change-title { font-weight: 600; margin-bottom: 8px; }
 .esm-orders .var {

@@ -1,0 +1,127 @@
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Orders
+@implements IDisposable
+@inject AutoPrintService AutoPrint
+@inject TimeProvider Time
+@inject ISnackbar Snackbar
+
+@* Automatic printing (AutoPrintService): when slips join the print station's queue, how the station is doing, and the
+   link to open it. Admins change the timing; everyone sees it. *@
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Automatic printing</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Slips print on the print station: a page left open in Edge or Chrome on a computer by the printer, which prints
+        each shop's layouts without a dialog. Only orders found after automatic printing is turned on print by themselves,
+        and orders whose slip was already printed are skipped.
+    </MudText>
+
+    @if (_loaded)
+    {
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="6">
+                <MudSelect T="AutoPrintMode" @bind-Value="_mode" Label="When slips print" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           ReadOnly="@(!CanEdit)">
+                    <MudSelectItem Value="AutoPrintMode.Off">Off</MudSelectItem>
+                    <MudSelectItem Value="AutoPrintMode.EachOrder">As soon as a new order comes in</MudSelectItem>
+                    <MudSelectItem Value="AutoPrintMode.Daily">All unprinted orders at a set time each day</MudSelectItem>
+                    <MudSelectItem Value="AutoPrintMode.DailyThenWindow">At a set time, then new orders until a set time</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            @if (_mode is AutoPrintMode.Daily or AutoPrintMode.DailyThenWindow)
+            {
+                <MudItem xs="6" md="3">
+                    <MudTimePicker @bind-Time="_at" Label="Print at" AmPm="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   ReadOnly="@(!CanEdit)" Editable="true" />
+                </MudItem>
+            }
+            @if (_mode == AutoPrintMode.DailyThenWindow)
+            {
+                <MudItem xs="6" md="3">
+                    <MudTimePicker @bind-Time="_until" Label="Keep printing new orders until" AmPm="true" Variant="Variant.Outlined"
+                                   Margin="Margin.Dense" ReadOnly="@(!CanEdit)" Editable="true" />
+                </MudItem>
+            }
+        </MudGrid>
+        <MudText Typo="Typo.body2" Class="mt-2">@Current.Describe()</MudText>
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-3" Wrap="Wrap.Wrap">
+            <div>
+                <MudText Typo="Typo.body2">@StationText</MudText>
+                <MudText Typo="Typo.caption" Class="muted">
+                    @(_queued == 0 ? "No slips waiting." : $"{_queued} slip{(_queued == 1 ? "" : "s")} waiting for the print station.")
+                </MudText>
+            </div>
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
+                           Href="orders/print-station" Target="_blank">Open the print station</MudButton>
+                @if (CanEdit)
+                {
+                    <SaveButtons Text="Save" Size="Size.Small" Changed="_saved.Changed" Busy="_saving" OnSave="SaveAsync" OnCancel="_saved.Revert" />
+                }
+            </MudStack>
+        </MudStack>
+    }
+    else
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private bool _loaded;
+    private bool _saving;
+    private bool CanEdit { get; set; }
+    private AutoPrintMode _mode;
+    private TimeSpan? _at;
+    private TimeSpan? _until;
+    private DateTime? _since;
+    private int _queued;
+    private SavedValues<(AutoPrintMode, TimeSpan?, TimeSpan?)> _saved = null!;
+
+    private AutoPrintSettings Current => new(_mode, TimeOnly.FromTimeSpan(_at ?? new(8, 0, 0)),
+        TimeOnly.FromTimeSpan(_until ?? new(17, 0, 0)), _since);
+
+    private string StationText => AutoPrint.StationSeenAtUtc is { } seen
+        ? Time.GetUtcNow().UtcDateTime - seen < TimeSpan.FromMinutes(1)
+            ? "A print station is open."
+            : $"No print station has checked in since {ListingFormat.Local(seen)}."
+        : "No print station has checked in since the app started.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        CanEdit = (await AuthState).User.IsInRole(Roles.Admin);
+        Show(await AutoPrint.GetSettingsAsync());
+        _saved = new(() => (_mode, _at, _until), v => (_mode, _at, _until) = v);
+        _queued = await AutoPrint.QueuedCountAsync();
+        _loaded = true;
+        AutoPrint.Changed += OnSlipsChanged;
+    }
+
+    private void Show(AutoPrintSettings s) =>
+        (_mode, _at, _until, _since) = (s.Mode, s.At.ToTimeSpan(), s.Until.ToTimeSpan(), s.SinceUtc);
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            Show(await AutoPrint.SaveSettingsAsync(Current, (await AuthState).User.Identity?.Name));
+            _saved.Accept();
+            Snackbar.Add("Automatic printing saved", Severity.Success);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void OnSlipsChanged() => _ = InvokeAsync(async () =>
+    {
+        _queued = await AutoPrint.QueuedCountAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => AutoPrint.Changed -= OnSlipsChanged;
+}
