@@ -80,9 +80,15 @@ public sealed class ListingEditModel
         Etsy = etsy;
         Base = Reconcile(etsy, baseState);
         Draft = draft ?? [];
-        // Draft entries that no longer differ from the base are not edits.
         foreach (var key in Draft.Select(p => p.Key).ToList())
+        {
+            // Etsy already holds the edit (a push that wrote but never reconciled, or the same change made on etsy.com):
+            // nothing to push and nothing to choose between, so it's agreed.
+            if (ListingFields.IsTracked(key) && !JsonNode.DeepEquals(Etsy[key], Base[key]) && JsonNode.DeepEquals(Draft[key], Etsy[key]))
+                Base[key] = Etsy[key]?.DeepClone();
+            // Draft entries that no longer differ from the base are not edits.
             if (!ListingFields.IsEditable(key) || JsonNode.DeepEquals(Draft[key], Base[key])) Draft.Remove(key);
+        }
     }
 
     public static ListingEditModel Parse(string etsyJson, string? baseJson, string? draftJson) =>

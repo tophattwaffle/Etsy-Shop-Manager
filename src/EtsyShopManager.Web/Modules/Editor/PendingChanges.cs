@@ -2,6 +2,7 @@ using System.Security.Claims;
 using EtsyShopManager.Core.Listings;
 using EtsyShopManager.Core.Modules;
 using EtsyShopManager.Data;
+using EtsyShopManager.Web.Modules.Listings;
 using Microsoft.EntityFrameworkCore;
 
 namespace EtsyShopManager.Web.Modules.Editor;
@@ -27,11 +28,16 @@ public sealed record PendingPushResult(int ListingId, string Title, int? PushId,
 /// </summary>
 public sealed class PendingChangesService(IDbContextFactory<AppDbContext> dbFactory, ListingEditor editor)
 {
-    /// <summary>How many listings have local edits or changes made on Etsy that need a choice.</summary>
+    /// <summary>
+    /// How many listings the Pending changes page lists: those whose local version differs from Etsy. The HasDraft and
+    /// HasDrift flags only narrow the search; a flagged listing whose edits Etsy already holds has nothing to push.
+    /// </summary>
     public async Task<int> CountAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return await db.Listings.CountAsync(l => l.EtsyState != null && (l.HasDraft || l.HasDrift), ct);
+        var states = await db.Listings.AsNoTracking().Where(l => l.EtsyState != null && (l.HasDraft || l.HasDrift))
+            .Select(l => new { l.EtsyState!.ManagedJson, l.EtsyState.BaseJson, l.DraftJson }).ToListAsync(ct);
+        return states.Count(s => ListingEditModel.Parse(s.ManagedJson, s.BaseJson, s.DraftJson).PendingFields.Count > 0);
     }
 
     public async Task<IReadOnlyList<PendingListing>> ListAsync(CancellationToken ct = default)
@@ -47,6 +53,7 @@ public sealed class PendingChangesService(IDbContextFactory<AppDbContext> dbFact
             })
             .ToListAsync(ct);
 
+        await SettleAsync(db, listings.Select(l => (l.Id, l.ManagedJson, l.BaseJson, l.DraftJson)), ct);
         var result = new List<PendingListing>();
         foreach (var l in listings.OrderByDescending(l => l.DraftUpdatedAtUtc).ThenBy(l => l.Title, StringComparer.OrdinalIgnoreCase))
         {
@@ -89,6 +96,20 @@ public sealed class PendingChangesService(IDbContextFactory<AppDbContext> dbFact
             results.Add(new PendingPushResult(id, title, pushId, blockers));
         }
         return results;
+    }
+
+    /// <summary>
+    /// Stores the edit state again for flagged listings with nothing to push (their flags were set before Etsy came to
+    /// hold their edits), so the listing pages stop showing them as edited or changed on Etsy.
+    /// </summary>
+    private static async Task SettleAsync(AppDbContext db, IEnumerable<(int Id, string Managed, string? Base, string? Draft)> listings,
+        CancellationToken ct)
+    {
+        var settled = listings.Where(l => ListingEditModel.Parse(l.Managed, l.Base, l.Draft).PendingFields.Count == 0).Select(l => l.Id).ToList();
+        if (settled.Count == 0) return;
+        foreach (var listing in await db.Listings.Include(l => l.EtsyState).Where(l => settled.Contains(l.Id)).ToListAsync(ct))
+            ListingMapper.UpdateEditState(listing);
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>The changes a preview would send, as one string (the fields with Etsy's value and the new one).</summary>
