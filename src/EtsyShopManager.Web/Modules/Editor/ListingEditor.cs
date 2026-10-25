@@ -135,7 +135,12 @@ public sealed class ListingEditor(
             && db.Jobs.Any(j => j.Id == p.JobId && (j.Status == JobStatus.Pending || j.Status == JobStatus.Running)), ct);
         var model = Model(listing);
         var properties = await AttributeEditor.LoadAsync(db, (long?)model.Local("taxonomy_id"), ct);
-        return Preview(listing, model, busy, file => images.Exists(file) || (videoStore?.Exists(file) ?? false), properties);
+        var preview = Preview(listing, model, busy, file => images.Exists(file) || (videoStore?.Exists(file) ?? false), properties);
+        if (!model.PendingFields.Contains(ListingFields.Images)) return preview;
+        // A linked photo template's photo leaves the listing only by unlinking it.
+        var templateBlockers = PhotoTemplateService.RemovalBlockers(model.Etsy[ListingFields.Images] as JsonArray ?? [],
+            model.Local(ListingFields.Images) as JsonArray ?? [], await PhotoTemplateService.ListingLinksAsync(db, listingId, ct)).ToList();
+        return templateBlockers.Count == 0 ? preview : preview with { Blockers = [.. preview.Blockers, .. templateBlockers] };
     }
 
     /// <summary>The preview for a model (pure, for tests and the UI).</summary>

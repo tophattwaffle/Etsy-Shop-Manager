@@ -15,6 +15,7 @@
 @inject ListingImportQueue ImportQueue
 @inject EtsyShopManager.Web.Modules.Templates.TextBlockService TextBlocks
 @inject EtsyShopManager.Web.Modules.Templates.VariationListService VariationLists
+@inject EtsyShopManager.Web.Modules.Templates.PhotoTemplateService PhotoTemplates
 @inject IJSRuntime Js
 
 <PageTitle>Edit @(_snapshot?.Listing.Title ?? "listing") · Etsy Shop Manager</PageTitle>
@@ -140,7 +141,8 @@ else
                     per photo that isn't already in place), because Etsy doesn't renumber the others. @Pending(ListingFields.Images)
                 </MudText>
                 <PhotosEditor Images="@(_form![ListingFields.Images] as JsonArray ?? [])" Imported="l.Images"
-                              ImagesChanged="@(i => Set(ListingFields.Images, i))" />
+                              ImagesChanged="@(i => Set(ListingFields.Images, i))"
+                              TemplatePhotos="@TemplatePhotos()" OnUnlink="UnlinkPhotoAsync" />
             </MudPaper>
 
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
@@ -498,6 +500,7 @@ else
     private int? _fromList;
     private string? _fromListName;
     private IReadOnlyList<EtsyShopManager.Web.Modules.Templates.VariationListLink> _links = [];
+    private IReadOnlyList<(PhotoTemplate Template, ListingPhotoTemplate Link)> _photoLinks = [];
     private readonly Dictionary<long, int?> _linkPick = [];
     private readonly Dictionary<long, (EtsyShopManager.Web.Modules.Templates.VariationListLinkPreview? Preview, string? Error)> _linkPreview = [];
     private IDisposable? _live;
@@ -543,6 +546,7 @@ else
         _variationLists = [.. (await db.VariationLists.AsNoTracking().OrderBy(v => v.Name).Select(v => new { v.Id, v.Name }).ToListAsync())
             .Select(v => (v.Id, v.Name))];
         _links = await VariationLists.ListingLinksAsync(Id);
+        _photoLinks = await PhotoTemplates.ListingLinksAsync(Id);
         if (keepForm && _form is not null) return;
         _form = model.LocalState();
         _description = _savedDescription = await TextBlocks.SourceAsync(Id);
@@ -806,6 +810,28 @@ else
         await VariationLists.UnlinkAsync(link.ListId, Id, await User());
         await LoadAsync();
         Snackbar.Add($"Unlinked from {link.ListName}; the values stay as they are.", Severity.Success);
+    }
+
+    /// <summary>The photos in the form that come from a linked photo template (index -> template name).</summary>
+    private IReadOnlyDictionary<int, string> TemplatePhotos() =>
+        EtsyShopManager.Web.Modules.Templates.PhotoTemplateService.TemplatePhotos(_form![ListingFields.Images] as JsonArray ?? [], _photoLinks)
+            .ToDictionary(p => p.Key, p => p.Value.Name);
+
+    /// <summary>Unlink on a template's photo: the listing leaves the template and the photo comes off as an unpushed edit.</summary>
+    private async Task UnlinkPhotoAsync(int index)
+    {
+        var template = EtsyShopManager.Web.Modules.Templates.PhotoTemplateService
+            .TemplatePhotos(_form![ListingFields.Images] as JsonArray ?? [], _photoLinks).GetValueOrDefault(index);
+        if (template is null) return;
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Unlink photo template",
+            $"Unlink this listing from the photo template \"{template.Name}\" and remove its photo? The photo comes off Etsy " +
+            "when you push the listing. The template and its other listings stay as they are.",
+            yesText: "Unlink", cancelText: "Cancel");
+        if (confirmed != true) return;
+        if (Unsaved) await SaveAsync();
+        await PhotoTemplates.UnlinkAsync(template.Id, Id, await User(), removePhoto: true);
+        await LoadAsync();
+        Snackbar.Add($"Unlinked from {template.Name}. The photo is removed here; push the listing to take it off Etsy.", Severity.Success);
     }
 
     private async Task MoveLinkAsync(EtsyShopManager.Web.Modules.Templates.VariationListLink link, int by)
