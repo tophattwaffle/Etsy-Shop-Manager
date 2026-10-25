@@ -505,7 +505,7 @@
             }
             @if (o.SellerNote is not null)
             {
-                <div class="order-message"><b>Seller note:</b> @o.SellerNote</div>
+                <div class="order-message"><b>Seller note@(o.SellerNoteOnSlips ? " (on packing slip)" : ""):</b> @o.SellerNote</div>
             }
             @if (o.IsGift)
             {

@@ -108,6 +108,7 @@
                 <div class="slip-total">Order total</div><div class="slip-total">{{ order.order_total }}</div>
             </div>
             {%- if order.note_from_buyer %}<div class="slip-note"><span class="slip-label">Note from buyer</span><div>{{ order.note_from_buyer }}</div></div>{% endif %}
+            {%- if order.seller_note %}<div class="slip-note"><span class="slip-label">Seller note</span><div class="slip-pre">{{ order.seller_note }}</div></div>{% endif %}
         </div>
     </div>
 </section>

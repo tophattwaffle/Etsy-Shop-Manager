@@ -59,7 +59,9 @@
                 <div class="esm-change-title">Seller note</div>
                 <MudTextField T="string" @bind-Value="_form.SellerNote" Immediate="true" Label="Seller note" Variant="Variant.Outlined"
                               Lines="3" Sizing="InputSizing.Auto" MaxLength="@OrderOverrides.MaxSellerNoteLength"
-                              HelperText="For you only: shown on the order card, never sent to Etsy or printed on slips." />
+                              HelperText="Shown on the order card and never sent to Etsy. Printed on the packing slip only when included below." />
+                <MudSwitch T="bool" @bind-Value="_form.SellerNoteOnSlips" Color="Color.Primary" Label="Include on packing slips"
+                           Disabled="@string.IsNullOrWhiteSpace(_form.SellerNote)" />
             </section>
             @if (_error is not null)
             {

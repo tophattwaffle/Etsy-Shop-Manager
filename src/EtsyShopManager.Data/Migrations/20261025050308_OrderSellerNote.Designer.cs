@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EtsyShopManager.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261025030721_OrderSellerNote")]
+    [Migration("20261025050308_OrderSellerNote")]
     partial class OrderSellerNote
     {
         /// <inheritdoc />
@@ -970,6 +970,9 @@ namespace EtsyShopManager.Data.Migrations
 
                     b.Property<string>("SellerNote")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("SellerNoteOnSlips")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("ShipByUtc")
                         .HasColumnType("TEXT");

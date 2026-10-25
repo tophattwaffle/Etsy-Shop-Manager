@@ -15,6 +15,13 @@ namespace EtsyShopManager.Data.Migrations
                 table: "Orders",
                 type: "TEXT",
                 nullable: true);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "SellerNoteOnSlips",
+                table: "Orders",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: false);
         }
 
         /// <inheritdoc />
@@ -22,6 +29,10 @@ namespace EtsyShopManager.Data.Migrations
         {
             migrationBuilder.DropColumn(
                 name: "SellerNote",
+                table: "Orders");
+
+            migrationBuilder.DropColumn(
+                name: "SellerNoteOnSlips",
                 table: "Orders");
         }
     }

@@ -61,9 +61,13 @@ public class Order
 
     /// <summary>
     /// The seller's own note on the order, set in the Change order dialog and shown on the order card. Local only: never
-    /// sent to Etsy or printed on slips, and polling never touches it. Null when there's none.
+    /// sent to Etsy, printed on slips only with <see cref="SellerNoteOnSlips"/>, and polling never touches it. Null when
+    /// there's none.
     /// </summary>
     public string? SellerNote { get; set; }
+
+    /// <summary>Whether <see cref="SellerNote"/> prints on the order's packing (or gift) slip.</summary>
+    public bool SellerNoteOnSlips { get; set; }
 
     public List<OrderItem> Items { get; set; } = [];
 
