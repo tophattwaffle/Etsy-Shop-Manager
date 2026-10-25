@@ -298,8 +298,8 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .order-pick { display: flex; align-items: flex-start; gap: 2px; }
 /* Select and print actions above an order list: always one row. Each control comes labelled (.esm-act-wide) and as a
    short label or icon with a tooltip (.esm-act-narrow); the labelled set shows only when the toolbar is wide enough for
-   the row as it is now to fit. Measured longest rows: without a selection ("12 of 34", "Select all shown" and both
-   print buttons) about 520px; with one (plus "123 selected" and Clear) about 660px. */
+   the row as it is now to fit. Measured longest rows: without a selection ("12 of 34", "Select all shown" and the
+   three print buttons) about 650px; with one (plus "123 selected" and Clear) about 790px. */
 .lp-toolbar.esm-order-actions { flex-wrap: nowrap; gap: 4px; white-space: nowrap; container-type: inline-size; }
 .lp-toolbar.esm-order-actions .mud-icon-button.mud-icon-button-size-small { padding: 5px; margin: 0; }
 /* The hidden frame a printout loads in to print without leaving the page (esm.printPage): not display:none, so it
@@ -308,11 +308,11 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-act-wide { display: none; }
 .esm-act-wide, .esm-act-narrow { align-items: center; gap: 4px; }
 .esm-act-narrow { display: inline-flex; }
-@container (min-width: 540px) {
+@container (min-width: 670px) {
     .esm-order-actions:not(.has-selection) .esm-act-wide { display: inline-flex; }
     .esm-order-actions:not(.has-selection) .esm-act-narrow { display: none; }
 }
-@container (min-width: 680px) {
+@container (min-width: 810px) {
     .esm-act-wide { display: inline-flex; }
     .esm-act-narrow { display: none; }
 }
@@ -365,6 +365,10 @@ td > .esm-colorbox-note { margin-top: 0; min-width: 160px; }
     border-radius: var(--esm-radius-sm); background: none; color: var(--esm-success); cursor: pointer;
 }
 .esm-printed-mark.is-queued { color: var(--esm-muted); }
+/* Setup and test steps in Packing slips → Automatic printing (AutoPrintPanel.razor). */
+.esm-autoprint-help { font-size: 0.875rem; line-height: 1.5; }
+.esm-autoprint-help ol { margin: 4px 0 0; padding-left: 20px; }
+.esm-autoprint-help li + li { margin-top: 4px; }
 .esm-printed-mark:hover { background: var(--esm-hover); }
 .esm-change-group + .esm-change-group { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--esm-line); }
 .esm-change-title { font-weight: 600; margin-bottom: 8px; }

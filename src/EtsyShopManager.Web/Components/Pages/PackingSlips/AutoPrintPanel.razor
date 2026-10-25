@@ -14,6 +14,69 @@
         printer on the server as a local printer: the app can't see printers shared from another computer.
     </MudText>
 
+    <MudExpansionPanels Elevation="0" Outlined="true" Class="mb-3">
+        <MudExpansionPanel Text="How to set it up and test it">
+            <div class="esm-autoprint-help">
+                <MudText Typo="Typo.subtitle2">Set up the printer on the server</MudText>
+                <ol>
+                    <li>
+                        Sign in to the server (the Windows computer this app runs on) and open Settings → Bluetooth &amp; devices →
+                        Printers &amp; scanners → Add device.
+                    </li>
+                    <li>
+                        If the printer isn't found, choose "Add manually", then "Add a printer using an IP address or hostname",
+                        and enter the printer's IP address (from the printer's network settings page or its router listing).
+                        Don't connect to a printer shared from another computer (\\computer\printer): the app runs as a Windows
+                        service and only sees printers installed on the server itself.
+                    </li>
+                    <li>
+                        Open the printer's Printing preferences and set the paper size to Letter. Slips are laid out for Letter
+                        paper; gift slips print two to a sheet.
+                    </li>
+                    <li>
+                        SumatraPDF must be installed in C:\Program Files\SumatraPDF. It sends the slips to the printer without
+                        a dialog. When it's missing, a warning shows above the settings.
+                    </li>
+                </ol>
+
+                <MudText Typo="Typo.subtitle2" Class="mt-3">Choose the printer and test it</MudText>
+                <ol>
+                    <li>Reload this page so the new printer appears in the Printer list, choose it and press Save.</li>
+                    <li>
+                        Press "Print a test page". A one-page sheet with today's date should come out within a minute. If it
+                        doesn't, the message that appears says what went wrong.
+                    </li>
+                    <li>
+                        Print a real slip: on Orders, tick one open order and press "Send to printer". Its order card shows a
+                        clock while it waits, and a green printer icon once it has printed. Hover over the icon to see when it
+                        printed. The slip should look the same as one printed from Orders → Print packing slips.
+                    </li>
+                    <li>
+                        Each print shows on the Jobs page as "Print packing slips", with how many slips printed or why it
+                        failed.
+                    </li>
+                </ol>
+
+                <MudText Typo="Typo.subtitle2" Class="mt-3">Turn on automatic printing</MudText>
+                <ol>
+                    <li>
+                        Choose when slips print and press Save. "As soon as a new order comes in" prints each order within a few
+                        minutes of it reaching the app (orders are checked every 5 minutes). The daily modes print all unprinted
+                        orders at the time you set; the window mode then keeps printing new orders until the second time.
+                    </li>
+                    <li>
+                        Only orders that come in after you turn it on print by themselves, and orders already printed (from here
+                        or from the Orders page) are skipped. To print an older order, use "Send to printer" on Orders.
+                    </li>
+                    <li>
+                        If the printer is off or out of paper, the job tries again a few times. Slips that still didn't print
+                        stay waiting: press "Print waiting slips now" here once the printer is ready.
+                    </li>
+                </ol>
+            </div>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+
     @if (_loaded)
     {
         @if (Printer.Problem is { } problem)

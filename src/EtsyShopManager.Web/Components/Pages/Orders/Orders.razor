@@ -549,6 +549,8 @@
                        Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("pick")))">Print pick list</MudButton>
             <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
                        Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("slips")))">Print packing slips</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.LocalPrintshop"
+                       Disabled="@(selected == 0)" OnClick="@(() => SendToPrinterAsync(link("slips")))">Send to printer</MudButton>
         </span>
         <span class="esm-act-narrow">
             <MudTooltip Text="Print pick list">
@@ -558,6 +560,10 @@
             <MudTooltip Text="Print packing slips">
                 <MudIconButton Icon="@Icons.Material.Filled.Print" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
                                OnClick="@(() => PrintAsync(link("slips")))" aria-label="Print packing slips" />
+            </MudTooltip>
+            <MudTooltip Text="Send packing slips to the server's printer">
+                <MudIconButton Icon="@Icons.Material.Filled.LocalPrintshop" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
+                               OnClick="@(() => SendToPrinterAsync(link("slips")))" aria-label="Send packing slips to the server's printer" />
             </MudTooltip>
         </span>
     };
@@ -804,6 +810,19 @@
                 await AutoPrint.MarkPrintedAsync(OrderPrintService.ParseIds(url["orders/print/slips?ids=".Length..]));
         }
         catch (Exception ex) when (ex is JSException or TaskCanceledException or JSDisconnectedException) { }
+    }
+
+    // Queues the selected orders' slips for the server's printer (automatic printing), printed or not.
+    private async Task SendToPrinterAsync(string url)
+    {
+        var ids = OrderPrintService.ParseIds(url["orders/print/slips?ids=".Length..]);
+        var settings = await AutoPrint.GetSettingsAsync();
+        var queued = await AutoPrint.QueueAsync([.. ids], (await AuthState).User.Identity?.Name);
+        Snackbar.Add(
+            queued == 0 ? "Nothing sent: only open orders that aren't already waiting can be sent to the printer."
+            : settings.Printer is null ? $"{queued} slip(s) waiting. Choose a printer on the Packing slips page to print them."
+            : $"Sending {queued} slip(s) to {settings.Printer}…",
+            queued > 0 && settings.Printer is not null ? Severity.Info : Severity.Warning);
     }
 
     private string PrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", Picked)}";
