@@ -33,8 +33,11 @@ internal sealed class EtsyRetryHandler(IOptions<EtsyOptions> options, TimeProvid
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var o = options.Value;
-        var maxRetries = request.Options.TryGetValue(NoRetry, out var noRetry) && noRetry ? 0 : o.MaxRetries;
-        var idempotent = IsIdempotent(request.Method);
+        // NoRetry only covers failures whose outcome is unknown (5xx, network). A 429 means Etsy refused the request
+        // without processing it, so even a photo upload or a create is safe to send again.
+        var noRetry = request.Options.TryGetValue(NoRetry, out var flag) && flag;
+        var maxRetries = o.MaxRetries;
+        var idempotent = IsIdempotent(request.Method) && !noRetry;
 
         for (var attempt = 0; ; attempt++)
         {
@@ -55,12 +58,18 @@ internal sealed class EtsyRetryHandler(IOptions<EtsyOptions> options, TimeProvid
             if (attempt >= maxRetries || !ShouldRetry(response.StatusCode, idempotent))
                 return response;
 
-            var delay = RetryAfter(response) ?? Backoff(attempt);
+            // Etsy sends Retry-After: 1 on every 429; waiting at least the exponential back-off (1s, 2s, 4s, 8s…) keeps
+            // repeated 429s from hammering it at the same 1s pace.
+            var backoff = Backoff(attempt);
+            var delay = RetryAfter(response) is { } ra && ra > backoff ? ra : backoff;
             if (delay > o.MaxInlineRetryDelay)
                 return response;
 
-            logger.LogInformation("Etsy {Method} {Path} returned {Status}; retry {Attempt} in {Delay}",
-                request.Method, request.RequestUri?.AbsolutePath, (int)response.StatusCode, attempt + 1, delay);
+            // Etsy's limit headers are logged so the pace can be checked against what Etsy actually allows.
+            logger.LogInformation("Etsy {Method} {Path} returned {Status}; retry {Attempt} in {Delay} (Retry-After {RetryAfter}, limit/s {LimitPerSecond}, left this second {RemainingThisSecond}, left today {RemainingToday})",
+                request.Method, request.RequestUri?.AbsolutePath, (int)response.StatusCode, attempt + 1, delay,
+                response.Headers.RetryAfter?.ToString() ?? "-", Header(response, "x-limit-per-second"),
+                Header(response, "x-remaining-this-second"), Header(response, "x-remaining-today"));
             response.Dispose();
             await Task.Delay(delay, time, ct);
         }
@@ -78,20 +87,17 @@ internal sealed class EtsyRetryHandler(IOptions<EtsyOptions> options, TimeProvid
     private static bool IsTransient(Exception ex, CancellationToken ct) =>
         ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested);
 
-    internal static TimeSpan Backoff(int attempt) =>
-        TimeSpan.FromMilliseconds(Math.Min(16_000, 1000 * Math.Pow(2, attempt)) + Random.Shared.Next(0, 250));
-
-    private TimeSpan? RetryAfter(HttpResponseMessage response)
+    /// <summary>1s, 2s, 4s, 8s, 16s, capped at 30s, plus up to 25% jitter so callers don't retry in step.</summary>
+    internal static TimeSpan Backoff(int attempt)
     {
-        var ra = response.Headers.RetryAfter;
-        if (ra?.Delta is { } delta) return delta;
-        if (ra?.Date is { } date)
-        {
-            var d = date - time.GetUtcNow();
-            return d > TimeSpan.Zero ? d : TimeSpan.Zero;
-        }
-        return null;
+        var ms = Math.Min(30_000, 1000 * Math.Pow(2, attempt));
+        return TimeSpan.FromMilliseconds(ms + Random.Shared.NextDouble() * ms * 0.25);
     }
+
+    private TimeSpan? RetryAfter(HttpResponseMessage response) => EtsyRateLimiter.RetryAfter(response, time.GetUtcNow());
+
+    private static string Header(HttpResponseMessage r, string name) =>
+        r.Headers.TryGetValues(name, out var values) ? values.FirstOrDefault() ?? "-" : "-";
 }
 
 /// <summary>Takes a token from the shared bucket before every attempt (so retries are rate limited too).</summary>
@@ -99,8 +105,9 @@ internal sealed class EtsyRateLimitHandler(EtsyRateLimiter limiter, EtsyQuotaTra
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
-        using var lease = await limiter.AcquireAsync(ct);
+        await limiter.AcquireAsync(ct);
         var response = await base.SendAsync(request, ct);
+        limiter.Observe(response);
         quota.Record(response);
         return response;
     }

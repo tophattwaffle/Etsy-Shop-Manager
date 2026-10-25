@@ -148,6 +148,7 @@ public static class JobServiceCollectionExtensions
         services.AddSingleton<IJobEvents, JobEvents>();
         services.AddSingleton<JobCatalog>();
         services.AddSingleton<IJobQueue, EfJobQueue>();
+        services.AddSingleton<JobActivity>();
         services.AddHostedService<JobProcessor>();
         services.AddHostedService<RecurringJobScheduler>();
         return services;

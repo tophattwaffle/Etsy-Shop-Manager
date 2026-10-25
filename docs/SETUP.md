@@ -147,6 +147,6 @@ Details: [homeassistant/README.md](../homeassistant/README.md). Revoking a key i
 
 ## 10. Etsy rate limits
 
-One token bucket is shared by both shops (Etsy limits per API key): 5 requests/second by default (`Etsy:RequestsPerSecond`).
-429 and 5xx responses are retried with back-off and `Retry-After`. Waits longer than 30 seconds reschedule the job
+One pacer is shared by both shops (Etsy limits per API key): 4 evenly spaced requests/second by default (`Etsy:RequestsPerSecond`). After a 429 every call pauses for Etsy's `Retry-After` and the pace halves (down to one call every 2 s), then speeds back up after each 20 successful calls.
+429s are retried for every request (Etsy has not processed it), 5xx only for idempotent ones, waiting the longer of `Retry-After` and an exponential back-off (1, 2, 4, 8 s… with jitter). Waits longer than 30 seconds reschedule the job
 instead of blocking. The dashboard shows Etsy's reported daily quota.

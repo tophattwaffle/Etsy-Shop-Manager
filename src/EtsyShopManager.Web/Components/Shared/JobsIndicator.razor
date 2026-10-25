@@ -1,0 +1,125 @@
+@using EtsyShopManager.Core.Jobs
+@using EtsyShopManager.Web.Infrastructure.Jobs
+@using EtsyShopManager.Web.Modules.Shops
+@implements IDisposable
+@inject JobActivity Activity
+@inject ShopService Shops
+@inject TimeProvider Time
+
+@* The title-bar jobs pill: shown to everyone signed in while any job is queued or running. Hovering (or tapping, on
+   phones) lists them all, grouped into runs with progress ("Push listing changes, 12 of 40"). *@
+
+@if (_runs.Count > 0)
+{
+    <div class="esm-jobs" @onmouseenter="() => SetOpen(true)" @onmouseleave="() => SetOpen(false)">
+        <button type="button" class="esm-jobs-pill" aria-expanded="@(_open ? "true" : "false")"
+                aria-label="@Summary" title="@Summary" @onclick="() => SetOpen(!_open)">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="esm-jobs-spinner" />
+            <span>@_count</span><span class="esm-jobs-label">@(_count == 1 ? " job" : " jobs")</span>
+        </button>
+        <MudPopover Open="_open" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Class="esm-jobs-popover">
+            <div class="esm-jobs-list" role="list">
+                @foreach (var run in _runs)
+                {
+                    <div class="esm-jobs-run" role="listitem">
+                        <div class="esm-jobs-run-head">
+                            <span class="esm-jobs-dot @(run.Running is not null ? "esm-jobs-dot-running" : "")"></span>
+                            <span class="esm-grow">@run.DisplayName</span>
+                            @if (run.Total > 1)
+                            {
+                                <span class="muted small">@run.Done of @run.Total</span>
+                            }
+                        </div>
+                        @if (run.Total > 1)
+                        {
+                            <MudProgressLinear Value="@(100.0 * run.Done / run.Total)" Color="Color.Primary" Rounded="true" Class="esm-jobs-progress" />
+                        }
+                        <div class="muted small">@RunDetail(run)</div>
+                        @foreach (var job in run.Jobs.Take(MaxJobsPerRun))
+                        {
+                            <div class="esm-jobs-job small">
+                                <span class="esm-grow">@JobLine(job)</span>
+                                <span class="muted">@Status(job)</span>
+                            </div>
+                        }
+                        @if (run.Jobs.Count > MaxJobsPerRun)
+                        {
+                            <div class="muted small">and @(run.Jobs.Count - MaxJobsPerRun) more queued</div>
+                        }
+                    </div>
+                }
+                @if (_count > _listed)
+                {
+                    <div class="muted small">@(_count - _listed) more jobs not shown</div>
+                }
+                <AuthorizeView Roles="@Roles.Admin">
+                    <MudLink Href="jobs" Typo="Typo.body2">Open Jobs</MudLink>
+                </AuthorizeView>
+            </div>
+        </MudPopover>
+    </div>
+}
+
+@code {
+    private const int MaxJobsPerRun = 5;
+
+    private IReadOnlyList<JobRun> _runs = [];
+    private int _count;
+    private int _listed;
+    private bool _open;
+    private Dictionary<int, string> _shopNames = [];
+
+    private string Summary => _count == 1 ? "1 job queued or running" : $"{_count} jobs queued or running";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Activity.Changed += OnChanged;
+        await Activity.EnsureLoadedAsync();
+        await LoadAsync();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    private async Task LoadAsync()
+    {
+        _runs = Activity.Runs;
+        _count = Activity.Count;
+        _listed = _runs.Sum(r => r.Jobs.Count);
+        if (_count == 0) _open = false;
+        if (_runs.SelectMany(r => r.Jobs).Any(j => j.ShopId is { } id && !_shopNames.ContainsKey(id)))
+            _shopNames = (await Shops.ListAsync()).ToDictionary(s => s.Id, s => s.Name);
+    }
+
+    private void SetOpen(bool open) => _open = open && _runs.Count > 0;
+
+    private string RunDetail(JobRun run)
+    {
+        var who = string.IsNullOrEmpty(run.CreatedBy) ? null
+            : run.CreatedBy is "scheduler" or "system" ? "Scheduled" : $"Started by {run.CreatedBy}";
+        var started = run.Running?.StartedAtUtc is { } at ? $"running for {Ago(at)}" : "waiting its turn";
+        return who is null ? started : $"{who}, {started}";
+    }
+
+    private string JobLine(ActiveJob job) =>
+        $"#{job.Id}" + (job.ShopId is { } id && _shopNames.TryGetValue(id, out var shop) ? $" · {shop}" : "");
+
+    private string Status(ActiveJob job)
+    {
+        if (job.Status == JobStatus.Running) return "Running";
+        var now = Time.GetUtcNow().UtcDateTime;
+        return job.RunAfterUtc > now.AddSeconds(5) ? $"Waiting until {job.RunAfterUtc.ToLocalTime():HH:mm}" : "Queued";
+    }
+
+    private string Ago(DateTime utc)
+    {
+        var span = Time.GetUtcNow().UtcDateTime - utc;
+        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+        return span.TotalMinutes >= 1 ? $"{(int)span.TotalMinutes}m {span.Seconds}s" : $"{span.Seconds}s";
+    }
+
+    public void Dispose() => Activity.Changed -= OnChanged;
+}
