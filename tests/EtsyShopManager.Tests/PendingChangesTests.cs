@@ -59,6 +59,45 @@ public class PendingChangesTests
     }
 
     [Fact]
+    public async Task A_listing_whose_edit_Etsy_already_holds_is_neither_counted_nor_flagged()
+    {
+        var (shop, galaxy, moon, _) = await EditedAsync();
+        using var _s = shop;
+        // Etsy came to hold the edit without the push reconciling (e.g. it wrote, then the job was stopped), or the same
+        // change was made on etsy.com.
+        shop.ListingJson(1)["title"] = "Galaxy vase, large";
+        shop.ListingJson(1)["last_modified_timestamp"] = 1_760_000_600;
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+
+        Assert.Equal([moon], (await Pending(shop).ListAsync()).Select(r => r.ListingId));
+        Assert.Equal(1, await Pending(shop).CountAsync()); // the button and the page agree
+        await using var db = shop.Db.CreateDbContext();
+        var listing = await db.Listings.SingleAsync(l => l.Id == galaxy);
+        Assert.False(listing.HasDraft);
+        Assert.False(listing.HasDrift);
+        Assert.Empty(shop.Writes);
+    }
+
+    [Fact]
+    public async Task Stale_flags_are_not_counted_and_are_cleared_by_the_page()
+    {
+        var (shop, galaxy, moon, _) = await EditedAsync();
+        using var _s = shop;
+        // Flags left over from an older version of the app: set, though nothing differs from Etsy.
+        await using (var db = shop.Db.CreateDbContext())
+        {
+            var star = await db.Listings.SingleAsync(l => l.EtsyListingId == 3);
+            (star.HasDraft, star.HasDrift) = (true, true);
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(2, await Pending(shop).CountAsync());
+        Assert.Equal([galaxy, moon], (await Pending(shop).ListAsync()).Select(r => r.ListingId).Order());
+        await using (var db = shop.Db.CreateDbContext())
+            Assert.False(await db.Listings.AnyAsync(l => l.EtsyListingId == 3 && (l.HasDraft || l.HasDrift)));
+    }
+
+    [Fact]
     public async Task Pushing_the_selected_listings_is_each_ones_normal_push_and_blocked_ones_stay()
     {
         var (shop, galaxy, moon, _) = await EditedAsync();
