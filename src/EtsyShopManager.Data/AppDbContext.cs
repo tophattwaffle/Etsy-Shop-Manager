@@ -250,7 +250,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 
         b.Entity<ListingVariationList>(e =>
         {
-            e.HasIndex(x => new { x.ListingId, x.PropertyId }).IsUnique();
+            e.HasIndex(x => new { x.ListingId, x.PropertyId, x.VariationListId }).IsUnique();
             e.HasIndex(x => x.VariationListId);
             e.Property(x => x.AppliedOptions).HasJsonConversion();
             e.HasOne(x => x.Listing).WithMany().HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);

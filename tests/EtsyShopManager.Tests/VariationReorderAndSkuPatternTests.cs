@@ -776,8 +776,9 @@ public class VariationReorderAndSkuPatternTests
         // 3. Move Earlier and Move Later buttons are gated on !locked
         Assert.Matches(@"!\s*(locked|IsOrderLocked\([^)]+\))", content);
 
-        // 4. Displays template indicator mentioning template name
-        Assert.Contains("Value order is controlled by template @link.ListName", content);
+        // 4. Displays template indicator mentioning the template names (one, or several combined)
+        Assert.Contains("Value order is controlled by", content);
+        Assert.Contains(".Select(l => l.ListName)", content);
 
         // 5. EditListing passes Links parameter to VariationsEditor
         var editListingPath = Path.Combine(DesignRulesTests.Root, "src", "EtsyShopManager.Web", "Components", "Pages", "Listings", "EditListing.razor");

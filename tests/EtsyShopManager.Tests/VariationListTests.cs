@@ -243,7 +243,9 @@ public class VariationListTests
         Assert.Equal((3, 4, null), (good!.InList, good.Values, good.Warning));
         Assert.Empty(good.Changes);
         Assert.Null(await Lists(shop).LinkVariationAsync(colors, colored, Color, "tophattwaffle"));
-        Assert.Equal("Color already follows PLA Colors; unlink it first.", (await Lists(shop).PreviewLinkAsync(sizes, colored, Color)).Error);
+        Assert.Equal("Color already follows PLA Colors.", (await Lists(shop).PreviewLinkAsync(colors, colored, Color)).Error);
+        // A second template on a linked variation combines with it (CombinedVariationTemplateTests); only previewed here.
+        Assert.Null((await Lists(shop).PreviewLinkAsync(sizes, colored, Color)).Error);
 
         // Linking records the link only; "Apply list now" changes that listing and no other.
         var (sizePreview, _) = await Lists(shop).PreviewLinkAsync(sizes, colored, 100);

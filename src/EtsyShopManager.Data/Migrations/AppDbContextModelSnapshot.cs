@@ -823,6 +823,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<int>("ListingId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("Position")
+                        .HasColumnType("INTEGER");
+
                     b.Property<long>("PropertyId")
                         .HasColumnType("INTEGER");
 
@@ -833,7 +836,7 @@ namespace EtsyShopManager.Data.Migrations
 
                     b.HasIndex("VariationListId");
 
-                    b.HasIndex("ListingId", "PropertyId")
+                    b.HasIndex("ListingId", "PropertyId", "VariationListId")
                         .IsUnique();
 
                     b.ToTable("ListingVariationLists");
