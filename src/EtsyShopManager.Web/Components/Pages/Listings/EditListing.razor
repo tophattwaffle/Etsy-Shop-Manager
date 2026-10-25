@@ -73,8 +73,7 @@ else
             {
                 <div class="esm-drift-row">
                     <div class="esm-drift-label">@ListingEditor.Label(key)</div>
-                    <div><span class="muted small">On Etsy now</span><div>@_lookups.Describe(key, model.Etsy[key])</div></div>
-                    <div><span class="muted small">This app</span><div>@_lookups.Describe(key, model.Local(key))</div></div>
+                    <DriftDiffView Diff="@DriftDiff.For(key, model.Local(key), model.Etsy[key], _lookups)" />
                     <div class="esm-drift-actions">
                         <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => ResolveAsync(key, DriftResolution.KeepMine)">Keep mine</MudButton>
                         <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => ResolveAsync(key, DriftResolution.TakeEtsy)">Take Etsy's</MudButton>

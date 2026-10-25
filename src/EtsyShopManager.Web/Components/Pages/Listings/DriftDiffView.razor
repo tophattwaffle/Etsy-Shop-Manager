@@ -1,0 +1,60 @@
+@using EtsyShopManager.Core.Listings
+@using EtsyShopManager.Web.Modules.Editor
+
+@* One field changed both here and on etsy.com: this app's value and Etsy's side by side (stacked on phones). *@
+<div class="esm-fdiff">
+    <div class="esm-fdiff-side esm-fdiff-mine">
+        <div class="esm-fdiff-head"><span class="esm-fdiff-mark" aria-hidden="true">−</span> This app</div>
+        @Side(Diff.Mine)
+    </div>
+    <div class="esm-fdiff-side esm-fdiff-etsy">
+        <div class="esm-fdiff-head"><span class="esm-fdiff-mark" aria-hidden="true">+</span> On Etsy now</div>
+        @Side(Diff.Etsy)
+    </div>
+</div>
+@if (Diff.Note is not null)
+{
+    <div class="muted small mt-1">@Diff.Note</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public FieldDiff Diff { get; set; } = default!;
+
+    private RenderFragment Side(IReadOnlyList<DiffLine> lines) => Diff.Layout switch
+    {
+        DiffLayout.Chips => @<div class="esm-fdiff-chips">
+            @if (lines.Count == 0) { <span class="muted">None</span> }
+            @foreach (var line in lines) { <span class="@($"esm-fdiff-chip {KindClass(line.Kind)}")">@Pieces(line.Pieces)</span> }
+        </div>,
+        DiffLayout.Rows => @<div class="esm-fdiff-rows">
+            @foreach (var line in lines) { <div class="@($"esm-fdiff-row {KindClass(line.Kind)}")">@Pieces(line.Pieces)</div> }
+        </div>,
+        _ => @<div class="@(Diff.Layout == DiffLayout.Text ? "esm-fdiff-text" : "esm-fdiff-value")">
+            @foreach (var line in lines) { @Pieces(line.Pieces) }
+        </div>,
+    };
+
+    // Built in code so no template whitespace gets between pieces (each piece keeps its own whitespace, pre-wrap).
+    private static RenderFragment Pieces(IReadOnlyList<DiffPiece> pieces) => builder =>
+    {
+        foreach (var p in pieces)
+        {
+            builder.OpenElement(0, p.Kind switch { DiffKind.Removed => "del", DiffKind.Added => "ins", _ => "span" });
+            builder.AddAttribute(1, "class", p.Kind switch
+            {
+                DiffKind.Removed => "esm-fdiff-del",
+                DiffKind.Added => "esm-fdiff-ins",
+                _ => "esm-fdiff-same",
+            });
+            builder.AddContent(2, p.Text);
+            builder.CloseElement();
+        }
+    };
+
+    private static string KindClass(DiffKind kind) => kind switch
+    {
+        DiffKind.Removed => "esm-fdiff-changed-del",
+        DiffKind.Added => "esm-fdiff-changed-ins",
+        _ => "",
+    };
+}
