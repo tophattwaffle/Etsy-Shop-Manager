@@ -59,6 +59,12 @@ public class Order
     /// </summary>
     public string? AddressOverride { get; set; }
 
+    /// <summary>
+    /// The seller's own note on the order, set in the Change order dialog and shown on the order card. Local only: never
+    /// sent to Etsy or printed on slips, and polling never touches it. Null when there's none.
+    /// </summary>
+    public string? SellerNote { get; set; }
+
     public List<OrderItem> Items { get; set; } = [];
 
     /// <summary>Statuses that close an order even when it was never shipped.</summary>

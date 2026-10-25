@@ -132,6 +132,38 @@ public class OrderOverrideTests
     }
 
     [Fact]
+    public async Task A_seller_note_is_saved_shown_again_and_cleared()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, Item());
+        var audit = new RecordingAudit();
+        var service = new OrderOverrideService(db, audit);
+
+        var form = (await service.GetFormAsync(1))!;
+        Assert.Equal("", form.SellerNote);
+        form.SellerNote = new string('x', OrderOverrides.MaxSellerNoteLength + 1);
+        Assert.Equal($"Keep the seller note to {OrderOverrides.MaxSellerNoteLength} characters.", await service.SaveAsync(form, "tophattwaffle"));
+
+        form.SellerNote = "  Buyer called: ship Monday \n";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.Include(o => o.Items).SingleAsync();
+            Assert.Equal("Buyer called: ship Monday", order.SellerNote);
+            Assert.False(OrderOverrides.HasOverride(order)); // a note isn't a change to what ships
+        }
+        Assert.Equal("seller note set", Assert.Single(audit.Entries).Details);
+
+        form = (await service.GetFormAsync(1))!;
+        Assert.Equal("Buyer called: ship Monday", form.SellerNote);
+        form.SellerNote = "   ";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+            Assert.Null((await ctx.Orders.SingleAsync()).SellerNote);
+        Assert.Equal("seller note removed", audit.Entries[^1].Details);
+    }
+
+    [Fact]
     public async Task Saving_keeps_only_real_changes_and_checks_them()
     {
         using var db = new TestDb();

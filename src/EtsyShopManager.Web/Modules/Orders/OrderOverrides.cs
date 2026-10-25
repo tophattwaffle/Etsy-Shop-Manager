@@ -11,6 +11,7 @@ public static class OrderOverrides
 {
     public const int MaxPersonalizationLength = 1024;
     public const int MaxAddressLength = 500;
+    public const int MaxSellerNoteLength = 1000;
 
     /// <summary>
     /// The item's variations as they should be made: the seller's chosen values in place of the buyer's, and the seller's

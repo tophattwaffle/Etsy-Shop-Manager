@@ -19,6 +19,10 @@ public sealed class OrderChangesForm
 
     public bool ChangeAddress { get; set; }
     public string Address { get; set; } = "";
+
+    /// <summary>The seller's own note on the order (empty: none).</summary>
+    public string SellerNote { get; set; } = "";
+
     public List<ItemChangesForm> Items { get; init; } = [];
 }
 
@@ -77,7 +81,8 @@ public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFacto
             EtsyAddress = etsyAddress,
             ChangeAddress = order.AddressOverride is not null,
             Address = order.AddressOverride ?? etsyAddress,
-            Items = [.. order.Items.OrderBy(i => i.EtsyTransactionId).Select(i =>
+            SellerNote = order.SellerNote ?? "",
+            Items =[.. order.Items.OrderBy(i => i.EtsyTransactionId).Select(i =>
             {
                 var properties = products.Where(p => p.EtsyListingId == i.EtsyListingId).SelectMany(p => p.PropertyValues).ToList();
                 var buyers = OrderOverrides.BuyersPersonalization(i);
@@ -147,6 +152,11 @@ public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFacto
         }
         if (address != order.AddressOverride) changes.Add(address is null ? "address back to Etsy's" : "address changed");
         order.AddressOverride = address;
+
+        var note = string.IsNullOrWhiteSpace(form.SellerNote) ? null : form.SellerNote.Trim();
+        if (note?.Length > OrderOverrides.MaxSellerNoteLength) return $"Keep the seller note to {OrderOverrides.MaxSellerNoteLength} characters.";
+        if (note != order.SellerNote) changes.Add(note is null ? "seller note removed" : "seller note set");
+        order.SellerNote = note;
 
         foreach (var f in form.Items)
         {

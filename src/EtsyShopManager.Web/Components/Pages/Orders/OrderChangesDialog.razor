@@ -55,6 +55,12 @@
                     <div class="muted small mt-2">On Etsy: @string.Join(", ", OrderOverrides.Lines(_form.EtsyAddress))</div>
                 }
             </section>
+            <section class="esm-change-group">
+                <div class="esm-change-title">Seller note</div>
+                <MudTextField T="string" @bind-Value="_form.SellerNote" Immediate="true" Label="Seller note" Variant="Variant.Outlined"
+                              Lines="3" Sizing="InputSizing.Auto" MaxLength="@OrderOverrides.MaxSellerNoteLength"
+                              HelperText="For you only: shown on the order card, never sent to Etsy or printed on slips." />
+            </section>
             @if (_error is not null)
             {
                 <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_error</MudAlert>
