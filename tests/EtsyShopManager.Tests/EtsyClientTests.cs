@@ -70,6 +70,52 @@ public class RetryHandlerTests
     }
 
     [Fact]
+    public async Task NoRetry_upload_is_still_retried_after_429_but_not_after_5xx()
+    {
+        // Etsy answers a burst with 429 + Retry-After: 1 and has not processed the request, so sending it again is safe.
+        HttpRequestMessage Upload()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/v3/application/shops/1/listings/2/images")
+            {
+                Content = new ByteArrayContent([1, 2, 3]),
+            };
+            request.Options.Set(EtsyRetryHandler.NoRetry, true);
+            return request;
+        }
+
+        var (client, inner, _) = Build((_, n) =>
+        {
+            if (n > 1) return new HttpResponseMessage(HttpStatusCode.Created);
+            var r = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(1));
+            return r;
+        });
+        Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(Upload())).StatusCode);
+        Assert.Equal(2, inner.Requests.Count);
+
+        var (client5xx, inner5xx, _) = Build((_, _) => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client5xx.SendAsync(Upload())).StatusCode);
+        Assert.Single(inner5xx.Requests);
+    }
+
+    [Fact]
+    public async Task Repeated_429s_back_off_exponentially_beyond_Retry_After()
+    {
+        var (client, _, time) = Build((_, n) =>
+        {
+            if (n > 3) return new HttpResponseMessage(HttpStatusCode.OK);
+            var r = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(1));
+            return r;
+        });
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/v3/application/shops/1")).StatusCode);
+        Assert.Equal(3, time.Delays.Count);
+        Assert.True(time.Delays[1] >= TimeSpan.FromSeconds(2));
+        Assert.True(time.Delays[2] >= TimeSpan.FromSeconds(4));
+    }
+
+    [Fact]
     public async Task Does_not_retry_5xx_for_POST()
     {
         var (client, inner, _) = Build((_, _) => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
