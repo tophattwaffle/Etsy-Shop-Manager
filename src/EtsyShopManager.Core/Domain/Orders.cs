@@ -69,6 +69,18 @@ public class Order
     /// <summary>Whether <see cref="SellerNote"/> prints on the order's packing (or gift) slip.</summary>
     public bool SellerNoteOnSlips { get; set; }
 
+    /// <summary>
+    /// When the order's packing (or gift) slip was last printed: by the print station, or from the Orders page once the
+    /// print dialog closed. Null when it never was. Local only; polling never touches it.
+    /// </summary>
+    public DateTime? SlipPrintedAtUtc { get; set; }
+
+    /// <summary>
+    /// When the slip was put in the print station's queue (automatic printing); null when it isn't waiting to print.
+    /// Cleared once it prints.
+    /// </summary>
+    public DateTime? SlipQueuedAtUtc { get; set; }
+
     public List<OrderItem> Items { get; set; } = [];
 
     /// <summary>Statuses that close an order even when it was never shipped.</summary>

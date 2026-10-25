@@ -1,0 +1,234 @@
+@using EtsyShopManager.Web.Modules.Orders
+@implements IDisposable
+@inject AutoPrintService AutoPrint
+@inject ISlipPrinter Printer
+@inject ISnackbar Snackbar
+
+@* Automatic printing (AutoPrintService): the server printer slips print on, when they print, and how many are waiting.
+   Admins change it; everyone sees it. *@
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Automatic printing</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Slips print on a printer installed on the server, with each shop's layouts. Only orders found after automatic
+        printing is turned on print by themselves, and orders whose slip was already printed are skipped. Install the
+        printer on the server as a local printer: the app can't see printers shared from another computer.
+    </MudText>
+
+    <MudExpansionPanels Elevation="0" Outlined="true" Class="mb-3">
+        <MudExpansionPanel Text="How to set it up and test it">
+            <div class="esm-autoprint-help">
+                <MudText Typo="Typo.subtitle2">Set up the printer on the server</MudText>
+                <ol>
+                    <li>
+                        Sign in to the server (the Windows computer this app runs on) and open Settings → Bluetooth &amp; devices →
+                        Printers &amp; scanners → Add device.
+                    </li>
+                    <li>
+                        If the printer isn't found, choose "Add manually", then "Add a printer using an IP address or hostname",
+                        and enter the printer's IP address (from the printer's network settings page or its router listing).
+                        Don't connect to a printer shared from another computer (\\computer\printer): the app runs as a Windows
+                        service and only sees printers installed on the server itself.
+                    </li>
+                    <li>
+                        Open the printer's Printing preferences and set the paper size to Letter. Slips are laid out for Letter
+                        paper; gift slips print two to a sheet.
+                    </li>
+                    <li>
+                        SumatraPDF must be installed in C:\Program Files\SumatraPDF. It sends the slips to the printer without
+                        a dialog. When it's missing, a warning shows above the settings.
+                    </li>
+                </ol>
+
+                <MudText Typo="Typo.subtitle2" Class="mt-3">Choose the printer and test it</MudText>
+                <ol>
+                    <li>Reload this page so the new printer appears in the Printer list, choose it and press Save.</li>
+                    <li>
+                        Press "Print a test page". A one-page sheet with today's date should come out within a minute. If it
+                        doesn't, the message that appears says what went wrong.
+                    </li>
+                    <li>
+                        Print a real slip: on Orders, tick one open order and press "Send to printer". Its order card shows a
+                        clock while it waits, and a green printer icon once it has printed. Hover over the icon to see when it
+                        printed. The slip should look the same as one printed from Orders → Print packing slips.
+                    </li>
+                    <li>
+                        Each print shows on the Jobs page as "Print packing slips", with how many slips printed or why it
+                        failed.
+                    </li>
+                </ol>
+
+                <MudText Typo="Typo.subtitle2" Class="mt-3">Turn on automatic printing</MudText>
+                <ol>
+                    <li>
+                        Choose when slips print and press Save. "As soon as a new order comes in" prints each order within a few
+                        minutes of it reaching the app (orders are checked every 5 minutes). The daily modes print all unprinted
+                        orders at the time you set; the window mode then keeps printing new orders until the second time.
+                    </li>
+                    <li>
+                        Only orders that come in after you turn it on print by themselves, and orders already printed (from here
+                        or from the Orders page) are skipped. To print an older order, use "Send to printer" on Orders.
+                    </li>
+                    <li>
+                        If the printer is off or out of paper, the job tries again a few times. Slips that still didn't print
+                        stay waiting: press "Print waiting slips now" here once the printer is ready.
+                    </li>
+                </ol>
+            </div>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+
+    @if (_loaded)
+    {
+        @if (Printer.Problem is { } problem)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">@problem</MudAlert>
+        }
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="6">
+                <MudSelect T="string" @bind-Value="_printer" Label="Printer" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           ReadOnly="@(!CanEdit)" Placeholder="Choose a printer"
+                           HelperText="@(_printers.Count == 0 ? "No printers are installed on the server." : null)">
+                    @foreach (var p in _printers)
+                    {
+                        <MudSelectItem Value="p">@p</MudSelectItem>
+                    }
+                    @if (_printer is not null && !_printers.Contains(_printer))
+                    {
+                        <MudSelectItem Value="_printer">@_printer (not installed)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudSelect T="AutoPrintMode" @bind-Value="_mode" Label="When slips print" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           ReadOnly="@(!CanEdit)">
+                    <MudSelectItem Value="AutoPrintMode.Off">Off</MudSelectItem>
+                    <MudSelectItem Value="AutoPrintMode.EachOrder">As soon as a new order comes in</MudSelectItem>
+                    <MudSelectItem Value="AutoPrintMode.Daily">All unprinted orders at a set time each day</MudSelectItem>
+                    <MudSelectItem Value="AutoPrintMode.DailyThenWindow">At a set time, then new orders until a set time</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            @if (_mode is AutoPrintMode.Daily or AutoPrintMode.DailyThenWindow)
+            {
+                <MudItem xs="6" md="3">
+                    <MudTimePicker @bind-Time="_at" Label="Print at" AmPm="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   ReadOnly="@(!CanEdit)" Editable="true" />
+                </MudItem>
+            }
+            @if (_mode == AutoPrintMode.DailyThenWindow)
+            {
+                <MudItem xs="6" md="3">
+                    <MudTimePicker @bind-Time="_until" Label="Keep printing new orders until" AmPm="true" Variant="Variant.Outlined"
+                                   Margin="Margin.Dense" ReadOnly="@(!CanEdit)" Editable="true" />
+                </MudItem>
+            }
+        </MudGrid>
+        <MudText Typo="Typo.body2" Class="mt-2">@Current.Describe()</MudText>
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-3" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.caption" Class="muted">
+                @(_queued == 0 ? "No slips waiting to print." : $"{_queued} slip{(_queued == 1 ? "" : "s")} waiting to print.")
+            </MudText>
+            @if (CanEdit)
+            {
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
+                               Disabled="@(_testing || _savedPrinter is null)" OnClick="TestAsync">Print a test page</MudButton>
+                    @if (_queued > 0)
+                    {
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_savedPrinter is null)"
+                                   OnClick="PrintWaitingAsync">Print waiting slips now</MudButton>
+                    }
+                    <SaveButtons Text="Save" Size="Size.Small" Changed="_saved.Changed" Busy="_saving" OnSave="SaveAsync" OnCancel="_saved.Revert" />
+                </MudStack>
+            }
+        </MudStack>
+    }
+    else
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private bool _loaded;
+    private bool _saving;
+    private bool _testing;
+    private bool CanEdit { get; set; }
+    private IReadOnlyList<string> _printers = [];
+    private string? _printer;
+    private string? _savedPrinter;
+    private AutoPrintMode _mode;
+    private TimeSpan? _at;
+    private TimeSpan? _until;
+    private DateTime? _since;
+    private int _queued;
+    private SavedValues<(string?, AutoPrintMode, TimeSpan?, TimeSpan?)> _saved = null!;
+
+    private AutoPrintSettings Current => new(_mode, TimeOnly.FromTimeSpan(_at ?? new(8, 0, 0)),
+        TimeOnly.FromTimeSpan(_until ?? new(17, 0, 0)), _since, _printer);
+
+    protected override async Task OnInitializedAsync()
+    {
+        CanEdit = (await AuthState).User.IsInRole(Roles.Admin);
+        try { _printers = Printer.ListPrinters(); }
+        catch (System.ComponentModel.Win32Exception) { _printers = []; }
+        Show(await AutoPrint.GetSettingsAsync());
+        _saved = new(() => (_printer, _mode, _at, _until), v => (_printer, _mode, _at, _until) = v);
+        _queued = await AutoPrint.QueuedCountAsync();
+        _loaded = true;
+        AutoPrint.Changed += OnSlipsChanged;
+    }
+
+    private void Show(AutoPrintSettings s) =>
+        (_printer, _savedPrinter, _mode, _at, _until, _since) = (s.Printer, s.Printer, s.Mode, s.At.ToTimeSpan(), s.Until.ToTimeSpan(), s.SinceUtc);
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            Show(await AutoPrint.SaveSettingsAsync(Current, (await AuthState).User.Identity?.Name));
+            _saved.Accept();
+            Snackbar.Add("Automatic printing saved", Severity.Success);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    // A page with the date on the saved printer, printed the way slips are (Edge, then SumatraPDF), so a problem shows here.
+    private async Task TestAsync()
+    {
+        _testing = true;
+        try
+        {
+            await Printer.PrintAsync(WindowsSlipPrinter.TestPageUrl(DateTime.Now), _savedPrinter!, CancellationToken.None);
+            Snackbar.Add($"Test page sent to {_savedPrinter}", Severity.Success);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Snackbar.Add($"The test page didn't print: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    private async Task PrintWaitingAsync()
+    {
+        var queued = await AutoPrint.EnqueuePrintAsync((await AuthState).User.Identity?.Name ?? "auto-print");
+        Snackbar.Add(queued is null ? "Already printing" : "Printing the waiting slips…", Severity.Info);
+    }
+
+    private void OnSlipsChanged() => _ = InvokeAsync(async () =>
+    {
+        _queued = await AutoPrint.QueuedCountAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => AutoPrint.Changed -= OnSlipsChanged;
+}

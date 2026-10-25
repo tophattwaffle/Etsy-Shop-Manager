@@ -311,6 +311,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.HasIndex(x => x.EtsyReceiptId).IsUnique();
             e.HasIndex(x => new { x.ShopId, x.IsPaid, x.IsShipped });
             e.HasIndex(x => x.EtsyCreatedAtUtc);
+            e.HasIndex(x => x.SlipQueuedAtUtc); // the print station asks for queued slips every few seconds
             e.Property(x => x.Status).HasMaxLength(40);
             e.Property(x => x.CurrencyCode).HasMaxLength(8);
             e.HasOne(x => x.Shop).WithMany().HasForeignKey(x => x.ShopId).OnDelete(DeleteBehavior.Cascade);

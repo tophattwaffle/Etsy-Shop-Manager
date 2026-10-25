@@ -986,6 +986,12 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<int>("ShopId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("SlipPrintedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SlipQueuedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -1003,6 +1009,8 @@ namespace EtsyShopManager.Data.Migrations
 
                     b.HasIndex("EtsyReceiptId")
                         .IsUnique();
+
+                    b.HasIndex("SlipQueuedAtUtc");
 
                     b.HasIndex("ShopId", "IsPaid", "IsShipped");
 

@@ -16,6 +16,7 @@
 @inject IJSRuntime Js
 @inject IDialogService Dialogs
 @inject OrderMadeService MadeItems
+@inject AutoPrintService AutoPrint
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
 
@@ -251,6 +252,8 @@
             }));
         // Items marked made in another browser (or on the dashboard): reload the open orders.
         MadeItems.Changed += OnMadeElsewhere;
+        // Slips queued or printed (automatic printing, another browser): reload for the printed marks.
+        AutoPrint.Changed += OnSlipsChanged;
         // Ship-by countdowns and "synced … ago" are relative to now: re-render every 30 s.
         _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
@@ -296,6 +299,13 @@
             StateHasChanged();
         });
     }
+
+    private void OnSlipsChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        await LoadHistoryAsync();
+        StateHasChanged();
+    });
 
     // Color the variation pills and personalization notes rendered by <ColorBox> (new or changed ones only),
     // and read any shop accent not yet cached from the shop's profile image.
@@ -412,6 +422,7 @@
                         <div class="order-buyer">
                             @(o.BuyerName ?? $"#{o.EtsyReceiptId}")
                             @if (o.IsGift) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Class="ml-1">Gift</MudChip> }
+                            <PrintedMark Order="o" />
                         </div>
                         <div class="muted small">
                             <a href="@OrderUrl(o.ShopId, o.EtsyReceiptId)" target="@OrderTarget(o.ShopId, o.EtsyReceiptId)">#@o.EtsyReceiptId</a>
@@ -538,6 +549,8 @@
                        Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("pick")))">Print pick list</MudButton>
             <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
                        Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("slips")))">Print packing slips</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.LocalPrintshop"
+                       Disabled="@(selected == 0)" OnClick="@(() => SendToPrinterAsync(link("slips")))">Send to printer</MudButton>
         </span>
         <span class="esm-act-narrow">
             <MudTooltip Text="Print pick list">
@@ -547,6 +560,10 @@
             <MudTooltip Text="Print packing slips">
                 <MudIconButton Icon="@Icons.Material.Filled.Print" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
                                OnClick="@(() => PrintAsync(link("slips")))" aria-label="Print packing slips" />
+            </MudTooltip>
+            <MudTooltip Text="Send packing slips to the server's printer">
+                <MudIconButton Icon="@Icons.Material.Filled.LocalPrintshop" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
+                               OnClick="@(() => SendToPrinterAsync(link("slips")))" aria-label="Send packing slips to the server's printer" />
             </MudTooltip>
         </span>
     };
@@ -782,8 +799,31 @@
     }
 
     // Prints a printout page without leaving this one: it loads in a hidden frame and opens the browser's print dialog
-    // (esm.printPage). The page itself still works on its own, with its Print button.
-    private async Task PrintAsync(string url) => await Js.InvokeVoidAsync("esm.printPage", url);
+    // (esm.printPage). The page itself still works on its own, with its Print button. Once the dialog closes, packing slips
+    // are marked printed (the browser doesn't say whether it was cancelled), so automatic printing skips them.
+    private async Task PrintAsync(string url)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("esm.printPage", TimeSpan.FromMinutes(30), url);
+            if (url.StartsWith("orders/print/slips?ids=", StringComparison.Ordinal))
+                await AutoPrint.MarkPrintedAsync(OrderPrintService.ParseIds(url["orders/print/slips?ids=".Length..]));
+        }
+        catch (Exception ex) when (ex is JSException or TaskCanceledException or JSDisconnectedException) { }
+    }
+
+    // Queues the selected orders' slips for the server's printer (automatic printing), printed or not.
+    private async Task SendToPrinterAsync(string url)
+    {
+        var ids = OrderPrintService.ParseIds(url["orders/print/slips?ids=".Length..]);
+        var settings = await AutoPrint.GetSettingsAsync();
+        var queued = await AutoPrint.QueueAsync([.. ids], (await AuthState).User.Identity?.Name);
+        Snackbar.Add(
+            queued == 0 ? "Nothing sent: only open orders that aren't already waiting can be sent to the printer."
+            : settings.Printer is null ? $"{queued} slip(s) waiting. Choose a printer on the Packing slips page to print them."
+            : $"Sending {queued} slip(s) to {settings.Printer}…",
+            queued > 0 && settings.Printer is not null ? Severity.Info : Severity.Warning);
+    }
 
     private string PrintLink(string kind) => $"orders/print/{kind}?ids={string.Join(",", Picked)}";
 
@@ -860,6 +900,7 @@
     public void Dispose()
     {
         MadeItems.Changed -= OnMadeElsewhere;
+        AutoPrint.Changed -= OnSlipsChanged;
         _live?.Dispose();
         _timer?.Dispose();
     }
