@@ -1,0 +1,52 @@
+@using EtsyShopManager.Core.Listings
+@using EtsyShopManager.Web.Modules.Editor
+
+@* One field changed both here and on etsy.com: this app's value and Etsy's side by side (stacked on phones). *@
+<div class="esm-diff">
+    <div class="esm-diff-side esm-diff-mine">
+        <div class="esm-diff-head"><span class="esm-diff-mark" aria-hidden="true">−</span> This app</div>
+        @Side(Diff.Mine)
+    </div>
+    <div class="esm-diff-side esm-diff-etsy">
+        <div class="esm-diff-head"><span class="esm-diff-mark" aria-hidden="true">+</span> On Etsy now</div>
+        @Side(Diff.Etsy)
+    </div>
+</div>
+@if (Diff.Note is not null)
+{
+    <div class="muted small mt-1">@Diff.Note</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public FieldDiff Diff { get; set; } = default!;
+
+    private RenderFragment Side(IReadOnlyList<DiffLine> lines) => Diff.Layout switch
+    {
+        DiffLayout.Chips => @<div class="esm-diff-chips">
+            @if (lines.Count == 0) { <span class="muted">None</span> }
+            @foreach (var line in lines) { <span class="@($"esm-diff-chip {KindClass(line.Kind)}")">@Pieces(line.Pieces)</span> }
+        </div>,
+        DiffLayout.Rows => @<div class="esm-diff-rows">
+            @foreach (var line in lines) { <div class="@($"esm-diff-row {KindClass(line.Kind)}")">@Pieces(line.Pieces)</div> }
+        </div>,
+        _ => @<div class="@(Diff.Layout == DiffLayout.Text ? "esm-diff-text" : "esm-diff-value")">
+            @foreach (var line in lines) { @Pieces(line.Pieces) }
+        </div>,
+    };
+
+    private static RenderFragment Pieces(IReadOnlyList<DiffPiece> pieces) => @<text>
+        @foreach (var p in pieces)
+        {
+            if (p.Kind == DiffKind.Same) { @p.Text }
+            else if (p.Kind == DiffKind.Removed) { <del class="esm-diff-del">@p.Text</del> }
+            else { <ins class="esm-diff-ins">@p.Text</ins> }
+        }
+    </text>;
+
+    private static string KindClass(DiffKind kind) => kind switch
+    {
+        DiffKind.Removed => "esm-diff-changed-del",
+        DiffKind.Added => "esm-diff-changed-ins",
+        _ => "",
+    };
+}

@@ -608,10 +608,29 @@ a.lp-status-error:hover { text-decoration: underline; }
 }
 /* ---- Listing editor: drift resolution rows ---- */
 .esm-drift { border-left: 3px solid var(--esm-warning); }
-.esm-drift-row { display: grid; grid-template-columns: 160px 1fr 1fr auto; gap: 16px; align-items: start; padding: 10px 0; border-top: 1px solid var(--esm-line); }
+.esm-drift-row { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: start; padding: 12px 0; border-top: 1px solid var(--esm-line); }
+.esm-drift-row > .esm-diff, .esm-drift-row > .muted { grid-column: 1 / -1; }
 .esm-drift-label { font-weight: 600; }
-.esm-drift-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-@media (max-width: 760px) { .esm-drift-row { grid-template-columns: 1fr; gap: 6px; } }
+.esm-drift-actions { display: flex; gap: 8px; flex-wrap: wrap; grid-row: 1; grid-column: 2; }
+/* Drift diff: this app (−, removed tone) beside Etsy (+, added tone), like a side-by-side git diff. */
+.esm-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.esm-diff-side { min-width: 0; border: 1px solid var(--esm-line); border-radius: var(--esm-radius-sm); overflow: hidden; }
+.esm-diff-head { padding: 4px 10px; font-size: 0.8rem; color: var(--esm-muted); border-bottom: 1px solid var(--esm-line); }
+.esm-diff-mine .esm-diff-head { background: color-mix(in srgb, var(--esm-error) 10%, transparent); }
+.esm-diff-etsy .esm-diff-head { background: color-mix(in srgb, var(--esm-success) 10%, transparent); }
+.esm-diff-mark { font-weight: 600; }
+.esm-diff-text, .esm-diff-value { padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; }
+.esm-diff-rows { display: flex; flex-direction: column; max-height: 420px; overflow: auto; }
+.esm-diff-row { padding: 4px 10px; overflow-wrap: anywhere; }
+.esm-diff-row.esm-diff-changed-del { background: color-mix(in srgb, var(--esm-error) 10%, transparent); }
+.esm-diff-row.esm-diff-changed-ins { background: color-mix(in srgb, var(--esm-success) 10%, transparent); }
+.esm-diff-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
+.esm-diff-chip { padding: 2px 10px; border: 1px solid var(--esm-line); border-radius: 999px; }
+.esm-diff-chip.esm-diff-changed-del { border-color: var(--esm-error); }
+.esm-diff-chip.esm-diff-changed-ins { border-color: var(--esm-success); }
+.esm-diff-del { text-decoration: line-through; text-decoration-color: var(--esm-error); background: color-mix(in srgb, var(--esm-error) 28%, transparent); color: var(--esm-ink); border-radius: 3px; }
+.esm-diff-ins { text-decoration: none; background: color-mix(in srgb, var(--esm-success) 28%, transparent); color: var(--esm-ink); border-radius: 3px; }
+@media (max-width: 760px) { .esm-drift-row, .esm-diff { grid-template-columns: 1fr; } .esm-drift-actions { grid-row: auto; grid-column: 1; } }
 
 /* ---- Listing editor: variations ---- */
 .esm-variations { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
