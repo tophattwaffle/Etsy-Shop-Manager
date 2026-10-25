@@ -3,7 +3,6 @@
 @using EtsyShopManager.Web.Infrastructure.Storage
 @using EtsyShopManager.Web.Modules.Listings
 @inject VideoStore Store
-@inject ImageStore Images
 
 @* The video of a listing being edited: preview, replace, remove, and upload. Changes go back to the editor
    as the new local "video" node; nothing reaches Etsy until a reviewed push. *@
@@ -13,9 +12,10 @@
     <MudStack Spacing="2">
         @if (VideoUrl is { } url)
         {
-            <div>
-                <video controls preload="metadata" src="@url" poster="@PosterUrl" class="rounded-lg esm-w-lg"></video>
-            </div>
+            @* No poster: Etsy's thumbnail is a 105 px square, which sized the player to it. The #t fragment makes
+               browsers that skip preloading (Safari) still show the first frame. *@
+            <video controls playsinline preload="metadata" src="@PlayerUrl(url)" class="esm-video"
+                   style="@AspectStyle(VideoWidth, VideoHeight)"></video>
         }
         <div class="small muted">
             @VideoDescription
@@ -84,15 +84,19 @@ else
         }
     }
 
-    private string? PosterUrl
-    {
-        get
-        {
-            if (Imported?.ThumbFileName is { Length: > 0 } thumb && Images.Exists(thumb))
-                return ImageStore.UrlFor(thumb);
-            return Imported?.SourceThumbUrl;
-        }
-    }
+    // A newly uploaded video has no known size yet; the imported one's size only applies to the Etsy video.
+    private bool IsEtsyVideo => (long?)Video?["etsy_video_id"] is > 0;
+    private int? VideoWidth => Dimension("width") ?? (IsEtsyVideo ? Imported?.Width : null);
+    private int? VideoHeight => Dimension("height") ?? (IsEtsyVideo ? Imported?.Height : null);
+
+    private int? Dimension(string key) => Video?[key] is JsonValue v && v.TryGetValue<int>(out var n) ? n : null;
+
+    /// <summary>The player's source: the video URL with a start-time fragment, so the first frame shows before play.</summary>
+    public static string PlayerUrl(string url) => url.Contains('#') ? url : url + "#t=0.001";
+
+    /// <summary>The player's shape from the video's own size, so it keeps its aspect ratio before the file loads.</summary>
+    public static string? AspectStyle(int? width, int? height) =>
+        width is > 0 && height is > 0 ? $"--esm-video-ratio: {width} / {height}" : null;
 
     private string VideoDescription
     {

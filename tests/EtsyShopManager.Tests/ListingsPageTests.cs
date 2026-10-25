@@ -99,4 +99,20 @@ public class ListingsPageTests
             CultureInfo.CurrentCulture = previous;
         }
     }
+
+    [Fact]
+    public void Gallery_cards_and_list_rows_have_an_edit_button_for_Admins()
+    {
+        Assert.Equal("listings/7/edit", EtsyShopManager.Web.Components.Pages.Listings.Listings.EditUrl(7));
+        var page = File.ReadAllText(Path.Combine(DesignRulesTests.Root, "src", "EtsyShopManager.Web", "Components", "Pages", "Listings", "Listings.razor"));
+        var editor = File.ReadAllText(Path.Combine(DesignRulesTests.Root, "src", "EtsyShopManager.Web", "Components", "Pages", "Listings", "EditListing.razor"));
+        Assert.Contains("@page \"/listings/{Id:int}/edit\"", editor);
+
+        // One in the gallery card, one in the list row (phones use the same two views), both with a label for screen readers.
+        Assert.Contains("class=\"lp-card-edit\" href=\"@EditUrl(row.Id)\"", page);
+        Assert.Contains("class=\"lp-row-edit\" href=\"@EditUrl(row.Id)\"", page);
+        Assert.Equal(2, page.Split("aria-label=\"@($\"Edit {row.Title}\")\"").Length - 1);
+        // The editor is Admin only, so the buttons are too.
+        Assert.Contains("_canEdit = (await AuthState).User.IsInRole(Roles.Admin);", page);
+    }
 }

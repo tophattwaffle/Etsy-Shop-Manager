@@ -346,4 +346,26 @@ public class ListingVideoTests
         };
         Assert.Equal("New video (my_custom_clip.mp4)", ListingEditor.DescribeVideo(localVideo));
     }
+
+    [Fact]
+    public void Editor_player_keeps_the_video_shape_and_is_not_sized_by_a_poster()
+    {
+        // Etsy's video thumbnail is a 105 px square; as the poster it sized the player to a small square.
+        var editor = File.ReadAllText(Path.Combine(DesignRulesTests.Root, "src", "EtsyShopManager.Web", "Components", "Pages", "Listings", "VideoEditor.razor"));
+        Assert.DoesNotContain("poster=", editor);
+        Assert.Contains("class=\"esm-video\"", editor);
+        var css = File.ReadAllText(Path.Combine(DesignRulesTests.Root, "src", "EtsyShopManager.Web", "wwwroot", "app.css"));
+        Assert.Matches(@"\.esm-video \{[^}]*width: 100%[^}]*aspect-ratio: var\(--esm-video-ratio", css);
+
+        Assert.Equal("--esm-video-ratio: 1280 / 960", EtsyShopManager.Web.Components.Pages.Listings.VideoEditor.AspectStyle(1280, 960));
+        Assert.Null(EtsyShopManager.Web.Components.Pages.Listings.VideoEditor.AspectStyle(null, 720));
+        Assert.Null(EtsyShopManager.Web.Components.Pages.Listings.VideoEditor.AspectStyle(0, 0));
+    }
+
+    [Fact]
+    public void Editor_player_shows_the_first_frame_before_play()
+    {
+        Assert.Equal("/media/videos/a.mp4#t=0.001", EtsyShopManager.Web.Components.Pages.Listings.VideoEditor.PlayerUrl("/media/videos/a.mp4"));
+        Assert.Equal("https://v.etsystatic.com/x.mp4#t=2", EtsyShopManager.Web.Components.Pages.Listings.VideoEditor.PlayerUrl("https://v.etsystatic.com/x.mp4#t=2"));
+    }
 }

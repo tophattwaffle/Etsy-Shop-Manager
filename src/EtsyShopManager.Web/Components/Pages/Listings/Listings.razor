@@ -170,33 +170,42 @@
                 <div class="lp-grid @(_loading ? "is-loading" : "")">
                     @foreach (var row in _rows)
                     {
-                        <a class="lp-card" href="@($"listings/{row.Id}")" style="@ShopStyle(row.ShopId)">
-                            <div class="lp-photo">
-                                @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
-                                {
-                                    <img src="@thumb" alt="" loading="lazy" />
-                                }
-                                <ShopMark Shop="ShopFor(row.ShopId)" Name="@row.ShopName" />
-                                @if (StateBadge(row) is { } badge)
-                                {
-                                    <span class="lp-badge lp-badge-@badge.Kind">@badge.Label</span>
-                                }
-                            </div>
-                            <div class="lp-card-body">
-                                <span class="lp-title">@row.Title</span>
-                                <span class="lp-card-meta">
-                                    <span class="lp-stock">@StockLabel(row.Quantity)</span>
-                                    <span class="lp-price">@ListingFormat.PriceWithSymbol(row.PriceAmount, row.PriceDivisor, row.CurrencyCode)</span>
-                                </span>
-                                @if (row.Refill is { Enabled: true } refill)
-                                {
-                                    <span class="lp-refill" title="@($"Auto-refill is on: when stock drops below {refill.Threshold}, it's set back to {refill.RefillTo}")">
-                                        <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" aria-hidden="true" />
-                                        Auto-refill below @refill.Threshold → @refill.RefillTo
+                        @* The card opens the listing; its edit button (a sibling, since links can't nest) goes straight to the editor. *@
+                        <div class="lp-card-wrap">
+                            <a class="lp-card" href="@($"listings/{row.Id}")" style="@ShopStyle(row.ShopId)">
+                                <div class="lp-photo">
+                                    @if (ImageStore.UrlFor(row.ThumbFileName) is { } thumb)
+                                    {
+                                        <img src="@thumb" alt="" loading="lazy" />
+                                    }
+                                    <ShopMark Shop="ShopFor(row.ShopId)" Name="@row.ShopName" />
+                                    @if (StateBadge(row) is { } badge)
+                                    {
+                                        <span class="lp-badge lp-badge-@badge.Kind">@badge.Label</span>
+                                    }
+                                </div>
+                                <div class="lp-card-body">
+                                    <span class="lp-title">@row.Title</span>
+                                    <span class="lp-card-meta">
+                                        <span class="lp-stock">@StockLabel(row.Quantity)</span>
+                                        <span class="lp-price">@ListingFormat.PriceWithSymbol(row.PriceAmount, row.PriceDivisor, row.CurrencyCode)</span>
                                     </span>
-                                }
-                            </div>
-                        </a>
+                                    @if (row.Refill is { Enabled: true } refill)
+                                    {
+                                        <span class="lp-refill" title="@($"Auto-refill is on: when stock drops below {refill.Threshold}, it's set back to {refill.RefillTo}")">
+                                            <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" aria-hidden="true" />
+                                            Auto-refill below @refill.Threshold → @refill.RefillTo
+                                        </span>
+                                    }
+                                </div>
+                            </a>
+                            @if (_canEdit)
+                            {
+                                <a class="lp-card-edit" href="@EditUrl(row.Id)" title="Edit listing" aria-label="@($"Edit {row.Title}")">
+                                    <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" aria-hidden="true" />
+                                </a>
+                            }
+                        </div>
                     }
                 </div>
             }
@@ -221,6 +230,10 @@
                                 <SortHeader Sort="_columnSort" Column="sku" Changed="OnColumnSortAsync">SKU</SortHeader>
                                 <SortHeader Sort="_columnSort" Column="refill" Changed="OnColumnSortAsync">Auto-refill</SortHeader>
                                 <SortHeader Sort="_columnSort" Column="updated" Changed="OnColumnSortAsync">Updated on Etsy</SortHeader>
+                                @if (_canEdit && !_selecting)
+                                {
+                                    <th scope="col" class="lp-list-actions"><span class="visually-hidden">Edit</span></th>
+                                }
                             </tr>
                         </thead>
                         <tbody>
@@ -272,6 +285,15 @@
                                     <td class="lp-sku">@string.Join(", ", row.Skus.Take(2))@(row.Skus.Count > 2 ? $" +{row.Skus.Count - 2}" : "")</td>
                                     <td class="lp-muted">@RefillLabel(row.Refill)</td>
                                     <td class="lp-muted">@ListingFormat.Ago(row.EtsyUpdatedAtUtc, Now)</td>
+                                    @if (_canEdit && !_selecting)
+                                    {
+                                        <td class="lp-list-actions">
+                                            <a class="lp-row-edit" href="@EditUrl(row.Id)" title="Edit listing" aria-label="@($"Edit {row.Title}")">
+                                                <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" aria-hidden="true" />
+                                                <span class="lp-row-edit-label">Edit</span>
+                                            </a>
+                                        </td>
+                                    }
                                 </tr>
                             }
                         </tbody>
@@ -378,6 +400,7 @@
     private int _total;
     private int _page;
     private bool _loading;
+    private bool _canEdit; // the editor is Admin only, so only Admins get the edit buttons
     private string _view = GridView;
 
     // Desktop only: the filter panel folded to a strip (remembered per browser, see RailToggle).
@@ -406,11 +429,15 @@
 
     private DateTime Now => Time.GetUtcNow().UtcDateTime;
     private int PageCount => Math.Max(1, (_total + PageSize - 1) / PageSize);
+    /// <summary>The listing's edit page, which the gallery cards and list rows link to directly.</summary>
+    public static string EditUrl(int listingId) => $"listings/{listingId}/edit";
+
     private bool IsFiltered => !string.IsNullOrWhiteSpace(_text) || _shopId is not null || _status != AllStatus;
 
     protected override async Task OnInitializedAsync()
     {
         SyncColumnSort();
+        _canEdit = (await AuthState).User.IsInRole(Roles.Admin);
         _shops = await Queries.GetImportStatusAsync();
         // Colors picked on the Shops page; the others are read from each shop's profile image after render.
         foreach (var (id, color) in await ShopAccents.GetOverridesAsync(_shops.Select(s => s.ShopId))) _accents[id] = color;
