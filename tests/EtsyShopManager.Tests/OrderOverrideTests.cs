@@ -173,14 +173,14 @@ public class OrderOverrideTests
         var form = (await service.GetFormAsync(1))!;
         form.SellerNote = "Made the large one in blue,\nas you asked.";
         Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
-        Assert.DoesNotContain("Seller note", await RenderSlipsAsync(db)); // shown on the order card only
+        Assert.DoesNotContain("Note from SampleShop", await RenderSlipsAsync(db)); // shown on the order card only
 
         form = (await service.GetFormAsync(1))!;
         Assert.False(form.SellerNoteOnSlips);
         form.SellerNoteOnSlips = true;
         Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
         var slip = await RenderSlipsAsync(db);
-        Assert.Contains("Seller note", slip);
+        Assert.Contains("Note from SampleShop", slip);
         Assert.Contains("Made the large one in blue,", slip); // the line break is kept (encoded; slip-pre shows it)
         Assert.Contains("as you asked.", slip);
 
@@ -194,7 +194,7 @@ public class OrderOverrideTests
         Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
         await using (var ctx = db.CreateDbContext())
             Assert.False((await ctx.Orders.SingleAsync()).SellerNoteOnSlips);
-        Assert.DoesNotContain("Seller note", await RenderSlipsAsync(db));
+        Assert.DoesNotContain("Note from SampleShop", await RenderSlipsAsync(db));
     }
 
     [Fact]
