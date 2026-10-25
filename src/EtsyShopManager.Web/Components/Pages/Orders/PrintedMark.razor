@@ -1,11 +1,11 @@
 @using EtsyShopManager.Web.Modules.Listings
 
-@* On an order card: its packing slip was printed (hover, focus or click shows when), or is waiting for the print station. *@
+@* On an order card: its packing slip was printed (hover, focus or click shows when), or is waiting to print on the server's printer. *@
 @if (Order.SlipQueuedAtUtc is { } queued)
 {
     <MudTooltip ShowOnClick="true" ShowOnHover="true" ShowOnFocus="true" Arrow="true" Placement="Placement.Top"
-                Text="@($"Waiting for the print station since {ListingFormat.Local(queued)}")">
-        <button type="button" class="esm-printed-mark is-queued" aria-label="@($"Packing slip waiting for the print station since {ListingFormat.Local(queued)}")">
+                Text="@($"Waiting to print since {ListingFormat.Local(queued)}")">
+        <button type="button" class="esm-printed-mark is-queued" aria-label="@($"Packing slip waiting to print since {ListingFormat.Local(queued)}")">
             <MudIcon Icon="@Icons.Material.Outlined.Schedule" Size="Size.Small" />
         </button>
     </MudTooltip>

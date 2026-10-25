@@ -30,6 +30,8 @@ public sealed class OrdersModule : IModule
         services.AddSingleton<SlipLayoutService>();
         services.AddSingleton<OrderMadeService>();
         services.AddSingleton<AutoPrintService>();
+        services.AddSingleton<ISlipPrinter, WindowsSlipPrinter>();
+        services.AddJobHandler<PrintSlipsJob>();
         services.AddHostedService<AutoPrintScheduler>();
         services.AddScoped<IDomainEventHandler<OrderReceived>, AutoPrintOnOrderReceived>();
 
@@ -83,17 +85,6 @@ public sealed class OrdersModule : IModule
                         ["made_quantity"] = saved,
                     })
                     : Results.NotFound());
-
-        // The print station (Orders/PrintStation.razor): it takes the queued slips, prints them and reports back. Open
-        // like the Orders page and its printouts.
-        var station = endpoints.MapGroup("/orders/print-station/api");
-        station.MapPost("/claim", async (AutoPrintService autoPrint, CancellationToken ct) =>
-        {
-            var ids = await autoPrint.ClaimAsync(ct);
-            return Results.Json(new { ids, url = ids.Count == 0 ? null : $"orders/print/slips?ids={string.Join(",", ids)}" });
-        });
-        station.MapPost("/printed", async (PrintedSlipsRequest body, AutoPrintService autoPrint, CancellationToken ct) =>
-            Results.Json(new { printed = await autoPrint.MarkPrintedAsync(body.Ids ?? [], ct) }));
 
         // The HA card (homeassistant/www/etsy-orders-card.js, embedded at build time). The Orders page loads it for
         // the coloring engine it shares with the card. Public: it is the same file HA serves.

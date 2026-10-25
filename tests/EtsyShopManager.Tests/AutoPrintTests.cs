@@ -17,7 +17,9 @@ public class AutoPrintTests
 
     private static readonly TimeOnly Eight = new(8, 0), Five = new(17, 0);
 
-    private static (TestDb Db, AutoPrintService Service, Clock Clock, InMemorySettings Settings) Create()
+    private readonly RecordingJobQueue _jobs = new();
+
+    private (TestDb Db, AutoPrintService Service, Clock Clock, InMemorySettings Settings) Create()
     {
         var db = new TestDb();
         using (var ctx = db.CreateDbContext())
@@ -27,7 +29,7 @@ public class AutoPrintTests
         }
         var clock = new Clock();
         var settings = new InMemorySettings();
-        return (db, new AutoPrintService(db, settings, new NullAuditLog(), clock), clock, settings);
+        return (db, new AutoPrintService(db, settings, new NullAuditLog(), _jobs, clock), clock, settings);
     }
 
     private static int AddOrder(TestDb db, long receipt, DateTime firstSeen, bool shipped = false, DateTime? printed = null)
@@ -150,28 +152,23 @@ public class AutoPrintTests
     }
 
     [Fact]
-    public async Task A_station_claims_slips_for_a_while_and_printing_stamps_them()
+    public async Task Queued_slips_start_a_print_job_and_closed_orders_leave_the_queue()
     {
         var (db, service, clock, _) = Create();
         using var _db = db;
         var a = AddOrder(db, 1001, clock.Now.UtcDateTime);
         var b = AddOrder(db, 1002, clock.Now.UtcDateTime);
-        Assert.Equal(2, await service.QueueAsync([a, b]));
-        Assert.Equal(0, await service.QueueAsync([a])); // already waiting
-
-        Assert.Equal([a, b], await service.ClaimAsync());
-        Assert.Equal(clock.Now.UtcDateTime, service.StationSeenAtUtc);
-        Assert.Empty(await service.ClaimAsync()); // a second station doesn't print them too
-        clock.Now = clock.Now + AutoPrintService.Lease;
-        Assert.Equal([a, b], await service.ClaimAsync()); // never confirmed: offered again
+        Assert.Equal(2, await service.QueueAsync([a, b], "tophattwaffle"));
+        Assert.Equal(0, await service.QueueAsync([a], "tophattwaffle")); // already waiting
+        var job = Assert.Single(_jobs.Requests);
+        Assert.Equal((PrintSlipsJob.Type, PrintSlipsJob.Type), (job.JobType, job.DedupeKey));
 
         using (var ctx = db.CreateDbContext()) // b shipped before it printed: it leaves the queue
         {
             ctx.Orders.Single(o => o.Id == b).IsShipped = true;
             ctx.SaveChanges();
         }
-        clock.Now = clock.Now + AutoPrintService.Lease;
-        Assert.Equal([a], await service.ClaimAsync());
+        Assert.Equal([a], await service.NextBatchAsync());
         Assert.Equal(1, await service.QueuedCountAsync());
 
         clock.Now = clock.Now.AddSeconds(5);
@@ -179,10 +176,104 @@ public class AutoPrintTests
         var printed = Orders(db).Single(o => o.Id == a);
         Assert.Equal((clock.Now.UtcDateTime, (DateTime?)null), (printed.SlipPrintedAtUtc, printed.SlipQueuedAtUtc));
         Assert.Null(Orders(db).Single(o => o.Id == b).SlipPrintedAtUtc);
-        Assert.Equal(0, await service.QueuedCountAsync());
-        Assert.Empty(await service.ClaimAsync());
+        Assert.Empty(await service.NextBatchAsync());
 
-        Assert.Equal(1, await service.QueueAsync([a])); // printed already: queuing it again prints it again
+        Assert.Equal(1, await service.QueueAsync([a], "tophattwaffle")); // printed already: queuing it again prints it again
+    }
+
+    /// <summary>Records what it was asked to print; fails when told to.</summary>
+    private sealed class FakePrinter : ISlipPrinter
+    {
+        public List<(string Url, string Printer)> Printed { get; } = [];
+        public string? Problem { get; set; }
+        public bool Fail { get; set; }
+        public IReadOnlyList<string> ListPrinters() => ["Slip Printer"];
+
+        public Task PrintAsync(string url, string printer, CancellationToken ct)
+        {
+            if (Fail) throw new InvalidOperationException("SumatraPDF failed (exit code 1).");
+            Printed.Add((url, printer));
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeServer : Microsoft.AspNetCore.Hosting.Server.IServer
+    {
+        public FakeServer(string address)
+        {
+            var addresses = new Microsoft.AspNetCore.Hosting.Server.Features.ServerAddressesFeature();
+            addresses.Addresses.Add(address);
+            Features.Set<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>(addresses);
+        }
+
+        public Microsoft.AspNetCore.Http.Features.IFeatureCollection Features { get; } = new Microsoft.AspNetCore.Http.Features.FeatureCollection();
+        public Task StartAsync<TContext>(Microsoft.AspNetCore.Hosting.Server.IHttpApplication<TContext> application, CancellationToken ct) where TContext : notnull => Task.CompletedTask;
+        public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    private static EtsyShopManager.Core.Jobs.JobExecutionContext JobContext() =>
+        new() { JobId = 1, JobType = PrintSlipsJob.Type, Attempt = 1 };
+
+    [Fact]
+    public async Task The_print_job_prints_the_queue_on_the_chosen_printer_from_the_apps_own_address()
+    {
+        var (db, service, clock, _) = Create();
+        using var _db = db;
+        var printer = new FakePrinter();
+        var job = new PrintSlipsJob(service, printer, new FakeServer("http://0.0.0.0:5080"));
+        var a = AddOrder(db, 1001, clock.Now.UtcDateTime);
+        var b = AddOrder(db, 1002, clock.Now.UtcDateTime);
+        await service.QueueAsync([a, b], "tophattwaffle");
+
+        var noPrinter = await Assert.ThrowsAsync<EtsyShopManager.Core.Jobs.JobPermanentFailureException>(() => job.HandleAsync(JobContext(), default));
+        Assert.Equal("2 slip(s) waiting: choose a printer on the Packing slips page.", noPrinter.Message);
+        Assert.Equal(2, await service.QueuedCountAsync()); // still waiting
+
+        await service.SaveSettingsAsync(AutoPrintSettings.Default with { Printer = "Slip Printer" }, "tophattwaffle");
+        printer.Problem = "SumatraPDF isn't installed on the server.";
+        await Assert.ThrowsAsync<EtsyShopManager.Core.Jobs.JobPermanentFailureException>(() => job.HandleAsync(JobContext(), default));
+        printer.Problem = null;
+
+        printer.Fail = true; // printer trouble: the job retries, the slips stay queued
+        await Assert.ThrowsAsync<InvalidOperationException>(() => job.HandleAsync(JobContext(), default));
+        Assert.Equal(2, await service.QueuedCountAsync());
+        printer.Fail = false;
+
+        var context = JobContext();
+        await job.HandleAsync(context, default);
+        Assert.Equal(($"http://127.0.0.1:5080/orders/print/slips?ids={a},{b}", "Slip Printer"), Assert.Single(printer.Printed));
+        Assert.Equal("2 slip(s) printed on Slip Printer", context.Result);
+        Assert.All(Orders(db), o => Assert.NotNull(o.SlipPrintedAtUtc));
+    }
+
+    [Theory]
+    [InlineData("http://0.0.0.0:5080", "http://127.0.0.1:5080/")]
+    [InlineData("http://+:5085", "http://127.0.0.1:5085/")]
+    [InlineData("http://127.0.0.1:5083", "http://127.0.0.1:5083/")]
+    [InlineData("http://[::]:5101", "http://127.0.0.1:5101/")]
+    public void Edge_loads_the_printout_from_the_apps_local_address(string listening, string expected) =>
+        Assert.Equal(expected, WindowsSlipPrinter.LocalBaseUrl(new FakeServer(listening)));
+
+    [Fact]
+    public void The_hosts_printers_can_be_listed()
+    {
+        var printers = new WindowsSlipPrinter(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+            new EtsyShopManager.Core.Configuration.StorageOptions(), Microsoft.Extensions.Logging.Abstractions.NullLogger<WindowsSlipPrinter>.Instance)
+            .ListPrinters();
+        Assert.Equal(printers.Order(StringComparer.OrdinalIgnoreCase), printers); // sorted, and EnumPrinters didn't fail
+        Assert.All(printers, p => Assert.False(string.IsNullOrWhiteSpace(p)));
+    }
+
+    [Fact]
+    public async Task Choosing_a_printer_prints_slips_left_waiting()
+    {
+        var (db, service, clock, _) = Create();
+        using var _db = db;
+        await service.QueueAsync([AddOrder(db, 1001, clock.Now.UtcDateTime)], "tophattwaffle");
+        _jobs.Requests.Clear(); // that job failed: no printer yet
+        await service.SaveSettingsAsync(AutoPrintSettings.Default with { Printer = "Slip Printer" }, "tophattwaffle");
+        Assert.Equal(PrintSlipsJob.Type, Assert.Single(_jobs.Requests).JobType);
     }
 
     [Fact]

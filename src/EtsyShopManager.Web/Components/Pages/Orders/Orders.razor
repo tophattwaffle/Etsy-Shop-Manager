@@ -252,7 +252,7 @@
             }));
         // Items marked made in another browser (or on the dashboard): reload the open orders.
         MadeItems.Changed += OnMadeElsewhere;
-        // Slips queued or printed (print station, another browser): reload for the printed marks.
+        // Slips queued or printed (automatic printing, another browser): reload for the printed marks.
         AutoPrint.Changed += OnSlipsChanged;
         // Ship-by countdowns and "synced … ago" are relative to now: re-render every 30 s.
         _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
