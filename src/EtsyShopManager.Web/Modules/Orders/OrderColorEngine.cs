@@ -117,7 +117,9 @@ public sealed partial class OrderColorEngine
     }
 
     // The stacked layer (.multi::before) for multi-color filaments: each one's colors run top to bottom over its share of
-    // the box, tinted inside and full strength on the outline. "" when no group has more than one color.
+    // the box, tinted inside and full strength on the outline. "" when no group has more than one color. Where two
+    // filaments meet ("one in Nebula, one in Sunrise") the layer fades out too, so the left-to-right blend joins them
+    // rather than a hard seam.
     private static string MultiStyle(List<Group> groups, Func<string, string> tint)
     {
         if (!groups.Any(g => g.Colors.Count > 1)) return "";
@@ -127,14 +129,15 @@ public sealed partial class OrderColorEngine
         var multis = groups.Select((g, gi) => (g, gi)).Where(x => x.g.Colors.Count > 1).ToList();
         IEnumerable<string> Layer(Func<string, string> fn, string box) =>
             multis.Select(m => $"linear-gradient(180deg, {string.Join(", ", m.g.Colors.Select(fn))}) {At(m.gi)} {box}");
-        return $" --multi: {string.Join(", ", Layer(tint, "padding-box").Concat(Layer(c => c, "border-box")))}; --multi-mask: {ShareMask(groups, g => g.Colors.Count > 1)};";
+        return $" --multi: {string.Join(", ", Layer(tint, "padding-box").Concat(Layer(c => c, "border-box")))}; --multi-mask: {(groups.Count == 1 ? "none" : ShareMask(groups, g => g.Colors.Count > 1, fadeBetween: true))};";
     }
 
     // A left-to-right mask, opaque over the shares of the groups `pick` selects and transparent elsewhere, fading where a
-    // picked share meets another color (not at the box's own edges); "none" when every group is picked.
-    private static string ShareMask(List<Group> groups, Func<Group, bool> pick)
+    // picked share meets another color (not at the box's own edges); "none" when every group is picked, unless
+    // `fadeBetween` asks for a fade between neighbouring picked shares as well.
+    private static string ShareMask(List<Group> groups, Func<Group, bool> pick, bool fadeBetween = false)
     {
-        if (groups.All(pick)) return "none";
+        if (!fadeBetween && groups.All(pick)) return "none";
         var share = 100.0 / groups.Count;
         var fade = share / 4;
         var stops = groups.SelectMany((g, gi) =>
