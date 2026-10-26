@@ -6,11 +6,12 @@ this repository.
 Self-hosted Etsy manager for two shops: .NET 10, Blazor Web App (Interactive Server, MudBlazor), SQLite via EF Core,
 running as a Windows Service behind HAProxy (which terminates HTTPS). Everything must build and run on a Windows host;
 code is C# wherever possible and the UI is web-based. Full design and phase plan: `docs/PLAN.md`. Install/first run:
-`docs/SETUP.md`. CI/CD: `docs/DEPLOY.md`.
+`docs/SETUP.md`. CI/CD: `docs/DEPLOY.md`. What is left to do: `docs/BACKLOG.md`.
 
 **This app is the system of record for listings.** Edits happen here; changes made on Etsy.com are detected and flagged
-(drift), never silently overwritten. Phases 0–2 (foundation, import, orders + Home Assistant) are done; Phase 3's
-editor (listing fields, photos, variations, prices and processing; preview → push with snapshots; drift; auto-refill)
+(drift), never silently overwritten. All phases of `docs/PLAN.md` are done (0 foundation, 1 import, 2 orders + Home
+Assistant, 3 editor + push, 4 templates, 5 new listings from scratch + auto-refill); open work is in `docs/BACKLOG.md`.
+Phase 3's editor (listing fields, photos, variations, prices and processing; preview → push with snapshots; drift; auto-refill)
 is in, including category attributes and personalization (styles and featured rank stay read-only: Etsy's API
 can't change them on an existing listing). Photo pushes follow what Etsy was measured to do (`PhotoEditor`, docs/PLAN.md "Photos"): a photo's rank is
 just a number and setting one renumbers no other (ranks tie and have gaps), so a push sets every photo's rank 1..n
@@ -68,7 +69,6 @@ src/EtsyShopManager.Etsy   Etsy v3 client: OAuth+PKCE, token service, rate limit
 src/EtsyShopManager.Data   AppDbContext (SQLite + Identity), migrations
 src/EtsyShopManager.Web    Host (Program.cs), Blazor UI, setup wizard, job processor, feature modules
 tests/EtsyShopManager.Tests  xUnit
-ExistingHASS/              The old `etsyapp` integration and card, reference only
 ```
 
 ### Modules and events
@@ -125,7 +125,7 @@ threshold while the listing is active, on each new order (`OrderReceived`) and i
 ### Orders and Home Assistant
 `OrderPoller` polls receipts per shop (default every 5 min, set in Admin → Settings). `OrdersModule` exposes a
 read-only API at `/api/ha/v1` protected by API keys (`esm_…`, `ApiKeyEndpointFilter`). `HaPayloadBuilder` produces
-the exact attribute shape the old `etsyapp` sensor had, so the `etsy-orders-card` (its own repository) keeps working;
+the exact attribute shape the old `etsyapp` sensor had, so the dashboard card (`Etsy-Shop-Manager-HA-Card`) keeps working;
 keep that payload backward compatible (add keys, never change or remove them). Order images in the HA payload are
 Etsy's public CDN URLs.
 Order colors live only in the app: the list and look (`OrderColorService`, Order colors page) and the engine
@@ -179,6 +179,16 @@ really needs to change, update `docs/DESIGN.md` and the test together.
 `FakeEtsyShop` scripts Etsy's API (listings, receipts, failures mid-import/poll) for importer and poller tests;
 `TestSupport.cs` has `ImmediateTimeProvider` (timers fire instantly, delays recorded), `ScriptedHandler` for HTTP,
 and in-memory token/credential/event fakes. Inject `TimeProvider` rather than using `DateTime.UtcNow` so code stays testable.
+
+## Keeping the docs current
+- `docs/BACKLOG.md` is the one to-do list for the app and both Home Assistant repositories. Update it in the same PR
+  whenever you add, finish or drop work: add new items (with what is still to be decided), remove finished ones, move
+  dropped ones to Dropped with the reason, and correct the "Unverified until real pushes" list when a push settles one.
+- Keep the other docs true in the same PR as the change: `docs/PLAN.md` (design, decisions, implementation notes),
+  `docs/SETUP.md`, `docs/DEPLOY.md`, `docs/STAGING.md`, `docs/DESIGN.md`, `README.md` and this file. A PR that changes
+  behaviour, setup, deployment or UI rules and leaves a doc saying otherwise is not done.
+- These repositories are mirrored publicly: never write personal names or emails, private hostnames or LAN addresses,
+  tokens, or real order or customer data into code, docs or commit messages.
 
 ## Definition of done
 - Run lint and the relevant tests before saying a task is complete. If they fail, fix them or report the failure. Never claim success without running them.

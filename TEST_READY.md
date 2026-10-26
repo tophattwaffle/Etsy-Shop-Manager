@@ -1,5 +1,8 @@
 # Test Readiness & Coverage Report: Etsy Shop Manager (R1–R7)
 
+> **Historical.** Working notes from the R1–R7 expansion (merged in PR #104 and #105), kept for reference and not
+> updated. Current design and status: [docs/PLAN.md](docs/PLAN.md); what is left to do: [docs/BACKLOG.md](docs/BACKLOG.md).
+
 **Branch:** `feature/r1-r7-expansion`  
 **Test Suite Status:** Ready & Passing (All Tiers 1–4 Validated)  
 **Safety Status:** Zero live Etsy API writes; all verification executed against `FakeEtsyShop` in-memory harnesses.

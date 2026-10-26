@@ -1,5 +1,8 @@
 # Project: Etsy Shop Manager — Feature Expansion (R1–R7)
 
+> **Historical.** Working notes from the R1–R7 expansion (merged in PR #104 and #105), kept for reference and not
+> updated. Current design and status: [docs/PLAN.md](docs/PLAN.md); what is left to do: [docs/BACKLOG.md](docs/BACKLOG.md).
+
 ## Architecture
 - **Language & Runtime:** C# 13 / .NET 10
 - **Frameworks:** Blazor Web App (Interactive Server), MudBlazor, ASP.NET Core

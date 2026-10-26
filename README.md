@@ -4,7 +4,9 @@ Self-hosted manager for two Etsy shops. Runs as a Windows Service, web UI (Blazo
 device on the LAN or over VPN, behind HAProxy. This app is the system of record for listings; see
 [docs/PLAN.md](docs/PLAN.md) for the full design.
 
-**Status: Phases 0–2 implemented (foundation, listing import, orders + Home Assistant), and the first part of Phase 3: the listing editor with preview → push, drift handling and auto-refill.** Next: photo and variation editing.
+**Status: every phase of the plan is implemented** (foundation, listing import, orders + Home Assistant, the listing
+editor with preview → push and drift handling, templates, new listings and auto-refill). Phases 0–2 are summarised
+below; the rest is in [docs/PLAN.md](docs/PLAN.md). What is left to do: [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Quick start (Windows)
 
@@ -62,9 +64,10 @@ src/
   EtsyShopManager.Etsy/   OAuth/PKCE, token service, rate limiter, retry, API client
   EtsyShopManager.Data/   EF Core DbContext (SQLite), Identity stores, migrations
 tests/EtsyShopManager.Tests/
-scripts/                  install-prereqs, build, add-migration, install-service, deploy, grant-deploy-rights, uninstall-service
+scripts/                  install-prereqs, build, add-migration, install-service, deploy, grant-deploy-rights, uninstall-service,
+                          deploy-staging, list-staging, remove-staging
 .gitea/workflows/         deploy on push to master (self-hosted runner on the Windows host)
-docs/                     PLAN.md, SETUP.md, DEPLOY.md
+docs/                     PLAN.md, BACKLOG.md, SETUP.md, DEPLOY.md, STAGING.md, DESIGN.md
 ```
 
 ## Adding a feature module
