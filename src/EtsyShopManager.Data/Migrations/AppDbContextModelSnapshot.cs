@@ -743,6 +743,27 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ListingRefills");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingSlipDocument", b =>
+                {
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SlipDocumentId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ListingId");
+
+                    b.HasIndex("SlipDocumentId");
+
+                    b.ToTable("ListingSlipDocuments");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingSnapshot", b =>
                 {
                     b.Property<int>("Id")
@@ -1519,6 +1540,45 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ShopTokens");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.SlipDocument", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Heading")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<string>("QrCaption")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Url")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("SlipDocuments");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.SlipLayout", b =>
                 {
                     b.Property<int>("Id")
@@ -2132,6 +2192,25 @@ namespace EtsyShopManager.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Listing");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingSlipDocument", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithOne()
+                        .HasForeignKey("EtsyShopManager.Core.Domain.ListingSlipDocument", "ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EtsyShopManager.Core.Domain.SlipDocument", "SlipDocument")
+                        .WithMany()
+                        .HasForeignKey("SlipDocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+
+                    b.Navigation("SlipDocument");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingSnapshot", b =>

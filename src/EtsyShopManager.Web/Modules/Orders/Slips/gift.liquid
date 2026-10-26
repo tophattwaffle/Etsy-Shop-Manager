@@ -3,7 +3,7 @@
   (8.5 x 5.5 in) and two print on one sheet, cut apart in the middle: the order on the left (no prices) and, past a fold
   line, the gift side: "A gift for you" with gold sparkles, the item photo, the gift message and who it's from, and a QR
   code to the shop. Etsy's own logo and slogans aren't used, and the shop's name stays on the left so the gift doesn't
-  read as the shop's.
+  read as the shop's. Instructions linked to the order's listings go small under the items, for the recipient.
 {%- endcomment -%}
 {%- if order.address_changed %}
 {%- comment %}
@@ -62,6 +62,20 @@
         </div>
         {%- endfor %}
         {%- if order.seller_note %}<div class="gift-seller-note"><div class="gift-strong">Note from {{ shop.name }}</div><div>{{ order.seller_note }}</div></div>{% endif %}
+        {%- for doc in documents %}
+        <div class="gift-doc">
+            {%- if doc.qr_code %}
+            <div class="gift-doc-qr">
+                <div class="gift-doc-code">{{ doc.qr_code | raw }}</div>
+                {%- if doc.qr_caption %}<div>{{ doc.qr_caption }}</div>{% endif %}
+            </div>
+            {%- endif %}
+            <div class="gift-doc-text">
+                {%- if doc.heading %}<div class="gift-strong">{{ doc.heading }}</div>{% endif %}
+                {%- if doc.text %}<div>{{ doc.text }}</div>{% endif %}
+            </div>
+        </div>
+        {%- endfor %}
     </div>
 
     <div class="gift-right">

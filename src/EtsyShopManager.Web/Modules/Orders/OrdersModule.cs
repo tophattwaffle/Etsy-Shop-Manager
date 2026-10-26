@@ -28,6 +28,7 @@ public sealed class OrdersModule : IModule
         services.AddSingleton<OrderPrintService>();
         services.AddSingleton<OrderOverrideService>();
         services.AddSingleton<SlipLayoutService>();
+        services.AddSingleton<SlipDocumentService>();
         services.AddSingleton<OrderMadeService>();
         services.AddSingleton<AutoPrintService>();
         services.AddSingleton<ISlipPrinter, WindowsSlipPrinter>();

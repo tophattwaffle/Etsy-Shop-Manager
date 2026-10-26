@@ -181,7 +181,7 @@ public class OrderPrintTests
         Assert.Contains("Mini Caution Sign", await RenderAsync<PrintPickList>(db, settings, "orders/print/pick?ids=1"));
     }
 
-    private static async Task SeedAsync(TestDb db, bool firstIsGift, bool closed = false)
+    internal static async Task SeedAsync(TestDb db, bool firstIsGift, bool closed = false)
     {
         await using var ctx = db.CreateDbContext();
         ctx.Shops.Add(new Shop
@@ -517,7 +517,7 @@ public class OrderPrintTests
 
     private static int CountOf(string text, string part) => (text.Length - text.Replace(part, "").Length) / part.Length;
 
-    private static async Task<string> RenderAsync<T>(TestDb db, InMemorySettings settings, string relativeUrl) where T : IComponent
+    internal static async Task<string> RenderAsync<T>(TestDb db, InMemorySettings settings, string relativeUrl) where T : IComponent
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -527,6 +527,7 @@ public class OrderPrintTests
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<OrderPrintService>();
         services.AddSingleton<SlipLayoutService>();
+        services.AddSingleton<SlipDocumentService>();
         services.AddSingleton<ShopAccentService>();
         services.AddSingleton<NavigationManager>(new TestNavigation("http://localhost/" + relativeUrl));
         services.AddSupplyValueFromQueryProvider();

@@ -1,0 +1,80 @@
+@using EtsyShopManager.Web.Modules.Orders
+@inject SlipDocumentService Documents
+@inject ISnackbar Snackbar
+
+@* The instructions (if any) this listing prints on the packing slips of its orders. Saved as soon as one is picked; the
+   instructions themselves are written on the Packing slips page. Local only: Etsy never sees them. *@
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+        <MudText Typo="Typo.h6">Packing slip instructions</MudText>
+        <AuthorizeView Roles="@Roles.Admin">
+            <MudButton Variant="Variant.Text" Size="Size.Small" Href="@(_linked is { } id ? $"packing-slips/instructions/{id}" : "packing-slips/instructions/new")">
+                @(_linked is null ? "Write new instructions" : "Edit these instructions")
+            </MudButton>
+        </AuthorizeView>
+    </MudStack>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Printed at the bottom of the packing slip (and on the gift slip) of every order with this listing: some text and a
+        QR code to a link, such as care instructions or a how-to video. Kept in this app only.
+    </MudText>
+
+    @if (_documents is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else
+    {
+        <AuthorizeView Roles="@Roles.Admin">
+            <Authorized>
+                @if (_documents.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">No instructions written yet.</MudText>
+                }
+                else
+                {
+                    <MudSelect T="int" Value="@(_linked ?? 0)" ValueChanged="LinkAsync" Label="Instructions" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" Disabled="_saving">
+                        <MudSelectItem Value="0">None</MudSelectItem>
+                        @foreach (var d in _documents) { <MudSelectItem Value="d.Id">@d.Name</MudSelectItem> }
+                    </MudSelect>
+                }
+            </Authorized>
+            <NotAuthorized>
+                <MudText Typo="Typo.body2">@(_documents.FirstOrDefault(d => d.Id == _linked)?.Name ?? "None.")</MudText>
+            </NotAuthorized>
+        </AuthorizeView>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public int ListingId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<SlipDocumentSummary>? _documents;
+    private int? _linked;
+    private bool _saving;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _documents = await Documents.ListAsync();
+        _linked = await Documents.GetLinkedAsync(ListingId);
+    }
+
+    private async Task LinkAsync(int id)
+    {
+        _saving = true;
+        try
+        {
+            int? documentId = id == 0 ? null : id;
+            var error = await Documents.LinkAsync([ListingId], documentId, (await AuthState).User.Identity?.Name);
+            if (error is null) _linked = documentId;
+            Snackbar.Add(error ?? (documentId is null ? "This listing prints no instructions now"
+                : $"This listing now prints {_documents?.FirstOrDefault(d => d.Id == id)?.Name}"), error is null ? Severity.Success : Severity.Warning);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

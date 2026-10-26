@@ -1,0 +1,273 @@
+@page "/packing-slips/instructions/new"
+@page "/packing-slips/instructions/{Id:int}"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Core.Domain
+@using EtsyShopManager.Web.Modules.Orders
+@using EtsyShopManager.Web.Modules.Shops
+@inject SlipDocumentService Documents
+@inject SlipLayoutService Layouts
+@inject OrderPrintService Print
+@inject ShopService Shops
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Edits one set of listing instructions (SlipDocument): the text and QR code link printed on the packing slips of orders
+   with a linked listing, the listings it's linked to, and a preview on the shop's own packing or gift slip. *@
+<PageTitle>@Title · Etsy Shop Manager</PageTitle>
+
+<MudLink Href="packing-slips" Class="d-inline-flex align-center mb-2">
+    <MudIcon Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="mr-1" /> Packing slips
+</MudLink>
+
+@if (!_loaded)
+{
+    <PageHeader Title="Listing instructions" />
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Id is not null && _savedId == 0)
+{
+    <PageHeader Title="Listing instructions" />
+    <MudAlert Severity="Severity.Warning">These instructions no longer exist.</MudAlert>
+}
+else
+{
+    <PageHeader Title="@Title">
+        <Summary>
+            Printed at the bottom of the packing slip (and on the gift slip) of every order with a linked listing. Changes reach
+            printouts once saved.
+        </Summary>
+        <Actions>
+            @if (_savedId != 0)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete instructions</MudButton>
+            }
+            <SaveButtons Text="Save instructions" Changed="@(_form?.Changed == true)" New="@(_savedId == 0)" OnSave="SaveAsync" OnCancel="CancelAsync" />
+        </Actions>
+    </PageHeader>
+
+    <MudGrid>
+        <MudItem xs="12" lg="6">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" GutterBottom="true">Instructions</MudText>
+                <MudTextField T="string" Value="_name" ValueChanged="NameChanged" Label="Name" Variant="Variant.Outlined" Immediate="true"
+                              Margin="Margin.Dense" MaxLength="@SlipDocumentService.MaxNameLength" Class="mb-3"
+                              HelperText="What it's called in this app (not printed)" />
+                <MudTextField T="string" Value="_heading" ValueChanged="HeadingChanged" Label="Heading" Variant="Variant.Outlined" Immediate="true"
+                              Margin="Margin.Dense" MaxLength="@SlipDocumentService.MaxHeadingLength" Class="mb-3"
+                              Placeholder="Caring for your item" HelperText="Printed in bold above the text. Optional." />
+                <MudTextField T="string" Value="_text" ValueChanged="TextChanged" Label="Text" Lines="6" Variant="Variant.Outlined" Immediate="true"
+                              DebounceInterval="300" MaxLength="@SlipDocumentService.MaxTextLength" Counter="@SlipDocumentService.MaxTextLength"
+                              Class="mb-3" HelperText="Keep it short so the slip stays on one page. Line breaks are kept." />
+                <MudTextField T="string" Value="_url" ValueChanged="UrlChanged" Label="QR code link" Variant="Variant.Outlined" Immediate="true"
+                              DebounceInterval="300" Margin="Margin.Dense" MaxLength="@SlipDocumentService.MaxUrlLength" Class="mb-3"
+                              Placeholder="https://" HelperText="Where the QR code goes, such as a video or a page of instructions. Empty for no QR code." />
+                <MudTextField T="string" Value="_caption" ValueChanged="CaptionChanged" Label="Under the QR code" Variant="Variant.Outlined" Immediate="true"
+                              Margin="Margin.Dense" MaxLength="@SlipDocumentService.MaxCaptionLength" Disabled="@string.IsNullOrWhiteSpace(_url)"
+                              Placeholder="Watch the video" HelperText="A few words saying what the code opens. Optional." />
+                @if (_problem is not null)
+                {
+                    <MudText Typo="Typo.body2" Class="error-text mt-2">@_problem</MudText>
+                }
+            </MudPaper>
+
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.h6" GutterBottom="true">Listings (@_linked.Count)</MudText>
+                @if (_savedId == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">Save the instructions first, then link them to listings.</MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="muted mb-3">
+                        Orders with any of these listings print the instructions, once per order however many of the listings it
+                        has. A listing prints one set of instructions, so linking one here replaces any it had.
+                    </MudText>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2" Class="mb-2">
+                        <MudAutocomplete T="SlipDocumentListing" Value="@_pick" ValueChanged="Pick" SearchFunc="SearchAsync" DebounceInterval="250"
+                                         ToStringFunc="@(l => l is null ? "" : $"{l.Title} · {l.ShopName}")" Label="Find a listing by title or Etsy id"
+                                         Variant="Variant.Outlined" Margin="Margin.Dense" ResetValueOnEmptyText="true" Class="esm-w-lg" />
+                        <MudButton Variant="Variant.Outlined" Disabled="@(_pick is null)" OnClick="LinkAsync">Link listing</MudButton>
+                    </MudStack>
+                    @if (_pick?.LinkedTo is { } other && _pick.LinkedTo != _name)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-2">It prints @other now; linking replaces that.</MudText>
+                    }
+                    @if (_linked.Count > 0)
+                    {
+                        <MudSimpleTable Dense="true" Hover="true" Class="esm-stack-table">
+                            <thead>
+                                <tr>
+                                    <SortHeader Sort="_linkedSort" Column="title" Changed="StateHasChanged">Listing</SortHeader>
+                                    <SortHeader Sort="_linkedSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                                    <SortHeader Sort="_linkedSort" Column="state" Changed="StateHasChanged">State</SortHeader>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var l in _linkedSort.Apply(_linked))
+                                {
+                                    <tr>
+                                        <td><MudLink Href="@($"listings/{l.Id}")">@l.Title</MudLink></td>
+                                        <td data-label="Shop">@l.ShopName</td>
+                                        <td data-label="State">@l.State</td>
+                                        <td class="text-right">
+                                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => UnlinkAsync(l)">Unlink</MudButton>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="6">
+            <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+                    <MudText Typo="Typo.h6">Preview</MudText>
+                    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                        <MudSelect T="SlipKind" Value="_previewKind" ValueChanged="PreviewKindChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Class="esm-minw-md" aria-label="Preview on">
+                            <MudSelectItem Value="SlipKind.Packing">Packing slip</MudSelectItem>
+                            <MudSelectItem Value="SlipKind.Gift">Gift slip</MudSelectItem>
+                        </MudSelect>
+                        @if (_shops.Count > 1)
+                        {
+                            <MudSelect T="int" Value="_previewShop" ValueChanged="PreviewShopChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       Class="esm-minw-md" aria-label="Preview for shop">
+                                @foreach (var s in _shops) { <MudSelectItem Value="s.Id">@s.Name</MudSelectItem> }
+                            </MudSelect>
+                        }
+                    </MudStack>
+                </MudStack>
+                <MudText Typo="Typo.body2" Class="muted mb-2">A made-up order on the layout the shop prints, with these instructions.</MudText>
+                <iframe class="esm-slip-preview" title="Slip preview" sandbox="allow-same-origin" srcdoc="@_preview"></iframe>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private bool _loaded;
+    private int _savedId;
+    private string _name = "";
+    private string _heading = "";
+    private string _text = "";
+    private string _url = "";
+    private string _caption = "";
+    private SavedValues<(string Name, string Heading, string Text, string Url, string Caption)>? _form;
+    private string? _problem;
+    private string _preview = "";
+    private List<ShopSummary> _shops = [];
+    private int _previewShop;
+    private SlipKind _previewKind = SlipKind.Packing;
+    private List<SlipDocumentListing> _linked = [];
+    private SlipDocumentListing? _pick;
+
+    private readonly TableSort<SlipDocumentListing> _linkedSort = new()
+    {
+        ["title"] = l => l.Title,
+        ["shop"] = l => l.ShopName,
+        ["state"] = l => l.State,
+    };
+
+    private string Title => _savedId != 0 ? _name : "New listing instructions";
+
+    private SlipDocument Current => new() { Id = _savedId, Name = _name, Heading = _heading, Text = _text, Url = _url, QrCaption = _caption };
+
+    private bool Empty => string.IsNullOrWhiteSpace(_text) && string.IsNullOrWhiteSpace(_url);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _shops = await Shops.ListAsync(includeInactive: false);
+        _previewShop = _shops.FirstOrDefault()?.Id ?? 0;
+        if (Id is { } id && await Documents.GetAsync(id) is { } doc)
+        {
+            (_savedId, _name, _heading, _text, _url, _caption) = (doc.Id, doc.Name, doc.Heading ?? "", doc.Text, doc.Url ?? "", doc.QrCaption ?? "");
+            _linked = await Documents.LinkedListingsAsync(doc.Id);
+        }
+        _form = new(() => (_name, _heading, _text, _url, _caption), v => (_name, _heading, _text, _url, _caption) = v);
+        _loaded = true;
+        await RefreshPreviewAsync();
+    }
+
+    private void NameChanged(string value) => _name = value ?? "";
+    private Task HeadingChanged(string value) { _heading = value ?? ""; return RefreshPreviewAsync(); }
+    private Task TextChanged(string value) { _text = value ?? ""; return RefreshPreviewAsync(); }
+    private Task UrlChanged(string value) { _url = value ?? ""; return RefreshPreviewAsync(); }
+    private Task CaptionChanged(string value) { _caption = value ?? ""; return RefreshPreviewAsync(); }
+    private Task PreviewShopChanged(int shopId) { _previewShop = shopId; return RefreshPreviewAsync(); }
+    private Task PreviewKindChanged(SlipKind kind) { _previewKind = kind; return RefreshPreviewAsync(); }
+
+    private async Task RefreshPreviewAsync()
+    {
+        // Shown while typing: a link that can't be a QR code, or text that's too long (a missing name waits for Save).
+        var draft = Current;
+        draft.Name = "-";
+        _problem = Empty ? null : SlipDocumentService.Check(draft);
+        var shopId = _previewShop == 0 ? (int?)null : _previewShop;
+        var layout = shopId is { } s ? (await Layouts.ResolveAsync([s]))[(s, _previewKind)] : SlipLayoutService.BuiltIn(_previewKind);
+        SlipDocumentText[] documents = _problem is null && !Empty ? [SlipDocumentText.Of(Current)] : [];
+        _preview = await Layouts.PreviewAsync(_previewKind, layout.Html, layout.Css, shopId, Nav.BaseUri, Print, documents: documents);
+    }
+
+    private async Task SaveAsync()
+    {
+        var (id, error) = await Documents.SaveAsync(Current, (await AuthState).User.Identity?.Name);
+        if (error is not null)
+        {
+            Snackbar.Add(error, Severity.Warning);
+            return;
+        }
+        Snackbar.Add($"Saved {_name.Trim()}", Severity.Success);
+        _form?.Accept();
+        if (_savedId == 0)
+        {
+            _savedId = id;
+            Nav.NavigateTo($"packing-slips/instructions/{id}", replace: true);
+        }
+    }
+
+    private Task CancelAsync()
+    {
+        _form?.Revert();
+        return RefreshPreviewAsync();
+    }
+
+    private async Task DeleteAsync()
+    {
+        var linked = _linked.Count == 0 ? "" : $" The {_linked.Count} linked listing{(_linked.Count == 1 ? "" : "s")} will print no instructions.";
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Delete instructions", $"Delete {_name}?{linked} This can't be undone.",
+            yesText: "Delete instructions", cancelText: "Cancel");
+        if (confirmed != true) return;
+        await Documents.DeleteAsync(_savedId, (await AuthState).User.Identity?.Name);
+        Snackbar.Add($"Deleted {_name}", Severity.Success);
+        Nav.NavigateTo("packing-slips");
+    }
+
+    private async Task<IEnumerable<SlipDocumentListing>> SearchAsync(string? text, CancellationToken ct) =>
+        await Documents.SearchListingsAsync(text, ct: ct);
+
+    private void Pick(SlipDocumentListing? listing) => _pick = listing;
+
+    private async Task LinkAsync()
+    {
+        if (_pick is not { } listing) return;
+        var error = await Documents.LinkAsync([listing.Id], _savedId, (await AuthState).User.Identity?.Name);
+        Snackbar.Add(error ?? $"{listing.Title} now prints {_name}", error is null ? Severity.Success : Severity.Warning);
+        _pick = null;
+        _linked = await Documents.LinkedListingsAsync(_savedId);
+    }
+
+    private async Task UnlinkAsync(SlipDocumentListing listing)
+    {
+        await Documents.LinkAsync([listing.Id], null, (await AuthState).User.Identity?.Name);
+        Snackbar.Add($"{listing.Title} prints no instructions now", Severity.Success);
+        _linked = await Documents.LinkedListingsAsync(_savedId);
+    }
+}

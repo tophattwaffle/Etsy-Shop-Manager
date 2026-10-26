@@ -41,6 +41,12 @@
 .gift-item-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 13pt; }
 .gift-qty { padding-top: 4pt; }
 .gift-seller-note { margin-top: 18pt; white-space: pre-line; }
+/* Instructions linked to the order's listings (documents), small under the items: a QR code with the text beside it. */
+.gift-doc { display: flex; gap: 8pt; align-items: flex-start; margin-top: 14pt; font-size: 7.5pt; line-height: 9.5pt; break-inside: avoid; }
+.gift-doc-text { flex: 1; min-width: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.gift-doc-qr { flex: none; width: 48pt; text-align: center; font-size: 6.5pt; line-height: 8pt; }
+.gift-doc-code { width: 40pt; height: 40pt; margin: 0 auto 2pt; }
+.gift-doc-code svg { display: block; width: 100%; height: 100%; }
 .gift-right { position: absolute; left: 306pt; right: 0; top: 7pt; bottom: 0; text-align: center; }
 /* A small serif headline where Etsy has its wordmark, with five gold hand-drawn sparkles: two beside it, three below. */
 .gift-head { position: relative; width: 190pt; margin: 22pt auto 0; height: 60pt; }

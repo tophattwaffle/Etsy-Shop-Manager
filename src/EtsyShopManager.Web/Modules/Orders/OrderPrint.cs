@@ -271,9 +271,12 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
     /// A QR code (inline SVG, sized by CSS) linking to the shop's Etsy page, for the bottom of gift slips. Drawn here, so
     /// the printout needs nothing from outside the app.
     /// </summary>
-    public static string ShopQrSvg(Shop shop)
+    public static string ShopQrSvg(Shop shop) => QrSvg($"https://{ShopAddress(shop)}");
+
+    /// <summary>A QR code (inline SVG, sized by CSS) for a link, drawn here so the printout needs nothing from outside.</summary>
+    public static string QrSvg(string url)
     {
-        using var data = new QRCoder.QRCodeGenerator().CreateQrCode($"https://{ShopAddress(shop)}", QRCoder.QRCodeGenerator.ECCLevel.M);
+        using var data = new QRCoder.QRCodeGenerator().CreateQrCode(url, QRCoder.QRCodeGenerator.ECCLevel.M);
         return new QRCoder.SvgQRCode(data).GetGraphic(4, "#000000", "#ffffff", drawQuietZones: false,
             sizingMode: QRCoder.SvgQRCode.SizingMode.ViewBoxAttribute);
     }

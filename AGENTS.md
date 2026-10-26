@@ -147,6 +147,10 @@ Packing slips (the Packing slips section) are Liquid templates rendered with Flu
 packing and gift layouts are embedded from `Modules/Orders/Slips`, Admins save copies as `SlipLayout` rows, and each shop
 picks one per kind. A gift slip is half a sheet and `SlipSheets` prints two per sheet (a gift with a changed address gets a sheet of its own, the note in the cut-away top half). A layout's CSS is nested under `.slip-layout-{key}` so it only reaches its own slips; values are
 HTML-encoded unless a template uses `| raw`. Change the built-in look in those files, not in Razor.
+Listing instructions (`SlipDocument`, `SlipDocumentService`, Packing slips page) are text plus a QR code link linked to
+listings (one per listing, `ListingSlipDocuments`); a slip's `documents` holds those of the order's listings, each once,
+printed at the foot of the packing slip (two to a row when there are several, so it stays one page) and under the items
+on the gift slip. Layouts saved before this need a `{% for doc in documents %}` block to print them.
 Automatic printing (`AutoPrint.cs`): slips join a queue (`Order.SlipQueuedAtUtc`, by the timing mode set on the Packing
 slips page: on `OrderReceived`, or a daily batch from `AutoPrintScheduler`) and `PrintSlipsJob` prints it on the host
 printer chosen there (`WindowsSlipPrinter`: headless Edge prints `orders/print/slips` from the app's own local address to

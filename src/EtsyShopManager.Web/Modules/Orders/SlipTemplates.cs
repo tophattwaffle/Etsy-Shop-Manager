@@ -42,9 +42,47 @@ public sealed record SlipOrder(long ReceiptId, string OrderDate, string? ShipBy,
 public sealed record SlipItem(string Title, IReadOnlyList<string> Variations, string? Personalization, int Quantity, string Price,
     string? ImageUrl);
 
-/// <summary>Everything a slip layout can print: <c>shop</c>, <c>order</c> and <c>items</c>.</summary>
+/// <summary>
+/// Instructions linked to a listing in the order (<c>doc.heading</c>, <c>doc.text</c>, …; <see cref="SlipDocument"/>).
+/// </summary>
+/// <param name="QrCode">A QR code to <paramref name="Url"/>, as SVG markup (<c>{{ doc.qr_code | raw }}</c>); nil without a link.</param>
+public sealed record SlipDocumentText(string? Heading, string? Text, string? Url, string? QrCaption, string? QrCode)
+{
+    public static SlipDocumentText Of(SlipDocument doc) => new(
+        string.IsNullOrWhiteSpace(doc.Heading) ? null : doc.Heading, string.IsNullOrWhiteSpace(doc.Text) ? null : doc.Text,
+        string.IsNullOrWhiteSpace(doc.Url) ? null : doc.Url,
+        string.IsNullOrWhiteSpace(doc.QrCaption) ? null : doc.QrCaption,
+        string.IsNullOrWhiteSpace(doc.Url) ? null : OrderPrintService.QrSvg(doc.Url));
+}
+
+/// <summary>Everything a slip layout can print: <c>shop</c>, <c>order</c>, <c>items</c> and <c>documents</c>.</summary>
 public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<SlipItem> Items)
 {
+    /// <summary>
+    /// The instructions linked to the order's listings (Packing slips page), each once, in the order of the items that
+    /// brought them.
+    /// </summary>
+    public IReadOnlyList<SlipDocumentText> Documents { get; init; } = [];
+
+    /// <summary>
+    /// The instructions for an order's items, each once, in item order. <paramref name="byEtsyListing"/> maps an Etsy
+    /// listing id to the instructions it prints (<see cref="SlipDocumentService.ForEtsyListingsAsync"/>).
+    /// </summary>
+    public static IReadOnlyList<SlipDocumentText> DocumentsFor(Order order, IReadOnlyDictionary<long, SlipDocument> byEtsyListing) =>
+    [
+        .. order.Items.OrderBy(i => i.EtsyTransactionId)
+            .Select(i => i.EtsyListingId is { } id ? byEtsyListing.GetValueOrDefault(id) : null)
+            .OfType<SlipDocument>().DistinctBy(d => d.Id).Select(SlipDocumentText.Of),
+    ];
+
+    /// <summary>Made-up instructions for previews of a layout.</summary>
+    public static SlipDocumentText SampleDocument => SlipDocumentText.Of(new SlipDocument
+    {
+        Heading = "Caring for your item",
+        Text = "Wipe clean with a soft, damp cloth. Keep it out of direct sunlight so the colors stay bright. Scan the code for a short video.",
+        Url = "https://www.etsy.com", QrCaption = "Watch the video",
+    });
+
     /// <summary>A shop's own slip settings (Packing slips page) that go on its slips.</summary>
     /// <param name="DefaultGiftMessage">Printed as the gift message when the buyer wrote none (Packing slips page).</param>
     /// <param name="FromLines">The ships-from address, one line each (Packing slips page).</param>
@@ -186,6 +224,7 @@ public static class SlipRenderer
         options.MemberAccessStrategy.Register<SlipOrder>();
         options.MemberAccessStrategy.Register<SlipItem>();
         options.MemberAccessStrategy.Register<SlipTotal>();
+        options.MemberAccessStrategy.Register<SlipDocumentText>();
         return options;
     }
 
@@ -360,8 +399,9 @@ public sealed class SlipLayoutService(IDbContextFactory<AppDbContext> dbFactory,
     /// A whole page showing a layout as it would print for <paramref name="shopId"/> (its name, icon and slip settings)
     /// with a made-up order, for the editor's preview frame. Scaled down to fit beside the editor.
     /// </summary>
+    /// <param name="documents">The instructions on the first slip (made-up ones when null).</param>
     public async Task<string> PreviewAsync(SlipKind kind, string html, string css, int? shopId, string baseUri, OrderPrintService print,
-        CancellationToken ct = default)
+        CancellationToken ct = default, IReadOnlyList<SlipDocumentText>? documents = null)
     {
         Shop? shop;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
@@ -375,7 +415,8 @@ public sealed class SlipLayoutService(IDbContextFactory<AppDbContext> dbFactory,
         // A gift slip is half a sheet: show a whole sheet with two made-up gift orders, as they print.
         var slips = new List<PrintedSlip>
         {
-            new(kind, "preview", await SlipRenderer.RenderAsync(html, SlipModel.Sample(shop, settings, kind), cache: false)),
+            new(kind, "preview", await SlipRenderer.RenderAsync(html,
+                SlipModel.Sample(shop, settings, kind) with { Documents = documents ?? [SlipModel.SampleDocument] }, cache: false)),
         };
         if (kind == SlipKind.Gift)
             slips.Add(new(kind, "preview", await SlipRenderer.RenderAsync(html, SlipModel.Sample(shop, settings, kind, second: true), cache: false)));
