@@ -111,6 +111,16 @@ public class OrderColorTests
     }
 
     [Fact]
+    public void Two_filaments_side_by_side_fade_into_each_other()
+    {
+        var box = Engine().Box("one in nebula. and one in sunrise", "s", small: false);
+
+        Assert.Equal(" colored multi", box.Cls);
+        // Each filament's stack fades out where they meet, so the left-to-right blend joins them without a seam.
+        Assert.Contains("--multi-mask: linear-gradient(90deg, #000 0%, #000 37.5%, transparent 50.0%, transparent 50.0%, #000 62.5%, #000 100%);", box.Style);
+    }
+
+    [Fact]
     public void Random_boxes_are_seeded_and_follow_the_look()
     {
         var engine = Engine();
