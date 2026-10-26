@@ -44,9 +44,24 @@ be messaged before the order is made. Shipping labels and tracking stay out of s
 
 ### Personalization verification
 Rules per listing that check the buyer's personalization and flag orders that don't match, for example exactly 2
-colours when the listing asks for 2, or at least 1 switch type on clicker fidgets. Possibly regular expressions.
-Details still to be decided with TopHATTwaffle before building: how rules are written (regex or a simpler form), whether
-they can be shared between listings like templates, and where a failed check shows.
+colours when the listing asks for 2, or at least 1 switch type on clicker fidgets. Design agreed with TopHATTwaffle
+(2026-10-26):
+
+- **Rule types** (buyers write free text such as "1 mint 1 pink" or "two linear, two tactile", so regular expressions
+  alone would be brittle):
+  - *Colour count:* the text names between a minimum and a maximum number of colours, counted with
+    `OrderColorEngine.ColorsIn` (a multi-colour filament counts once), so it agrees with the colour boxes.
+  - *Must mention one of:* a word list with synonyms (for example linear / tactile / clicky).
+  - *Not empty:* the personalization was filled in.
+  - *Regular expression:* for anything the others can't express.
+- Counts scale with the item's quantity (a rule of 2 colours on a line of 2 units expects 4); may be adjusted later.
+- "Random" (as `OrderColorEngine.IsRandom` recognises it) always passes.
+- Rules are named and shared like templates: one rule links to many listings, and a listing can have several.
+- **When:** checked locally (no outside service) when an order arrives and again whenever its personalization is
+  changed through `OrderOverrides`; a rule or link change rechecks open orders.
+- **Shows** like the address alert: an alert on the order card naming the failed rule, a **Looks fine** button that
+  dismisses it for that text, the same HA payload keys, card blurb and card alert, and an on/off toggle on its own
+  settings page (where rules are also managed).
 
 ## Unverified until real pushes
 Behaviour that can only be confirmed by TopHATTwaffle's own pushes to the real shops (the app is never tested against
