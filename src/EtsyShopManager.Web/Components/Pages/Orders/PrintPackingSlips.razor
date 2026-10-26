@@ -6,11 +6,12 @@
 @using EtsyShopManager.Web.Modules.Orders
 @inject OrderPrintService Print
 @inject SlipLayoutService Layouts
+@inject SlipDocumentService Documents
 
 @* Static SSR printout: one slip per selected order. Each shop prints its own layouts (Packing slips page): the packing
    slip for ordinary orders, one per sheet, and the gift slip (no prices, half a sheet) for gift orders, two per sheet
-   (SlipSheets). The built-in layouts look like Etsy's unless the shop was given others. Read-only: nothing is marked
-   shipped. *@
+   (SlipSheets). The built-in layouts look like Etsy's unless the shop was given others. Instructions linked to an
+   order's listings print on its slip. Read-only: nothing is marked shipped. *@
 <PageTitle>Packing slips · Etsy Shop Manager</PageTitle>
 
 @if (_sheets.Count == 0)
@@ -38,6 +39,7 @@ else
         var shopIds = orders.Select(o => o.ShopId).Distinct().ToList();
         var shops = await Print.GetShopSettingsAsync(shopIds);
         var layouts = await Layouts.ResolveAsync(shopIds);
+        var documents = await Documents.ForEtsyListingsAsync(orders.SelectMany(o => o.Items).Select(i => i.EtsyListingId).OfType<long>());
 
         var used = new Dictionary<string, SlipLayout>();
         var slips = new List<PrintedSlip>();
@@ -47,7 +49,7 @@ else
             var layout = layouts[(o.ShopId, kind)];
             var key = SlipLayoutService.ScopeKey(layout);
             used.TryAdd(key, layout);
-            var model = SlipModel.For(o, shops[o.ShopId]);
+            var model = SlipModel.For(o, shops[o.ShopId]) with { Documents = SlipModel.DocumentsFor(o, documents) };
             // A gift with a changed address uses its sheet's top half for the note to change the label.
             slips.Add(new PrintedSlip(kind, key, await SlipRenderer.RenderAsync(layout.Html, model), OwnSheet: model.Order.AddressChanged));
         }

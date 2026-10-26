@@ -1,6 +1,7 @@
 {%- comment -%}
   The built-in packing slip, laid out like Etsy's own: the shop at the top; ship-to and order details on the left; the
-  shop's note, the items and the totals on the right. The Packing slips page lists every value you can use.
+  shop's note, the items and the totals on the right; and at the bottom of the page, the instructions linked to the
+  order's listings, side by side when there are several. The Packing slips page lists every value you can use.
 {%- endcomment -%}
 <section class="slip">
     <header class="slip-shop">
@@ -111,4 +112,23 @@
             {%- if order.seller_note %}<div class="slip-note"><span class="slip-label">Note from {{ shop.name }}</span><div class="slip-pre">{{ order.seller_note }}</div></div>{% endif %}
         </div>
     </div>
+
+    {%- if documents.size > 0 %}
+    <footer class="slip-docs{% if documents.size > 1 %} slip-docs-many{% endif %}">
+        {%- for doc in documents %}
+        <div class="slip-doc">
+            <div class="slip-doc-text">
+                {%- if doc.heading %}<div class="slip-doc-heading">{{ doc.heading }}</div>{% endif %}
+                {%- if doc.text %}<div class="slip-pre">{{ doc.text }}</div>{% endif %}
+            </div>
+            {%- if doc.qr_code %}
+            <div class="slip-doc-qr">
+                <div class="slip-doc-code">{{ doc.qr_code | raw }}</div>
+                {%- if doc.qr_caption %}<div>{{ doc.qr_caption }}</div>{% endif %}
+            </div>
+            {%- endif %}
+        </div>
+        {%- endfor %}
+    </footer>
+    {%- endif %}
 </section>

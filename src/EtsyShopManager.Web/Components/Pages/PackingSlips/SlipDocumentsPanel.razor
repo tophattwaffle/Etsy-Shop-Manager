@@ -1,0 +1,81 @@
+@using EtsyShopManager.Web.Modules.Listings
+@using EtsyShopManager.Web.Modules.Orders
+@inject SlipDocumentService Documents
+
+@* The Packing slips page's listing instructions (SlipDocument): text and a QR code link that print on the slips of orders
+   with a linked listing. Each is edited, and linked to listings, on SlipDocumentPage; a listing's page links one too. *@
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+        <MudText Typo="Typo.h6">Listing instructions (@(_documents?.Count ?? 0))</MudText>
+        @if (_isAdmin)
+        {
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" Href="packing-slips/instructions/new">New instructions</MudButton>
+        }
+    </MudStack>
+    <MudText Typo="Typo.body2" Class="muted mb-3">
+        Some text and a QR code to a link (care instructions, a how-to video) printed at the bottom of the packing slip, and
+        on the gift slip, of every order with a linked listing. An order with several linked listings prints each set once,
+        side by side, so the slip stays on one page. Layouts you made before this print them once you add
+        <code>{% for doc in documents %}</code> (copy the part from the built-in layout).
+    </MudText>
+
+    @if (_documents is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_documents.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">None yet.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Class="esm-stack-table">
+            <thead>
+                <tr>
+                    <SortHeader Sort="_sort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                    <SortHeader Sort="_sort" Column="heading" Changed="StateHasChanged">Heading</SortHeader>
+                    <SortHeader Sort="_sort" Column="qr" Changed="StateHasChanged">QR code</SortHeader>
+                    <SortHeader Sort="_sort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                    <SortHeader Sort="_sort" Column="updated" Changed="StateHasChanged">Updated</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var d in _sort.Apply(_documents))
+                {
+                    <tr>
+                        <td>
+                            @if (_isAdmin) { <MudLink Href="@($"packing-slips/instructions/{d.Id}")">@d.Name</MudLink> }
+                            else { @d.Name }
+                        </td>
+                        <td data-label="Heading">@(d.Heading ?? "—")</td>
+                        <td data-label="QR code">@(d.Url is null ? "None" : "Yes")</td>
+                        <td data-label="Listings">@d.Listings</td>
+                        <td data-label="Updated">@ListingFormat.Local(d.UpdatedAtUtc)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<SlipDocumentSummary>? _documents;
+    private bool _isAdmin;
+
+    private readonly TableSort<SlipDocumentSummary> _sort = new()
+    {
+        ["name"] = d => d.Name,
+        ["heading"] = d => d.Heading ?? "",
+        ["qr"] = d => d.Url is null ? 0 : 1,
+        ["listings"] = d => d.Listings,
+        ["updated"] = d => d.UpdatedAtUtc,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAdmin = (await AuthState).User.IsInRole(Roles.Admin);
+        _documents = await Documents.ListAsync();
+    }
+}

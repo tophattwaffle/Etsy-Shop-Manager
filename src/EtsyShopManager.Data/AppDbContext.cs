@@ -49,6 +49,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ShopOrderSyncState> ShopOrderSyncStates => Set<ShopOrderSyncState>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<SlipLayout> SlipLayouts => Set<SlipLayout>();
+    public DbSet<SlipDocument> SlipDocuments => Set<SlipDocument>();
+    public DbSet<ListingSlipDocument> ListingSlipDocuments => Set<ListingSlipDocument>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -211,6 +213,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         {
             e.HasIndex(x => x.Name).IsUnique();
             e.Property(x => x.Name).HasMaxLength(100).UseCollation("NOCASE");
+        });
+
+        b.Entity<SlipDocument>(e =>
+        {
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).HasMaxLength(100).UseCollation("NOCASE");
+        });
+
+        b.Entity<ListingSlipDocument>(e =>
+        {
+            e.HasKey(x => x.ListingId);
+            e.HasIndex(x => x.SlipDocumentId);
+            e.HasOne(x => x.Listing).WithOne().HasForeignKey<ListingSlipDocument>(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.SlipDocument).WithMany().HasForeignKey(x => x.SlipDocumentId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<TextBlock>(e =>

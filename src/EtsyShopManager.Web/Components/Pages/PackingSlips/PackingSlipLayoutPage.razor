@@ -67,7 +67,7 @@ else
                     The template is HTML with <a href="https://shopify.github.io/liquid/" target="_blank" rel="noopener">Liquid</a>
                     placeholders: <code>{{ order.receipt_id }}</code> prints a value, <code>{% if order.ship_by %}…{% endif %}</code>
                     shows something only when there's a value, and <code>{% for item in items %}…{% endfor %}</code> repeats for
-                    each item. Values are printed as text; only <code>{{ shop.qr_code | raw }}</code> needs <code>| raw</code>.
+                    each item. Values are printed as text; only <code>{{ shop.qr_code | raw }}</code> and <code>{{ doc.qr_code | raw }}</code> need <code>| raw</code>.
                 </MudText>
                 <MudSimpleTable Dense="true">
                     <tbody>
@@ -142,6 +142,7 @@ else
         ("order.order_total", "The order total"),
         ("order.photo_url", "The first item's photo"),
         ("items", "Each item: .title, .variations (a list), .personalization, .quantity, .price (\"2 x $12.99\"), .image_url"),
+        ("documents", "Listing instructions for the order's listings, each once (Listing instructions, above): .heading, .text, .url, .qr_code (use | raw), .qr_caption; any can be empty but .text or .qr_code has a value"),
     ];
 
     private bool _loaded;

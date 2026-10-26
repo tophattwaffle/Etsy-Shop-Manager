@@ -2,6 +2,7 @@
    612x792pt page). Each slip is one letter page with a 36pt margin inside it. The app's colours and fonts are
    var(--print-ink), --print-muted, --print-line, --print-sunk, --print-paper, --print-slip-font and --print-slip-serif. */
 .slip {
+    display: flex; flex-direction: column;
     width: 8.5in; min-height: 11in; box-sizing: border-box; padding: 36pt; margin: 0 auto 24px;
     font-family: var(--print-slip-font); font-size: 9.5pt; line-height: 12.2pt; background: var(--print-paper);
     box-shadow: 0 0 0 1px var(--print-line);
@@ -42,6 +43,22 @@
 .slip-changed-body { padding: 5pt 6pt 6pt; }
 .slip-changed-hint { margin-top: 6pt; font-weight: 600; }
 .slip-changed-was { color: var(--print-muted); text-decoration: line-through; }
+/* Instructions linked to the order's listings (documents): at the foot of the page in a dashed box the buyer can cut out,
+   the text beside its QR code; two to a row when the order has several, so the slip stays on one page. */
+.slip-docs { margin-top: auto; padding-top: 18pt; display: grid; gap: 10pt 14pt; }
+.slip-docs-many { grid-template-columns: 1fr 1fr; }
+.slip-doc {
+    display: flex; gap: 12pt; align-items: flex-start; padding: 9pt 10pt; border: 1pt dashed var(--print-ink);
+    break-inside: avoid;
+}
+.slip-doc-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.slip-doc-heading { font-weight: 700; margin-bottom: 3pt; }
+.slip-doc-qr { flex: none; width: 66pt; text-align: center; font-size: 8pt; line-height: 10pt; }
+.slip-doc-code { width: 54pt; height: 54pt; margin: 0 auto 3pt; }
+.slip-doc-code svg { display: block; width: 100%; height: 100%; }
+.slip-docs-many .slip-doc { font-size: 8.5pt; line-height: 11pt; }
+.slip-docs-many .slip-doc-qr { width: 54pt; }
+.slip-docs-many .slip-doc-code { width: 46pt; height: 46pt; }
 
 @media print {
     .slip { width: auto; margin: 0; box-shadow: none; }
