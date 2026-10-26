@@ -23,13 +23,11 @@ public sealed record EtsyConflictResolveResult(int ListingId, string Title, int 
 /// </summary>
 public sealed class EtsyConflictService(IDbContextFactory<AppDbContext> dbFactory, ListingEditor editor)
 {
-    /// <summary>How many listings the Changed on Etsy page lists. The HasDrift flag only narrows the search.</summary>
+    /// <summary>How many listings the Changed on Etsy page lists (<see cref="ListingChangeCounts.CountAsync"/>).</summary>
     public async Task<int> CountAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var states = await db.Listings.AsNoTracking().Where(l => l.EtsyState != null && l.HasDrift)
-            .Select(l => new { l.EtsyState!.ManagedJson, l.EtsyState.BaseJson, l.DraftJson }).ToListAsync(ct);
-        return states.Count(s => ListingEditModel.Parse(s.ManagedJson, s.BaseJson, s.DraftJson).DriftFields.Count > 0);
+        return (await ListingChangeCounts.CountAsync(db, ct)).ChangedOnEtsy;
     }
 
     public async Task<IReadOnlyList<EtsyConflictListing>> ListAsync(CancellationToken ct = default)

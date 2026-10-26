@@ -1,0 +1,58 @@
+@using EtsyShopManager.Web.Modules.Editor
+@implements IDisposable
+@inject ListingChangeCounts Counts
+
+@* The title-bar listing buttons, for Admins. Changed on Etsy shows while any listing was changed on etsy.com and needs
+   keep mine / take Etsy's. Pending changes is always shown, with how many listings have changes not on Etsy yet, and
+   opens the page to review and push them. *@
+
+@if (_loaded)
+{
+    @if (_changedOnEtsy > 0)
+    {
+        <a href="listings/changed-on-etsy" class="esm-change-pill esm-change-pill-active" title="@ChangedSummary" aria-label="@ChangedSummary">
+            <MudIcon Icon="@Icons.Material.Filled.CompareArrows" Size="Size.Small" Class="esm-change-icon esm-change-icon-warning" />
+            <span>@_changedOnEtsy.ToString("N0")</span><span class="esm-change-label"> changed on Etsy</span>
+        </a>
+    }
+    <a href="listings/pending" class="esm-change-pill @(_pending > 0 ? "esm-change-pill-active" : null)"
+       title="@PendingSummary" aria-label="@PendingSummary">
+        <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Size="Size.Small" Class="esm-change-icon" />
+        <span>@_pending.ToString("N0")</span><span class="esm-change-label"> pending</span>
+    </a>
+}
+
+@code {
+    private bool _loaded;
+    private int _pending;
+    private int _changedOnEtsy;
+
+    private string PendingSummary => _pending switch
+    {
+        0 => "No listings have pending changes",
+        1 => "1 listing has pending changes",
+        _ => $"{_pending:N0} listings have pending changes",
+    };
+
+    private string ChangedSummary => _changedOnEtsy == 1
+        ? "1 listing was changed on Etsy"
+        : $"{_changedOnEtsy:N0} listings were changed on Etsy";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Counts.Changed += OnChanged;
+        await Counts.EnsureLoadedAsync();
+        Read();
+        _loaded = true;
+    }
+
+    private void Read() => (_pending, _changedOnEtsy) = (Counts.Pending, Counts.ChangedOnEtsy);
+
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        Read();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Counts.Changed -= OnChanged;
+}

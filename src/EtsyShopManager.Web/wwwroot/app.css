@@ -113,6 +113,25 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-jobs-job { display: flex; gap: 8px; padding-left: 15px; }
 .esm-jobs-progress.mud-progress-linear { margin: 2px 0; }
 @media (max-width: 599.98px) { .esm-jobs-label { display: none; } }
+/* Title-bar listing buttons (ListingChangesIndicator), for Admins: Changed on Etsy while there are any, Pending changes always. */
+.esm-change-pill { display: inline-flex; align-items: center; gap: 6px; margin: 0 4px; padding: 3px 12px 3px 8px; border-radius: 999px;
+    border: 1px solid var(--esm-line); background: var(--esm-sunk); color: var(--esm-muted); font-size: 0.8rem; font-weight: 600;
+    white-space: nowrap; text-decoration: none; }
+.esm-change-pill:hover { background: var(--esm-hover); }
+.esm-change-pill-active { color: var(--esm-ink); }
+.esm-change-pill-active .esm-change-icon { color: var(--esm-brand); }
+.esm-change-pill-active .esm-change-icon-warning { color: var(--esm-warning); }
+.esm-change-icon.mud-icon-root { font-size: 1rem; }
+/* Phones: the title bar keeps the icons and numbers, and the app name shortens to ESM. */
+.esm-brand-short { display: none; }
+@media (max-width: 599.98px) {
+    .esm-change-label { display: none; }
+    .esm-change-pill, .esm-jobs { margin: 0 2px; }
+    .esm-change-pill { padding: 3px 8px 3px 6px; gap: 4px; }
+    .esm-brand { margin-left: 4px; gap: 6px; }
+    .esm-brand-full { display: none; }
+    .esm-brand-short { display: inline; }
+}
 @media (prefers-reduced-motion: reduce) { .esm-jobs-spinner .mud-progress-circular-svg { animation: none; } }
 
 /* ---- Page header: every page starts with <PageHeader> ---- */

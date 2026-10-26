@@ -13,8 +13,6 @@
 @inject StockRefiller Refiller
 @inject IDialogService Dialogs
 @inject EtsyShopManager.Web.Modules.Shops.ShopAccentService ShopAccents
-@inject PendingChangesService PendingChanges
-@inject EtsyConflictService EtsyConflicts
 
 <PageTitle>Listings · Etsy Shop Manager</PageTitle>
 
@@ -27,22 +25,6 @@
             }
         </Summary>
         <Actions>
-            @if (_conflicts > 0)
-            {
-                <AuthorizeView Roles="@Roles.Admin" Context="auth">
-                    <MudButton Variant="Variant.Outlined" Href="listings/changed-on-etsy" StartIcon="@Icons.Material.Filled.CompareArrows">
-                        @($"{_conflicts:N0} listing{(_conflicts == 1 ? " was" : "s were")} changed on Etsy")
-                    </MudButton>
-                </AuthorizeView>
-            }
-            @if (_pending > 0)
-            {
-                <AuthorizeView Roles="@Roles.Admin" Context="auth">
-                    <MudButton Variant="Variant.Outlined" Href="listings/pending" StartIcon="@Icons.Material.Filled.CloudUpload">
-                        @($"{_pending:N0} listing{(_pending == 1 ? " has" : "s have")} pending changes")
-                    </MudButton>
-                </AuthorizeView>
-            }
             <AuthorizeView Roles="@Roles.Admin" Context="auth">
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="listings/new" StartIcon="@Icons.Material.Filled.Add">
                     New listing
@@ -395,8 +377,6 @@
     private bool _accentsRequested;
     private List<ListingRow>? _rows;
     private ListingFacets? _facets;
-    private int _pending; // listings with changes not on Etsy yet (the Pending changes page)
-    private int _conflicts; // listings changed on etsy.com that need keep mine / take Etsy's (the Changed on Etsy page)
     private int _total;
     private int _page;
     private bool _loading;
@@ -507,10 +487,8 @@
             var filter = CurrentFilter();
             var (rows, total) = await Queries.SearchAsync(filter, cts.Token);
             var facets = await Queries.GetFacetsAsync(filter, cts.Token);
-            var pending = await PendingChanges.CountAsync(cts.Token);
-            var conflicts = await EtsyConflicts.CountAsync(cts.Token);
             if (cts.IsCancellationRequested) return;
-            (_rows, _total, _facets, _pending, _conflicts) = (rows, total, facets, pending, conflicts);
+            (_rows, _total, _facets) = (rows, total, facets);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {

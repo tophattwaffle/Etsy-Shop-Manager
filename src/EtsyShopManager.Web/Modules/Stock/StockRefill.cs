@@ -371,6 +371,7 @@ public sealed class EditorModule : IModule
         services.AddSingleton<ListingEditor>();
         services.AddSingleton<BulkListingEditor>();
         services.AddSingleton<PendingChangesService>();
+        services.AddSingleton<ListingChangeCounts>();
         services.AddSingleton<EtsyConflictService>();
         services.AddSingleton<StockRefiller>();
         services.AddSingleton<RefillQueue>();

@@ -34,7 +34,8 @@ public sealed class ListingEditor(
     IJobQueue jobs,
     IAuditLog audit,
     TimeProvider time,
-    Infrastructure.Storage.VideoStore? videoStore = null)
+    Infrastructure.Storage.VideoStore? videoStore = null,
+    ListingChangeCounts? changeCounts = null)
 {
     public const int MaxTitleLength = 140;
     public const int MaxTags = 13;
@@ -116,6 +117,7 @@ public sealed class ListingEditor(
         listing.DraftUpdatedAtUtc = time.GetUtcNow().UtcDateTime;
         listing.DraftUpdatedBy = user;
         await db.SaveChangesAsync(ct);
+        changeCounts?.Invalidate();
         await audit.WriteAsync(auditAction, nameof(Listing), listing.EtsyListingId.ToString(), details, user, ct);
     }
 
