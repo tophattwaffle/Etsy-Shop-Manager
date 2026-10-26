@@ -138,12 +138,13 @@ A rejected refresh token marks the shop **Reconnect needed** (dashboard and Shop
 ## 9. Home Assistant
 
 1. **Admin → API keys → Create key** (e.g. "Home Assistant"); copy it, it's shown once.
-2. Install the integration from `homeassistant/` (HACS once it's published as a GitHub repository, or copy
-   `custom_components/etsy_shop_manager` into HA's `config/custom_components/`) and add **Etsy Shop Manager** with
-   the app's address and the key.
-3. Point the `etsy-orders-card` at the new `sensor.<shop>_open_orders` sensors.
+2. Install the integration from [Etsy-Shop-Manager-HA](https://github.com/TopHATTwaffle/Etsy-Shop-Manager-HA)
+   (HACS from its GitHub copy, or copy `custom_components/etsy_shop_manager` into HA's `config/custom_components/`) and
+   add **Etsy Shop Manager** with the app's address and the key.
+3. Install the card from [Etsy-Shop-Manager-HA-Card](https://github.com/TopHATTwaffle/Etsy-Shop-Manager-HA-Card)
+   and point it at the `sensor.<shop>_open_orders` sensors. Its colors come from the app's **Order colors** page.
 
-Details: [homeassistant/README.md](../homeassistant/README.md). Revoking a key in the app makes HA ask for a new one.
+Details are in each repository's README. Revoking a key in the app makes HA ask for a new one.
 
 ## 10. Etsy rate limits
 

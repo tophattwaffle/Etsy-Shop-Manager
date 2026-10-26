@@ -1,12 +1,10 @@
 @page "/order-colors"
 @page "/admin/order-colors"
-@using System.Text.Json.Nodes
 @using EtsyShopManager.Web.Components.Pages.Orders
 @using EtsyShopManager.Web.Modules.Orders
 @inject OrderColorService Colors
 @inject IAuditLog Audit
 @inject ISnackbar Snackbar
-@inject IJSRuntime Js
 
 <PageTitle>Order colors · Etsy Shop Manager</PageTitle>
 
@@ -30,12 +28,40 @@
 }
 
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Look</MudText>
+    <MudText Typo="Typo.body2" Class="muted mb-2">
+        How strongly boxes are tinted and how metallic colors shine, here and on the Home Assistant card. 0 turns either off.
+    </MudText>
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="4">
+        <MudNumericField T="int" Value="_look.Tint" ValueChanged="@(v => SetLook(_look with { Tint = v }))" Label="Tint strength (%)"
+                         Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="!_canEdit" />
+        <MudNumericField T="int" Value="_look.MetallicShine" ValueChanged="@(v => SetLook(_look with { MetallicShine = v }))" Label="Metal shine (%)"
+                         Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="!_canEdit" />
+        <MudSwitch T="bool" Value="_look.AnimateMetallic" ValueChanged="@(v => SetLook(_look with { AnimateMetallic = v }))" Color="Color.Primary"
+                   Label="Glint sweeps across metal" Disabled="!_canEdit" />
+    </MudStack>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4 esm-orders" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Random</MudText>
     <MudText Typo="Typo.body2" Class="muted mb-2">
-        Words that mean "any color". Those boxes get a slow multi-color effect drawn from the colors below.
+        Words that mean "any color". Those boxes get a multi-color effect drawn from the colors below, leaving out colors
+        darker than the brightness given, greys, muddy browns and near-whites.
     </MudText>
     <MudTextField T="string" Value="_randomWords" ValueChanged="OnRandomWordsChanged" Label="Words, separated by commas" Immediate="true"
-                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-lg" ReadOnly="!_canEdit" />
+                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-lg mb-3" ReadOnly="!_canEdit" />
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="4">
+        <MudSelect T="string" Value="_look.RandomStyle" ValueChanged="@(v => SetLook(_look with { RandomStyle = v }))" Label="Effect"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="!_canEdit">
+            <MudSelectItem Value="@OrderColorLook.Lava">Lava lamp</MudSelectItem>
+            <MudSelectItem Value="@OrderColorLook.Confetti">Confetti</MudSelectItem>
+        </MudSelect>
+        <MudNumericField T="int" Value="_look.RandomMinBrightness" ValueChanged="@(v => SetLook(_look with { RandomMinBrightness = v }))"
+                         Label="Least brightness (%)" Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="!_canEdit" />
+        <MudSwitch T="bool" Value="_look.AnimateRandom" ValueChanged="@(v => SetLook(_look with { AnimateRandom = v }))" Color="Color.Primary"
+                   Label="Effect moves" Disabled="!_canEdit" />
+    </MudStack>
+    <div class="mt-3"><ColorBox Colors="_colors" Text="Random" Seed="preview" /> <ColorBox Colors="_colors" Text="Random colors, please" Kind="@ColorBox.Note" Seed="preview" /></div>
 </MudPaper>
 
 <MudPaper Class="pa-4 esm-orders" Elevation="0" Outlined="true">
@@ -71,7 +97,7 @@
             @foreach (var row in Visible)
             {
                 <tr @key="row">
-                    <td class="esm-minw-sm"><ColorBox Text="@(string.IsNullOrWhiteSpace(row.Name) ? "New color" : row.Name)" Seed="preview" /></td>
+                    <td class="esm-minw-sm"><ColorBox Colors="_colors" Text="@(string.IsNullOrWhiteSpace(row.Name) ? "New color" : row.Name)" Seed="preview" /></td>
                     <td><MudTextField T="string" @bind-Value="row.Name" @bind-Value:after="Changed" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Name" ReadOnly="!_canEdit" /></td>
                     <td><MudTextField T="string" @bind-Value="row.Hex" @bind-Value:after="Changed" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Colors" Placeholder="@OrderColorService.ExampleHex" ReadOnly="!_canEdit" /></td>
                     <td><MudCheckBox T="bool" @bind-Value="row.Metallic" @bind-Value:after="Changed" aria-label="Metallic" Disabled="!_canEdit" /></td>
@@ -111,7 +137,8 @@
     private string? _filter;
     private string _savedJson = "";
     private List<string> _problems = [];
-    private JsonObject? _preview;
+    private OrderColorLook _look = OrderColorLook.Default;
+    private OrderColorEngine? _colors;
 
     private IEnumerable<Row> Visible => string.IsNullOrWhiteSpace(_filter)
         ? _rows
@@ -129,14 +156,11 @@
         var config = await Colors.GetAsync();
         _rows = config.Colors.Select(c => new Row { Name = c.Name, Hex = string.Join(", ", c.Hex), Metallic = c.Metallic }).ToList();
         _randomWords = string.Join(", ", config.RandomWords);
+        _look = config.Style;
         _savedJson = Json(Current());
         _problems = [];
         UpdatePreview();
     }
-
-    // The previews use the list as edited, before it is saved.
-    protected override async Task OnAfterRenderAsync(bool firstRender) =>
-        await Js.InvokeVoidAsync("esm.colorOrders", _preview);
 
     // Compared as JSON because the config holds lists; edits that end up back at the saved list aren't changes.
     private bool Dirty => Json(Current()) != _savedJson;
@@ -145,7 +169,8 @@
 
     private OrderColorConfig Current() => new(
         _rows.Select(r => new OrderColor(r.Name, Split(r.Hex), r.Metallic)).ToList(),
-        Split(_randomWords));
+        Split(_randomWords),
+        _look);
 
     private static List<string> Split(string text) =>
         text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
@@ -161,10 +186,16 @@
                 .DistinctBy(c => c.Name.Trim(), StringComparer.OrdinalIgnoreCase)
                 .ToList(),
         };
-        _preview = usable.ToCardJson();
+        _colors = new OrderColorEngine(usable);
     }
 
     private void Changed() => UpdatePreview();
+
+    private void SetLook(OrderColorLook look)
+    {
+        _look = look;
+        Changed();
+    }
 
     private void OnRandomWordsChanged(string? value)
     {

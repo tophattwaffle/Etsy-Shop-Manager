@@ -11,7 +11,6 @@
 @inject IJobEvents JobEvents
 @inject OrderMadeService MadeItems
 @inject ISnackbar Snackbar
-@inject IJSRuntime Js
 @inject TimeProvider Time
 
 @* Open orders, most urgent first, each opening on Etsy in its shop's browser. Variations and personalization are
@@ -51,13 +50,13 @@ else
                                 <span class="order-vars">
                                     @foreach (var (v, vi) in variations.Select((v, n) => (v, n)))
                                     {
-                                        <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                        <ColorBox Colors="_colors" Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
                                     }
                                 </span>
                             }
                             @if (personalization is not null)
                             {
-                                <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
+                                <ColorBox Colors="_colors" Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
                             }
                         </div>
                         <MadeToggle Made="@i.UnitsMade" Quantity="@i.UnitsToMake" ReadOnly="@(!_canMark)" What="@OrderDue.ShortTitle(i.Title)"
@@ -79,7 +78,7 @@ else
     private List<int> _shopIds = [];
     private Dictionary<int, string> _accents = [];
     private Dictionary<int, string> _orderLinks = [];
-    private JsonObject? _colorConfig;
+    private OrderColorEngine? _colors;
     private IDisposable? _live;
     private Timer? _timer;
 
@@ -90,7 +89,7 @@ else
     {
         var user = (await AuthState).User;
         _canMark = true;
-        _colorConfig = (await Colors.GetAsync()).ToCardJson();
+        _colors = new OrderColorEngine(await Colors.GetAsync());
         await LoadAsync();
         _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,
             _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
@@ -129,7 +128,6 @@ else
         _open = open.OrderBy(o => o.ShipByUtc ?? DateTime.MaxValue).ToList();
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender) => await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
 
     private string Accent(int shopId) => _accents.TryGetValue(shopId, out var color)
         ? color

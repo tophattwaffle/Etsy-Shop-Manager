@@ -126,12 +126,12 @@
                                     {
                                         if ((string?)v["value"] is { Length: > 0 } value)
                                         {
-                                            <ColorBox Text="@value" Title="@((string?)v["property"])" Seed="@($"make|{(string?)row["listing_id"]}|{value}")" />
+                                            <ColorBox Colors="_colors" Text="@value" Title="@((string?)v["property"])" Seed="@($"make|{(string?)row["listing_id"]}|{value}")" />
                                         }
                                     }
                                 </div>
                             </td>
-                            <td>@if ((string?)row["personalization"] is { Length: > 0 } note) { <ColorBox Text="@note" Kind="@ColorBox.Note" Seed="@($"make|{note}")" /> }</td>
+                            <td>@if ((string?)row["personalization"] is { Length: > 0 } note) { <ColorBox Colors="_colors" Text="@note" Kind="@ColorBox.Note" Seed="@($"make|{note}")" /> }</td>
                             <td>@(row["ship_by_ts"] is { } ts ? ListingFormat.Local(DateTime.UnixEpoch.AddSeconds((long)ts), "ddd MMM d") : "—")</td>
                         </tr>
                     }
@@ -229,7 +229,7 @@
     private bool _historyGifts;
     private Timer? _timer;
     private IDisposable? _live;
-    private JsonObject? _colorConfig;
+    private OrderColorEngine? _colors;
 
     // Both Admin and User (including unsigned-in visitors) can mark items made.
     private bool _canMark;
@@ -238,7 +238,7 @@
     {
         var user = (await AuthState).User;
         _canMark = true;
-        _colorConfig = (await Colors.GetAsync()).ToCardJson();
+        _colors = new OrderColorEngine(await Colors.GetAsync());
         await LoadAsync();
         await LoadHistoryAsync();
         // Orders change when a check for orders runs (or a shop is (re)connected): reload then.
@@ -307,8 +307,7 @@
         StateHasChanged();
     });
 
-    // Color the variation pills and personalization notes rendered by <ColorBox> (new or changed ones only),
-    // and read any shop accent not yet cached from the shop's profile image.
+    // Read any shop accent not yet cached from the shop's profile image.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && await RailToggle.LoadAsync(Js))
@@ -316,7 +315,6 @@
             _railCollapsed = true;
             StateHasChanged();
         }
-        await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
         if (_status.Count > 0 && !_accentsRequested)
         {
             _accentsRequested = true;
@@ -470,13 +468,13 @@
                                     if (BuyersVariation(i, v) is { } buyers)
                                     {
                                         <span class="esm-changed">
-                                            <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                            <ColorBox Colors="_colors" Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
                                             <ChangedMark Label="@($"{v.Name} changed here. The buyer chose {buyers}.")" />
                                         </span>
                                     }
                                     else
                                     {
-                                        <ColorBox Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
+                                        <ColorBox Colors="_colors" Text="@v.Value" Title="@v.Name" Seed="@($"{o.EtsyReceiptId}|{ii}.{vi}")" />
                                     }
                                 }
                             </div>
@@ -487,7 +485,7 @@
                             <div class="esm-changed esm-changed-note">
                                 @if (personalization is not null)
                                 {
-                                    <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
+                                    <ColorBox Colors="_colors" Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
                                 }
                                 else
                                 {
@@ -498,7 +496,7 @@
                         }
                         else if (personalization is not null)
                         {
-                            <ColorBox Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
+                            <ColorBox Colors="_colors" Text="@personalization" Kind="@ColorBox.Note" Seed="@($"{o.EtsyReceiptId}|{ii}.note")" />
                         }
                         @if (i.Sku is not null) { <div class="muted small">SKU @i.Sku</div> }
                     </div>

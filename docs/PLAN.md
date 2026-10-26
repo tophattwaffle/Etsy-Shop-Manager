@@ -34,12 +34,13 @@ EtsyShopManager/
     EtsyShopManager.Etsy/       Generated Etsy client, OAuth, rate limiter
     EtsyShopManager.Data/       EF Core DbContext, migrations
   tests/
-  homeassistant/
-    custom_components/etsy_shop_manager/   New HA integration (Python, required by HA)
-    www/etsy-orders-card.js                Existing card, carried over
   docs/
   ExistingHASS/                            Reference only, delete after migration
 ```
+
+The Home Assistant integration and the dashboard card live in their own repositories, `Etsy-Shop-Manager-HA` and
+`Etsy-Shop-Manager-HA-Card` (mirrored to GitHub for HACS), with their history carried over from this repository's
+former `homeassistant/` folder.
 
 **Extensibility:** each feature is a module (`IModule` registers its services, jobs, UI pages and API endpoints). Modules communicate through in-process domain events (`OrderReceived`, `ListingPushed`, `DriftDetected`, `StockRefilled`, …), so new features subscribe to events instead of editing existing code.
 
@@ -117,7 +118,7 @@ The existing card keeps its styling and logic. Only its data source changes. **H
   - Fires an `etsy_shop_manager_new_order` event and a device trigger.
   - Large attributes (`open_orders`, `items_needed`) are kept out of the HA recorder (`_unrecorded_attributes`), because HA's 16 KB attribute limit is easy to exceed.
 - **Card:** carried over unchanged. Its config simply points `shops[].entity` at the new sensors. A later option could link orders to this app's order page instead of Etsy.
-- Install via HACS custom repository, or by copying files manually. HACS only installs from GitHub repositories with `custom_components/` at the root, so `homeassistant/` is laid out to become its own GitHub repository as-is.
+- Install via HACS custom repository, or by copying files manually. HACS only installs from GitHub repositories with `custom_components/` at the root, so the integration has its own repository, `Etsy-Shop-Manager-HA` (and the card `Etsy-Shop-Manager-HA-Card`).
 - Phase 2 option: push updates over SSE/WebSocket instead of polling, if the 30–60 s delay matters.
 
 ## Additions to build in early
@@ -187,7 +188,7 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - **API keys:** Admin → API keys. Shown once; stored as SHA-256; last use recorded (at most every 5 minutes); revocable.
 - **Job retention:** succeeded jobs the scheduler queued (order polls) are kept 24 h instead of 30 days; cleanup runs every 6 h.
 - **Orders page:** open orders as cards sorted by ship-by (urgent ones tinted), a "to make" list (same aggregation as HA), and searchable history.
-- **HA integration** (`homeassistant/custom_components/etsy_shop_manager`, HA 2024.11+): config flow (URL, key, SSL verification), re-authentication when the key is revoked, options flow for the interval, one device + Open orders sensor per shop (new shops appear automatically), `etsy_shop_manager_new_order` event + device trigger (orders open at startup are not announced), large attributes excluded from the recorder, last data kept for up to 5 minutes while the service is unreachable (deploy restarts), interval changes applied without a reload. Tests run in a real HA (`pytest-homeassistant-custom-component`) against a mocked service. The existing card is in `homeassistant/www/`, unchanged.
+- **HA integration** (`etsy_shop_manager` in the `Etsy-Shop-Manager-HA` repository, HA 2024.11+): config flow (URL, key, SSL verification), re-authentication when the key is revoked, options flow for the interval, one device + Open orders sensor per shop (new shops appear automatically), `etsy_shop_manager_new_order` event + device trigger (orders open at startup are not announced), large attributes excluded from the recorder, last data kept for up to 5 minutes while the service is unreachable (deploy restarts), interval changes applied without a reload. Tests run in a real HA (`pytest-homeassistant-custom-component`) against a mocked service. The card is in `Etsy-Shop-Manager-HA-Card`; since card 3.0 the app draws its colors (`OrderColorEngine`).
 
 ## Live job updates
 - The job queue and processor publish every change (queued, running, finished, rescheduled, retried, cancelled) on an in-process feed (`IJobEvents`). Pages subscribe, coalesce bursts (~0.4 s) and re-render; subscriptions are disposed with the page. Handlers set a short `Result` ("2 new, 3 updated", "46 listings"), stored on the job and shown on the Jobs page.

@@ -1,14 +1,17 @@
-@* A variation pill or personalization note. It renders empty: esm.colorOrders (app.js) fills it in the browser using
-   the Home Assistant card's own coloring engine, so the Orders page and the card color the same text the same way. *@
+@using EtsyShopManager.Web.Modules.Orders
+@* A variation pill or personalization note, tinted by the colors it names. The app's color engine draws it, the same
+   engine that draws the boxes the Home Assistant card shows. *@
 
-<span class="esm-colorbox esm-colorbox-@Kind" data-color-text="@Text" data-color-class="@Kind" data-color-seed="@Seed"
-      data-color-small="@(Kind == Pill ? "true" : "false")" title="@Title"></span>
+<span class="esm-colorbox esm-colorbox-@Kind" title="@Title"><span class="@(Kind + _box.Cls)" style="@_box.Style">@((MarkupString)_box.Inner)@Text</span></span>
 
 @code {
     public const string Pill = "var";
     public const string Note = "note";
 
     [Parameter, EditorRequired] public string Text { get; set; } = "";
+
+    /// <summary>The engine for the color list in use (the saved one, or the one being edited); uncolored while null.</summary>
+    [Parameter, EditorRequired] public OrderColorEngine? Colors { get; set; }
 
     /// <summary><see cref="Pill"/> for a variation, <see cref="Note"/> for personalization (the card's class names).</summary>
     [Parameter] public string Kind { get; set; } = Pill;
@@ -17,4 +20,8 @@
     [Parameter] public string Seed { get; set; } = "";
 
     [Parameter] public string? Title { get; set; }
+
+    private OrderColorBox _box = OrderColorBox.None;
+
+    protected override void OnParametersSet() => _box = Colors?.Box(Text, Seed, Kind == Pill) ?? OrderColorBox.None;
 }

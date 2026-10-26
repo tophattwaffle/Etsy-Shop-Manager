@@ -63,12 +63,15 @@ public sealed class OrdersModule : IModule
             CancellationToken ct) =>
         {
             var payload = await q.HaOpenOrdersAllAsync(ct);
-            // The order color list and the shops' accent colors ride along, so the HA card colors exactly like the app.
+            // Each variation and personalization box comes already drawn by the app's color engine, with its CSS and the
+            // shops' accent colors in color_config, so the HA card colors exactly like the app without coloring itself.
             var active = await shops.ListAsync(includeInactive: false, ct);
             var byShop = await accents.GetEffectiveAsync(active.Select(s => s.Id), ct);
             var shopAccents = active.Where(s => byShop.ContainsKey(s.Id))
                 .ToDictionary(s => s.EtsyShopId.ToString(System.Globalization.CultureInfo.InvariantCulture), s => byShop[s.Id]);
-            payload["color_config"] = (await colors.GetAsync(ct)).ToCardJson(shopAccents);
+            var config = await colors.GetAsync(ct);
+            new OrderColorEngine(config).Paint(payload);
+            payload["color_config"] = config.ToCardJson(shopAccents, OrderColorEngine.Css);
             return Results.Json(payload);
         });
         ha.MapGet("/shops/{shopId:long}/open-orders", async (long shopId, OrderQueries q, CancellationToken ct) =>
@@ -87,12 +90,11 @@ public sealed class OrdersModule : IModule
                     })
                     : Results.NotFound());
 
-        // The HA card (homeassistant/www/etsy-orders-card.js, embedded at build time). The Orders page loads it for
-        // the coloring engine it shares with the card. Public: it is the same file HA serves.
-        endpoints.MapGet(OrderCardScript.Url, (HttpContext http) =>
+        // The color engine's styles (the same CSS the HA card gets in color_config). Public: it is only styles.
+        endpoints.MapGet(OrderColorEngine.CssUrl, (HttpContext http) =>
             {
                 http.Response.Headers.CacheControl = "public, max-age=31536000, immutable"; // pages link it with a content hash
-                return Results.Bytes(OrderCardScript.Content, "text/javascript; charset=utf-8");
+                return Results.Text(OrderColorEngine.Css, "text/css; charset=utf-8");
             })
             .AllowAnonymous();
     }
@@ -104,26 +106,6 @@ public sealed class OrdersModule : IModule
         new("Order colors", "order-colors", Icons.Material.Filled.Palette, Order: 35),
         new("API keys", "admin/api-keys", Icons.Material.Filled.Key, Order: 925, Roles: Roles.Admin, Group: NavGroups.Settings),
     ];
-}
-
-/// <summary>The Home Assistant card's script, embedded from homeassistant/www so the app and HA run the same file.</summary>
-public static class OrderCardScript
-{
-    public const string Url = "/js/etsy-orders-card.js";
-    public static readonly byte[] Content = Load();
-
-    /// <summary>The URL with a content hash, so browsers pick up a new version after each deploy.</summary>
-    public static readonly string VersionedUrl =
-        Url.TrimStart('/') + "?v=" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Content))[..12];
-
-    private static byte[] Load()
-    {
-        using var stream = typeof(OrderCardScript).Assembly.GetManifestResourceStream("etsy-orders-card.js")
-                           ?? throw new InvalidOperationException("Embedded etsy-orders-card.js is missing.");
-        using var copy = new MemoryStream();
-        stream.CopyTo(copy);
-        return copy.ToArray();
-    }
 }
 
 public sealed class OrderPollQueue(IJobQueue queue)
