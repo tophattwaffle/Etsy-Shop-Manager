@@ -988,6 +988,9 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<string>("MessageFromBuyer")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("MessageFromBuyerOverride")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RawJson")
                         .IsRequired()
                         .HasColumnType("TEXT");

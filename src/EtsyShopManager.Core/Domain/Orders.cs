@@ -81,6 +81,12 @@ public class Order
     /// </summary>
     public DateTime? SlipQueuedAtUtc { get; set; }
 
+    /// <summary>
+    /// A note from the buyer the seller entered, edited or cleared here (empty when cleared). Null when the buyer's note
+    /// stands. Only this app knows it: polling never touches it, and Etsy's API can't change an order.
+    /// </summary>
+    public string? MessageFromBuyerOverride { get; set; }
+
     public List<OrderItem> Items { get; set; } = [];
 
     /// <summary>Statuses that close an order even when it was never shipped.</summary>

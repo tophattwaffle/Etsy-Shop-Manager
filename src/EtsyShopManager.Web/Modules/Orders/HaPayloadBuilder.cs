@@ -109,7 +109,8 @@ public static class HaPayloadBuilder
             ["is_shipped"] = order.IsShipped,
         };
         if (!string.IsNullOrEmpty(order.BuyerName)) summary["buyer_name"] = order.BuyerName;
-        if (!string.IsNullOrEmpty(order.MessageFromBuyer)) summary["message_from_buyer"] = order.MessageFromBuyer;
+        var note = OrderOverrides.Note(order);
+        if (!string.IsNullOrEmpty(note)) summary["message_from_buyer"] = note;
         if (order.IsGift)
         {
             summary["is_gift"] = true;

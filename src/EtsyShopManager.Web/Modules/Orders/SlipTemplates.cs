@@ -104,7 +104,7 @@ public sealed record SlipModel(SlipShop Shop, SlipOrder Order, IReadOnlyList<Sli
             new SlipOrder(order.EtsyReceiptId, ListingFormat.Local(order.EtsyCreatedAtUtc, "MMM d, yyyy"),
                 order.ShipByUtc is null ? null : ListingFormat.Local(order.ShipByUtc, "MMM d, yyyy"),
                 Blank(order.BuyerProfileName) ?? Blank(order.BuyerName), address.Name, address.Lines, details.PaymentMethod, details.ShippingMethod,
-                Blank(order.MessageFromBuyer), order.IsGift, Blank(message) ?? (order.IsGift ? Blank(shop.DefaultGiftMessage) : null),
+                Blank(OrderOverrides.Note(order)), order.IsGift, Blank(message) ?? (order.IsGift ? Blank(shop.DefaultGiftMessage) : null),
                 OrderPrintService.GiftSender(order),
                 items.Sum(i => Math.Max(1, i.Quantity)), [.. details.Totals.Select(t => new SlipTotal(t.Label, t.Amount))],
                 details.OrderTotal, items.Select(i => i.ImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)),

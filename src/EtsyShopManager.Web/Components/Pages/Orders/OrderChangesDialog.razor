@@ -45,6 +45,16 @@
                 </section>
             }
             <section class="esm-change-group">
+                <div class="esm-change-title">Note from buyer</div>
+                <MudSwitch T="bool" @bind-Value="_form.ChangeNote" Color="Color.Primary" Label="Change note from buyer" />
+                @if (_form.ChangeNote)
+                {
+                    <MudTextField T="string" @bind-Value="_form.Note" Immediate="true" Label="Note from buyer" Variant="Variant.Outlined"
+                                  Lines="3" Sizing="InputSizing.Auto" MaxLength="@OrderOverrides.MaxNoteLength"
+                                  HelperText="@($"Buyer entered: {(string.IsNullOrWhiteSpace(_form.BuyersNote) ? "nothing" : _form.BuyersNote)}")" />
+                }
+            </section>
+            <section class="esm-change-group">
                 <div class="esm-change-title">Shipping address</div>
                 <MudSwitch T="bool" @bind-Value="_form.ChangeAddress" Color="Color.Primary" Label="Ship to a different address" />
                 @if (_form.ChangeAddress)

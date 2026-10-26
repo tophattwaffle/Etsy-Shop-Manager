@@ -12,6 +12,7 @@ public static class OrderOverrides
     public const int MaxPersonalizationLength = 1024;
     public const int MaxAddressLength = 500;
     public const int MaxSellerNoteLength = 1000;
+    public const int MaxNoteLength = 1000;
 
     /// <summary>
     /// The item's variations as they should be made: the seller's chosen values in place of the buyer's, and the seller's
@@ -62,7 +63,17 @@ public static class OrderOverrides
 
     public static bool HasItemOverride(OrderItem item) => item.PersonalizationOverride is not null || item.VariationOverrides.Count > 0;
 
-    public static bool HasOverride(Order order) => order.AddressOverride is not null || order.Items.Any(HasItemOverride);
+    public static bool HasOverride(Order order) =>
+        order.MessageFromBuyerOverride is not null || order.AddressOverride is not null || order.Items.Any(HasItemOverride);
+
+    /// <summary>
+    /// The note from the buyer as it should be used: the seller's change when overridden (empty when cleared, returning
+    /// null), otherwise the buyer's note from Etsy (null when none).
+    /// </summary>
+    public static string? Note(Order order) =>
+        order.MessageFromBuyerOverride is not null
+            ? (string.IsNullOrWhiteSpace(order.MessageFromBuyerOverride) ? null : order.MessageFromBuyerOverride)
+            : (string.IsNullOrWhiteSpace(order.MessageFromBuyer) ? null : order.MessageFromBuyer);
 
     /// <summary>The overriding address as a name and lines (the first line is the name), or null when there's none.</summary>
     public static ShippingAddress? Address(Order order)
