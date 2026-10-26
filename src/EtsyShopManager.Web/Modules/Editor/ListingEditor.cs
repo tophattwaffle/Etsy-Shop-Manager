@@ -35,7 +35,7 @@ public sealed class ListingEditor(
     IAuditLog audit,
     TimeProvider time,
     Infrastructure.Storage.VideoStore? videoStore = null,
-    PendingChangesCount? pendingCount = null)
+    ListingChangeCounts? changeCounts = null)
 {
     public const int MaxTitleLength = 140;
     public const int MaxTags = 13;
@@ -117,7 +117,7 @@ public sealed class ListingEditor(
         listing.DraftUpdatedAtUtc = time.GetUtcNow().UtcDateTime;
         listing.DraftUpdatedBy = user;
         await db.SaveChangesAsync(ct);
-        pendingCount?.Invalidate();
+        changeCounts?.Invalidate();
         await audit.WriteAsync(auditAction, nameof(Listing), listing.EtsyListingId.ToString(), details, user, ct);
     }
 

@@ -12,9 +12,9 @@
     <MudAppBar Elevation="0" Dense="true" Class="esm-appbar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" aria-label="Toggle navigation"
                        OnClick="() => _drawerOpen = !_drawerOpen" />
-        <a class="esm-brand" href="">
+        <a class="esm-brand" href="" aria-label="Etsy Shop Manager">
             <MudIcon Icon="@Icons.Material.Filled.Storefront" Color="Color.Secondary" Size="Size.Small" />
-            <span>Etsy Shop Manager</span>
+            <span class="esm-brand-full">Etsy Shop Manager</span><span class="esm-brand-short" aria-hidden="true">ESM</span>
         </a>
         <MudTooltip Text="@VersionTooltip">
             <span class="esm-version">v@(AppVersion.Display)</span>
@@ -27,7 +27,7 @@
         }
         <MudSpacer />
         <AuthorizeView><Authorized><JobsIndicator /></Authorized></AuthorizeView>
-        <AuthorizeView Roles="@Roles.Admin"><Authorized><PendingChangesIndicator /></Authorized></AuthorizeView>
+        <AuthorizeView Roles="@Roles.Admin"><Authorized><ListingChangesIndicator /></Authorized></AuthorizeView>
         <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit" OnClick="() => _dark = !_dark" title="@(_dark ? "Switch to light mode" : "Switch to dark mode")" />
         <AuthorizeView Roles="@Roles.Admin">

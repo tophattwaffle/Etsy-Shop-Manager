@@ -28,11 +28,11 @@ public sealed record PendingPushResult(int ListingId, string Title, int? PushId,
 /// </summary>
 public sealed class PendingChangesService(IDbContextFactory<AppDbContext> dbFactory, ListingEditor editor)
 {
-    /// <summary>How many listings the Pending changes page lists (<see cref="PendingChangesCount.CountAsync"/>).</summary>
+    /// <summary>How many listings the Pending changes page lists (<see cref="ListingChangeCounts.CountAsync"/>).</summary>
     public async Task<int> CountAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return await PendingChangesCount.CountAsync(db, ct);
+        return (await ListingChangeCounts.CountAsync(db, ct)).Pending;
     }
 
     public async Task<IReadOnlyList<PendingListing>> ListAsync(CancellationToken ct = default)

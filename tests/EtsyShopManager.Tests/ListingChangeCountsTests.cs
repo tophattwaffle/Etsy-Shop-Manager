@@ -7,8 +7,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EtsyShopManager.Tests;
 
-/// <summary>The title-bar Pending changes count: kept live for every page without each page counting.</summary>
-public class PendingChangesCountTests
+/// <summary>The title-bar Pending changes and Changed on Etsy counts: kept live for every page without each page counting.</summary>
+public class ListingChangeCountsTests
 {
     /// <summary>Hands the subscription to the test, so job changes are delivered when the test says.</summary>
     private sealed class ManualJobEvents : IJobEvents
@@ -26,7 +26,7 @@ public class PendingChangesCountTests
         private sealed class Noop : IDisposable { public void Dispose() { } }
     }
 
-    private static async Task<(FakeEtsyShop Shop, ManualJobEvents Events, PendingChangesCount Count, ListingEditor Editor, int Galaxy)> BuildAsync()
+    private static async Task<(FakeEtsyShop Shop, ManualJobEvents Events, ListingChangeCounts Count, ListingEditor Editor, int Galaxy)> BuildAsync()
     {
         var shop = new FakeEtsyShop();
         shop.Listings.Add(FakeEtsyShop.Listing(1, "Galaxy vase"));
@@ -36,16 +36,19 @@ public class PendingChangesCountTests
         var galaxy = await db.Listings.Where(l => l.EtsyListingId == 1).Select(l => l.Id).SingleAsync();
 
         var events = new ManualJobEvents();
-        var count = new PendingChangesCount(shop.Db, events, shop.Time, NullLogger<PendingChangesCount>.Instance);
+        var count = new ListingChangeCounts(shop.Db, events, shop.Time, NullLogger<ListingChangeCounts>.Instance);
         var editor = ActivatorUtilities.CreateInstance<ListingEditor>(shop.Provider, count);
         return (shop, events, count, editor, galaxy);
     }
 
     /// <summary>Waits for the count to be raised with the expected value (the recount runs in the background).</summary>
-    private static async Task ChangesToAsync(PendingChangesCount count, int expected, Func<Task> act)
+    private static Task ChangesToAsync(ListingChangeCounts count, int expected, Func<Task> act) =>
+        ChangesToAsync(count, () => count.Pending, expected, act);
+
+    private static async Task ChangesToAsync(ListingChangeCounts count, Func<int> value, int expected, Func<Task> act)
     {
         var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnChanged() { if (count.Value == expected) changed.TrySetResult(); }
+        void OnChanged() { if (value() == expected) changed.TrySetResult(); }
         count.Changed += OnChanged;
         try
         {
@@ -53,7 +56,7 @@ public class PendingChangesCountTests
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         }
         finally { count.Changed -= OnChanged; }
-        Assert.Equal(expected, count.Value);
+        Assert.Equal(expected, value());
     }
 
     [Fact]
@@ -62,7 +65,7 @@ public class PendingChangesCountTests
         var (shop, _, count, editor, galaxy) = await BuildAsync();
         using var _s = shop;
         await count.EnsureLoadedAsync();
-        Assert.Equal(0, count.Value);
+        Assert.Equal(0, count.Pending);
 
         await ChangesToAsync(count, 1, () =>
             editor.SaveAsync(galaxy, new Dictionary<string, JsonNode?> { ["title"] = "Galaxy vase, large" }, "tophattwaffle"));
@@ -76,7 +79,7 @@ public class PendingChangesCountTests
         var (shop, events, count, _, galaxy) = await BuildAsync();
         using var _s = shop;
         await count.EnsureLoadedAsync();
-        Assert.Equal(0, count.Value);
+        Assert.Equal(0, count.Pending);
 
         // Something other than the editor (a template apply or bulk edit job) left the listing with a draft.
         var other = shop.Provider.GetRequiredService<ListingEditor>(); // no count wired in: only the job tells it
@@ -90,6 +93,25 @@ public class PendingChangesCountTests
     }
 
     [Fact]
+    public async Task Counts_listings_changed_on_Etsy_after_an_import_and_drops_them_once_resolved()
+    {
+        var (shop, events, count, editor, galaxy) = await BuildAsync();
+        using var _s = shop;
+        await count.EnsureLoadedAsync();
+        Assert.Equal(0, count.ChangedOnEtsy);
+
+        shop.ListingJson(1)["tags"] = new JsonArray("vase", "etsy edit");
+        shop.ListingJson(1)["last_modified_timestamp"] = 1_760_000_500;
+        await shop.Importer.ImportShopAsync(FakeEtsyShop.ShopId, false, CancellationToken.None);
+        var import = new JobChanged(2, "listings.import", "Import listings", FakeEtsyShop.ShopId, JobStatus.Succeeded, "scheduler", null, null);
+        await ChangesToAsync(count, () => count.ChangedOnEtsy, 1, () => events.Deliver!([import]));
+        Assert.Equal(await shop.Provider.GetRequiredService<EtsyConflictService>().CountAsync(), count.ChangedOnEtsy);
+
+        await ChangesToAsync(count, () => count.ChangedOnEtsy, 0, () => editor.ResolveDriftAsync(galaxy, "tags", DriftResolution.TakeEtsy, "tophattwaffle"));
+        Assert.Empty(shop.Writes);
+    }
+
+    [Fact]
     public async Task Counts_what_the_Pending_changes_page_counts()
     {
         var (shop, _, count, editor, galaxy) = await BuildAsync();
@@ -97,7 +119,7 @@ public class PendingChangesCountTests
         await editor.SaveAsync(galaxy, new Dictionary<string, JsonNode?> { ["title"] = "Galaxy vase, large" }, "tophattwaffle");
         await count.EnsureLoadedAsync();
 
-        Assert.Equal(await shop.Provider.GetRequiredService<PendingChangesService>().CountAsync(), count.Value);
-        Assert.Equal(1, count.Value);
+        Assert.Equal(await shop.Provider.GetRequiredService<PendingChangesService>().CountAsync(), count.Pending);
+        Assert.Equal(1, count.Pending);
     }
 }
