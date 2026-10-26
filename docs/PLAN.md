@@ -1,6 +1,6 @@
 # Etsy Shop Manager — Project Plan
 
-_Status: Phases 0 (Foundation), 1 (Import) and 2 (Orders + HA) implemented; Phase 3 editor (all writable fields, photos, variations, push, drift, clone, auto-refill) implemented; Phase 4 (text blocks, shared variation lists, photo templates) implemented. Last updated 2026-10-17._
+_Status: every phase implemented: 0 (Foundation), 1 (Import), 2 (Orders + HA), 3 (editor: all writable fields, photos, variations, push, drift, clone, auto-refill), 4 (text blocks, shared variation lists, photo templates) and 5 (new listing from scratch). What is left to do is in [BACKLOG.md](BACKLOG.md). Last updated 2026-10-26._
 
 ## Goals
 
@@ -35,7 +35,6 @@ EtsyShopManager/
     EtsyShopManager.Data/       EF Core DbContext, migrations
   tests/
   docs/
-  ExistingHASS/                            Reference only, delete after migration
 ```
 
 The Home Assistant integration and the dashboard card live in their own repositories, `Etsy-Shop-Manager-HA` and
@@ -71,7 +70,7 @@ Per-shop lookups (shipping, processing and return profiles, sections, taxonomy) 
 Copies the local record, including template links, into a new draft. It can also clone across shops: profile IDs are remapped to the target shop's defaults.
 
 ### 3. New listing from scratch
-A guided form that enforces Etsy's required fields before allowing a push. Created on Etsy as a draft, then activated.
+A guided form that enforces Etsy's required fields before allowing a push. Created on Etsy as a draft; the app never publishes it (activate it on Etsy).
 
 ### 4. Order dashboard (view only)
 - Open orders for one or both shops, sorted by ship-by date.
@@ -117,13 +116,13 @@ The existing card keeps its styling and logic. Only its data source changes. **H
   - Polls every 30 s by default (options flow, 5–3600 s). This is cheap because it stays on the LAN.
   - Fires an `etsy_shop_manager_new_order` event and a device trigger.
   - Large attributes (`open_orders`, `items_needed`) are kept out of the HA recorder (`_unrecorded_attributes`), because HA's 16 KB attribute limit is easy to exceed.
-- **Card:** carried over unchanged. Its config simply points `shops[].entity` at the new sensors. A later option could link orders to this app's order page instead of Etsy.
+- **Card:** carried over with its styling; its config points `shops[].entity` at the new sensors. Since card 3.0 the app draws the order colors (`OrderColorEngine`) and the payload carries them, so the card only paints them.
 - Install via HACS custom repository, or by copying files manually. HACS only installs from GitHub repositories with `custom_components/` at the root, so the integration has its own repository, `Etsy-Shop-Manager-HA` (and the card `Etsy-Shop-Manager-HA-Card`).
 - Phase 2 option: push updates over SSE/WebSocket instead of polling, if the 30–60 s delay matters.
 
 ## Additions to build in early
-- Push history with rollback (from the per-push snapshots).
-- Full local backup of listings and images, plus a one-click export (zip).
+- Push history with rollback (from the per-push snapshots). **Done:** snapshots load back into the draft (Phase 3).
+- Full local backup of listings and images, plus a one-click export (zip). **Done** (Phase 5).
 - Bulk edit: percentage price changes, tags, materials, shipping profile across selected listings. **Done (2026-10-18):**
   the listings page's "Bulk edit" (Admin/Editor) selects listings as for auto-refill and changes one thing at a time:
   auto-refill, price (percent or amount on every variation, optionally rounded to .99 or whole amounts; never below
@@ -131,7 +130,7 @@ The existing card keeps its styling and logic. Only its data source changes. **H
   profile or section chosen per shop (`BulkListingEditor`). A preview lists each listing's now and after, or why it's
   skipped (that field changed on Etsy, over a limit, nothing chosen for its shop); saving makes unpushed edits from the
   app's version of each listing, and "Review and push" runs each listing's normal push, as the templates do.
-- Audit log of who changed what (now that there are user accounts).
+- Audit log of who changed what (now that there are user accounts). **Done** (Admin → Audit log).
 - Pick list / packing slip printing from the order dashboard. **Done (2026-10-18):** open orders get checkboxes and "Select all unshipped"; "Print pick list" and "Print packing slips" open static, print-friendly pages (`OrderPrintService`, `PrintLayout`, `wwwroot/print.css`; US letter, one slip per page). The pick list groups items by listing and variations with each personalization and its order under the line. A slip follows Etsy's own packing slip (2026-10-18): shop logo, name and name.etsy.com; ship-to, ship-by, order, order date, buyer, payment method and shipping method on the left; items (qty x price, variations, personalization) and totals (item total, discount, tax, shipping, order total) on the right, all from the stored receipt; buyer note and gift message under the items; the shop's packing slip note as "A note from the shop" above the items (Shops page, kept under `Shops.SlipThanks.{id}`; Etsy's API doesn't share the note set on Etsy). Etsy's logo and blurbs aren't copied. The buyer's Etsy username isn't in a receipt, so it's left out. Sizes are Etsy's, measured from its PDF (9.5pt text, 36pt margins). The print pages set `@page { margin: 0 }` so Chrome has no margin to print its date, title, URL and page number in; the margin is padding inside each page (the pick list repeats spacer rows in its header and footer). **Gift orders** (Etsy's `is_gift`, `gift_message`, `gift_sender`) print a gift slip like Etsy's instead: top half blank for the shipping label, a cut line, the order on the left without prices (shop icon, name, tagline, an optional location line set per shop on the Shops page under `Shops.SlipLocation.{id}` because Etsy's API has no shop city, and Etsy's sales count from getShop `transaction_sold_count`, read at startup for shops that lack it; no Star Seller flag in the API, so a per-shop Star Seller switch on the Shops page, `Shops.StarSeller.{id}`, prints Etsy's badge before the sales count and on normal slips under the shop), and past the fold "A gift for you" in a small serif with five gold sparkles (not the shop name, which read as if the gift were for the shop), the first item's photo, the gift message, who it's from ("- Kate": Etsy leaves `gift_sender` empty, as re-reading all 414 gift receipts showed, so it is the buyer's first name from getUser, which needs the `email_r` scope (shops connected before it must be reconnected); stored as `Order.GiftFromName` by the poller and, for older orders, `GiftBuyerNamesJob` at startup and on reconnect), and a QR code to the shop's Etsy page (QRCoder, drawn on the server). The location line also prints under the shop on normal slips. Orders and History show a Gift badge; History filters to gift orders. Read-only: nothing is written to Etsy or marked shipped. **Editable layouts (2026-10-18):** a Packing slips section in the sidebar holds which layout each shop prints (packing and gift), each shop's note, location line and Star Seller switch (moved from the Shops page), and the layouts: Liquid templates (Fluid) plus CSS, with a live preview of a made-up order. The built-in layouts are `Modules/Orders/Slips/*.liquid` and `*.css`; Admins copy them into `SlipLayout` rows to edit. A broken layout prints a short message in its slip's place instead of stopping the printout. **Two gift slips per sheet (2026-10-18):** a gift slip is half a letter page, so gift slips print two to a sheet with a cut line between them (10 orders with 2 gifts print on 9 sheets); a gift whose address was changed keeps a sheet of its own, with the note to change the label in the top half that is cut away. The gift layout preview shows a whole sheet with two made-up gift orders. A gift order whose buyer wrote no message prints a default one, "Enjoy your gift from Etsy" unless the shop sets its own on the Packing slips page (`Shops.GiftMessage.{id}`; the one shared message from before, `Slips.DefaultGiftMessage`, still applies to a shop without its own). Packing slips print the shop's ships-from address under From (set per shop on the Packing slips page, `Shops.FromAddress.{id}`; Etsy's API has no return address), and its city and state ("LOMBARD, IL" → "Lombard, Illinois") are the location line under the shop's name. Buyer shows the name on the buyer's Etsy profile (getUser, `Order.BuyerProfileName`, for open and gift orders), not the ship-to name; the buyer's username isn't in the API.
 
 ## Phases
@@ -178,7 +177,7 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - **Jobs:** `etsy.listings.import` (per shop, then queues images + taxonomy), `etsy.lookups.import`, `etsy.images.download`, `etsy.taxonomy.refresh`, and the recurring `etsy.listings.import-all` every 24 h (an interval, not a time of day). Connecting or reconnecting a shop queues its import. Dedupe keys make repeated clicks harmless.
 - **UI:** Listings (search title/SKU/tag/listing id, filter by shop/state/gone, sort, server paging, import status and "Import now"/"Full re-import" for Admin/Editor), listing detail (fields with lookup names, attributes, personalization, photos, inventory grid, Etsy state with hash and raw JSON) and Lookups (per-shop tables with usage counts, taxonomy search with properties).
 - **Found on the first real import:** Etsy reuses `listing_image_id` across copied listings, so image rows are unique per listing, not globally. The rate limiter now adds one token every 1/RPS seconds (burst 2) instead of refilling 5 tokens at once, which drew frequent 429s.
-- **Not yet:** videos, translations, digital files. A full import of a ~300-listing shop costs roughly 10 calls for listings and lookups plus one attribute call per changed listing.
+- **Not yet:** translations, digital files (videos were added later, see Phase 5). A full import of a ~300-listing shop costs roughly 10 calls for listings and lookups plus one attribute call per changed listing.
 
 ## Phase 2 implementation notes
 - **Polling:** `etsy.orders.poll-all` (recurring) queues `etsy.orders.poll` per shop (priority above imports). Each poll asks `getShopReceipts` for receipts modified since the previous poll *started* (minus a 2-minute overlap for clock differences), 100 per page in creation order. Creation order matters: in update order a receipt modified mid-poll jumps to the end and shifts the rest, so offset paging could skip one; in creation order it can't. The first poll pulls the whole order history. Orders and items are matched by Etsy id (idempotent); the page offset is saved after every page so an interrupted backfill resumes. The interval comes from the `Orders.PollIntervalSeconds` setting (Admin → Settings, minimum 1 minute); recurring jobs can now take their interval from a setting (`RecurringJobDefinition.IntervalSettingKey`). Connecting a shop starts a poll.
@@ -220,7 +219,7 @@ The base URL can be changed later under Admin → Settings. When it changes, the
   - **Using a block:** the editor's "Insert text block" puts the placeholder at the cursor or replaces the selection (the cursor is remembered on every change, so a tap on the button, which takes the focus away on phones, still knows where). A new block lists the listings whose description already contains its text word for word; "Use the block" swaps that text for the placeholder (nothing changes on Etsy).
   - **Editing a block** changes nothing by itself: each listing using it shows up to date, will change (with a line diff) or changed on Etsy; "Apply" writes the new descriptions as drafts; "Review and push" runs each listing's normal push preview and push. "Stop using" turns a listing's placeholder back into text; deleting a block does that everywhere.
   - **Upgrade from the first version:** at startup, blocks get a slug from their name and the old links become placeholders wherever the description has the block's text (the 2 production links did).
-  - Not yet: other placeholders such as `{{shop.name}}`.
+  - Built-in placeholders (`{{shop.name}}`, `{{listing.sku}}`, …) came later, see Phase 5.
 - **Shared variation lists (2026-10-17):** named option lists such as "PLA Colors" (Templates page, Variation templates tab; `VariationListService`). Each option has a stable id (so a rename is a rename) and is on or off.
   - **Linking:** a list offers the listing variations whose values are mostly in it (at least 2, and at least half; on the real data a 15-colour list matches 39 variations, 15 of them completely). A link remembers the listing's variation (property) and the options as last applied to it (`ListingVariationList.AppliedOptions`), starting from what the listing has (available or not).
   - **Changes are worked out against what was last applied:** an option new to the listing and on is added (combinations available, price copied from what the price varies by, as the editor's "add value" does; stock from the listing's current stock when pushed; at the end of Etsy's dropdown); switched off makes its combinations unavailable (never deleted); switched back on makes them available; renamed renames the value. Removing an option from the list leaves listings alone. A listing's own values (not in the list) are never touched; an option removed from a listing by hand isn't put back (shown as a note); a listing whose variations changed on Etsy waits until resolved; a listing without the linked variation is flagged.
@@ -228,11 +227,32 @@ The base URL can be changed later under Admin → Settings. When it changes, the
   - **Adding a list to any listing (2026-10-18):** "Add listings" on the list's page (a search of every listing with room for a variation) and "Add from variation list" in the editor add the list's switched-on options as a new variation and link it. It's a custom variation (slot 513/514, as the editor's "Add variation"), named as the list's linked listings name theirs (else the list's name), editable. Every existing combination takes each option (the count is shown first), copying its price, processing and availability, so the price doesn't vary by the new variation and stock stays shared (new combinations get the listing's stock when pushed). Blocked with the reason: a listing with 2 variations already, a name it already has, more than 70 options (Etsy's limit for one variation), variations changed on Etsy. Only a draft; pushed through the normal review. Etsy's own color properties (200) aren't used for new variations: whether Etsy takes free-text values on them can't be checked without a real write.
   - **Linking from the editor (2026-10-18):** each variation in the editor shows the list it follows (Apply list now: that listing only, as drafts; Unlink: values kept) or a "Link to variation list" picker with any list (no match threshold, since it's chosen by hand): how many values are in the list, a warning when few are, and what applying would change. Linking only records the link. Blocked with the reason: the variation already follows a list, another of its variations follows this list, variations changed on Etsy.
   - **Combined templates (2026-10-25):** one variation can follow several templates in an order chosen per listing (e.g. "Basic Colors" then "Special Colors"), so no "Basic + Special" copy has to be kept. Each link keeps its own applied options and a `Position`; `PlanCombined` works out each template's changes in turn as before, then orders the values once (the templates' switched-on options in template order, the listing's own values after). A variation with one template plans exactly as before. An option in two templates belongs to the first (a note says so); later templates never add, rename, switch or remove it. Applying from any of the templates (or "Apply templates now" in the editor) brings the whole variation in line. The editor shows the templates in order (move up/down, Unlink each: its values stay as the listing's own) and a "Combine with another template" picker with a preview; moving only records the order until the next apply. On a template's page, uses show what they're combined with, and "Listings with matching variations" also offers variations that follow another template, counted on the values that template doesn't cover. Etsy's limit of 70 options per variation applies to the combined total: linking or combining past it is refused with the reason, a template that would push a listing past it shows "Too many options for Etsy" and isn't applied there, and a variation over 70 is a push blocker. Inventory payloads are unchanged (shared stock as before; whether Etsy accepts a variation grown from a list with shared stock is still unverified).
-  - Not yet: reordering existing values, SKU patterns.
+  - Reordering values and SKU patterns came later, see Phase 5.
 - **Photo templates (2026-10-17):** one image with fixed alt text and a position counted from the end (Templates page, Photo templates tab; `PhotoTemplateService`). A listing's own photos come first, then its templates (position 1 last).
   - **Identity:** the template's photo on a listing is found by its alt text (the fingerprint the plan describes; each template's alt text must be unique), or by the template file while it waits in a draft. The link records which template image is on Etsy (`AppliedFileName`), the alt text it has there, and an image waiting in a draft (`PendingFileName`); after each push that includes photos, the `ListingPushed` handler records what reached Etsy. Etsy recompresses photos, so they can't be compared by content.
   - **Linking:** listings that already have a photo with the template's alt text keep it as the template's photo (taken as the current image; on the real data, 15 listings share "Shop Informational Image", the only alt text in use); others get it on the next apply.
   - **Apply** writes the listing's photos as a draft: adds the image, replaces it when the template has a new image (old copy deleted, new one uploaded), moves it into place, updates its alt text. A listing already in the right order is left exactly as it is, whatever Etsy's raw ranks (gaps included). Listings that would go over 20 photos, or whose photos changed on Etsy, are skipped. Pushing is the normal photo push (every photo its own rank 1..n, overwrite off). Template images are kept by the image cleanup.
+
+## Phase 5 and later additions
+- **New listing from scratch** (`/listings/new`, `ListingCreationService`): a guided form with Etsy's required fields and
+  text rules, pre-filled from per-shop defaults (`ShopDefaultsService`, Shops page); creates an Etsy draft, imports it
+  and opens the editor. Never published by the app.
+- **Backups** (`BackupService`, Admin settings): scheduled and one-click backups (database snapshot, media, Data
+  Protection keys, manifest) with retention, restore with a safety backup first, and a portable listing export zip.
+- **Placeholders** (`PlaceholderEngine`): built-in `{{shop.*}}` and `{{listing.*}}` values next to `{{text.slug}}`
+  blocks, nested blocks with loop detection; an unresolved placeholder blocks the push.
+- **Variations:** values can be reordered (in the editor and in variation templates) and SKUs follow a per-listing
+  pattern such as `{listing.sku}-{size}-{color}` (`SkuPatternResolver`).
+- **Videos:** up to two per listing, imported into a local video store, edited and pushed like photos; Etsy shows them
+  in upload order.
+- **Template filters:** search, shop and status filters with bulk selection limited to the rows shown.
+- **Bulk edit** is described under "Additions to build in early". Pending changes and Changed on Etsy have their own
+  pages (Changed on Etsy with a side-by-side diff and bulk keep mine / take Etsy's), and their counts are buttons in
+  the title bar for Admins (`ListingChangeCounts`).
+- **Orders since Phase 2:** local changes to an order (personalization, variations, address, buyer note:
+  `OrderOverrideService`), made marks shared with the HA card (`OrderMadeService`), listing instructions printed on
+  slips (`SlipDocumentService`), automatic slip printing on the host's printer (`AutoPrint.cs`), and order colors drawn
+  by the app (`OrderColorEngine`). `AGENTS.md` describes each.
 
 ## Etsy errors in plain words (2026-10-17)
 - Etsy's error replies (`{"error": "…"}`, or a list of field checks `{"path": "/title/0", "type": "all_caps", "message": "…"}`) are turned into one sentence: what Etsy refused, its reason (known checks and messages reworded, others cleaned up), and what to do ("Change the title and try again", "Reconnect the shop", "Try again in a few minutes" for Etsy's own errors). It is the message of every failed Etsy call, so job results, toasts, the editor's push history, the clone page and the refill panel all show it; the raw reply stays in the Etsy write log.
@@ -242,7 +262,7 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - Every write the app sends to Etsy (each attempt, retries included) and Etsy's exact reply is kept for 90 days and shown to Admins under Etsy writes, with the job that sent it. Added after the reverted photo push (2026-10-17), whose only trace of Etsy's answers was the service log. Uploaded files are recorded by name and size only; OAuth calls and request headers are never recorded.
 
 ## Deployment
-- Source: private Gitea repo `github.com/TopHATTwaffle/etsy-shop-manager`, default branch `master`.
+- Source: Gitea repo `TopHATTwaffle/etsy-shop-manager`, default branch `master`, mirrored publicly to GitHub (github.com/TopHATTwaffle/etsy-shop-manager), so nothing personal or private goes into it.
 - Claude pushes to branches and opens PRs; `master` is protected so only TopHATTwaffle merges.
 - Every push to `master` deploys automatically: Gitea Actions on a self-hosted `gitea-runner` on the Windows host (label `esm-deploy`, host mode) builds, tests, publishes, backs up the DB, upgrades the service, checks `/health`, and rolls back on failure. Setup: `docs/DEPLOY.md`.
 - The runner account is not an admin: it can only control the EtsyShopManager service and write its install and data folders.
