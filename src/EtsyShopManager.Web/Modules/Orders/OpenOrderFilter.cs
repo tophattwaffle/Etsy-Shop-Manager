@@ -50,7 +50,7 @@ public sealed record OpenOrderFilter
 
     public bool IsFiltered => Shipping is not null || Destination is not null || Made is not null || HasNote || Gift || Personalized;
 
-    public static bool HasBuyerNote(Order o) => !string.IsNullOrWhiteSpace(o.MessageFromBuyer);
+    public static bool HasBuyerNote(Order o) => !string.IsNullOrWhiteSpace(OrderOverrides.Note(o));
 
     public static bool IsPersonalized(Order o) => o.Items.Any(i =>
         OrderOverrides.Variations(i).Any(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId && v.Value.Trim().Length > 0));

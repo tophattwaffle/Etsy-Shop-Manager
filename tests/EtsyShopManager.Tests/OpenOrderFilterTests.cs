@@ -58,6 +58,19 @@ public class OpenOrderFilterTests
         Assert.Empty(new OpenOrderFilter { Gift = true, HasNote = true }.Apply(Orders()));
     }
 
+    [Fact]
+    public void Has_note_filter_reflects_local_overrides()
+    {
+        var orders = Orders();
+        // Receipt 2 originally had a note; clear it via override
+        orders.Single(o => o.EtsyReceiptId == 2).MessageFromBuyerOverride = "";
+        Assert.Empty(new OpenOrderFilter { HasNote = true }.Apply(orders));
+
+        // Receipt 1 originally had no note; add one via override
+        orders.Single(o => o.EtsyReceiptId == 1).MessageFromBuyerOverride = "Added buyer note";
+        Assert.Equal([1L], Receipts(new OpenOrderFilter { HasNote = true }.Apply(orders)));
+    }
+
 
     [Fact]
     public void Shipping_method_and_destination_come_from_the_stored_receipt()

@@ -440,7 +440,7 @@
                     @if (o.IsOpen)
                     {
                         <AuthorizeView Roles="@Roles.Admin">
-                            <MudTooltip Text="Change personalization, variations, address or seller note">
+                            <MudTooltip Text="Change personalization, variations, note, address or seller note">
                                 <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => ChangeOrderAsync(o)"
                                                aria-label="@($"Change order {o.EtsyReceiptId}")" />
                             </MudTooltip>
@@ -510,7 +510,23 @@
                     }
                 </div>
             }
-            @if (o.MessageFromBuyer is not null)
+            @if (o.MessageFromBuyerOverride is not null)
+            {
+                var note = OrderOverrides.Note(o);
+                var buyers = o.MessageFromBuyer;
+                <div class="order-message esm-changed">
+                    @if (note is not null)
+                    {
+                        <span><b>Note from buyer:</b> @note</span>
+                    }
+                    else
+                    {
+                        <span class="muted small">No note from buyer</span>
+                    }
+                    <ChangedMark Label="@(string.IsNullOrWhiteSpace(buyers) ? "Note from buyer changed here. The buyer entered none." : $"Note from buyer changed here. The buyer entered: {buyers}")" />
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(o.MessageFromBuyer))
             {
                 <div class="order-message"><b>Note from buyer:</b> @o.MessageFromBuyer</div>
             }

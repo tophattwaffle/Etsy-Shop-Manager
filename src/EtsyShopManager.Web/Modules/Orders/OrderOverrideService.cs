@@ -26,6 +26,12 @@ public sealed class OrderChangesForm
     /// <summary>Whether the seller note prints on the order's packing slip.</summary>
     public bool SellerNoteOnSlips { get; set; }
 
+    /// <summary>The buyer's note from Etsy (null when they left none).</summary>
+    public string? BuyersNote { get; init; }
+
+    public bool ChangeNote { get; set; }
+    public string Note { get; set; } = "";
+
     public List<ItemChangesForm> Items { get; init; } = [];
 }
 
@@ -86,7 +92,10 @@ public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFacto
             Address = order.AddressOverride ?? etsyAddress,
             SellerNote = order.SellerNote ?? "",
             SellerNoteOnSlips = order.SellerNoteOnSlips,
-            Items =[.. order.Items.OrderBy(i => i.EtsyTransactionId).Select(i =>
+            BuyersNote = order.MessageFromBuyer,
+            ChangeNote = order.MessageFromBuyerOverride is not null,
+            Note = order.MessageFromBuyerOverride ?? order.MessageFromBuyer ?? "",
+            Items = [.. order.Items.OrderBy(i => i.EtsyTransactionId).Select(i =>
             {
                 var properties = products.Where(p => p.EtsyListingId == i.EtsyListingId).SelectMany(p => p.PropertyValues).ToList();
                 var buyers = OrderOverrides.BuyersPersonalization(i);
@@ -165,6 +174,19 @@ public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFacto
         if (note is not null && onSlips != order.SellerNoteOnSlips)
             changes.Add(onSlips ? "seller note on packing slips" : "seller note off packing slips");
         order.SellerNoteOnSlips = onSlips;
+
+        string? buyerNote = null;
+        if (form.ChangeNote)
+        {
+            buyerNote = (form.Note ?? "").Replace("\r", "").Trim();
+            if (buyerNote.Length > OrderOverrides.MaxNoteLength)
+                return $"Keep the note to {OrderOverrides.MaxNoteLength} characters.";
+            // The same note as on Etsy isn't a change.
+            var buyersNote = (order.MessageFromBuyer ?? "").Replace("\r", "").Trim();
+            if (buyerNote == buyersNote) buyerNote = null;
+        }
+        if (buyerNote != order.MessageFromBuyerOverride) changes.Add(buyerNote is null ? "note back to Etsy's" : "note changed");
+        order.MessageFromBuyerOverride = buyerNote;
 
         foreach (var f in form.Items)
         {

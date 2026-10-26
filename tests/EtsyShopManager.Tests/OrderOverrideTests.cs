@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MudBlazor.Services;
 
 namespace EtsyShopManager.Tests;
 
@@ -56,6 +57,23 @@ public class OrderOverrideTests
         var unpersonalized = Item(personalization: null);
         unpersonalized.PersonalizationOverride = "Added later";
         Assert.Equal("Personalization: Added later", OrderOverrides.Variations(unpersonalized).Select(v => $"{v.Name}: {v.Value}").Last());
+
+        var orderWithNote = SampleOrder(Item());
+        orderWithNote.MessageFromBuyer = "Please wrap";
+        Assert.Equal("Please wrap", OrderOverrides.Note(orderWithNote));
+        orderWithNote.MessageFromBuyerOverride = "Please do not wrap";
+        Assert.Equal("Please do not wrap", OrderOverrides.Note(orderWithNote));
+        Assert.Equal("Please wrap", orderWithNote.MessageFromBuyer); // Etsy's copy is untouched
+        Assert.True(OrderOverrides.HasOverride(orderWithNote));
+
+        orderWithNote.MessageFromBuyerOverride = ""; // the buyer's note was cleared
+        Assert.Null(OrderOverrides.Note(orderWithNote));
+        Assert.Equal("Please wrap", orderWithNote.MessageFromBuyer);
+
+        var orderWithoutNote = SampleOrder(Item());
+        orderWithoutNote.MessageFromBuyerOverride = "Added later";
+        Assert.Equal("Added later", OrderOverrides.Note(orderWithoutNote));
+        Assert.Null(orderWithoutNote.MessageFromBuyer);
     }
 
     [Fact]
@@ -81,6 +99,23 @@ public class OrderOverrideTests
 
         item.PersonalizationOverride = "";
         Assert.False(OpenOrderFilter.IsPersonalized(order));
+
+        order.MessageFromBuyer = "Original note";
+        order.MessageFromBuyerOverride = "Modified note";
+        payload = HaPayloadBuilder.OpenOrders([order], TimeZoneInfo.Utc);
+        Assert.Equal("Modified note", (string?)payload["open_orders"]![0]!["message_from_buyer"]);
+        Assert.True(OpenOrderFilter.HasBuyerNote(order));
+
+        order.MessageFromBuyerOverride = ""; // cleared
+        payload = HaPayloadBuilder.OpenOrders([order], TimeZoneInfo.Utc);
+        Assert.False(payload["open_orders"]![0]!.AsObject().ContainsKey("message_from_buyer"));
+        Assert.False(OpenOrderFilter.HasBuyerNote(order));
+
+        var orderAdded = SampleOrder(Item());
+        orderAdded.MessageFromBuyerOverride = "Added note";
+        payload = HaPayloadBuilder.OpenOrders([orderAdded], TimeZoneInfo.Utc);
+        Assert.Equal("Added note", (string?)payload["open_orders"]![0]!["message_from_buyer"]);
+        Assert.True(OpenOrderFilter.HasBuyerNote(orderAdded));
     }
 
     [Fact]
@@ -108,13 +143,14 @@ public class OrderOverrideTests
 
         var item = order.Items[0];
         order.AddressOverride = "Sample Buyer\n22 New Road";
+        order.MessageFromBuyerOverride = "Preserved note";
         item.PersonalizationOverride = "Robert";
         item.VariationOverrides = [new OrderVariation { PropertyId = 513, Name = "Color", Value = "Blue" }];
         OrderMapper.Apply(order, receipt, node.ToJsonString(), DateTime.UtcNow);
 
         Assert.Same(item, order.Items[0]);
-        Assert.Equal(("Sample Buyer\n22 New Road", "Robert", "Blue"),
-            (order.AddressOverride, item.PersonalizationOverride, Assert.Single(item.VariationOverrides).Value));
+        Assert.Equal(("Sample Buyer\n22 New Road", "Preserved note", "Robert", "Blue"),
+            (order.AddressOverride, order.MessageFromBuyerOverride, item.PersonalizationOverride, Assert.Single(item.VariationOverrides).Value));
     }
 
     [Fact]
@@ -284,7 +320,466 @@ public class OrderOverrideTests
         Assert.DoesNotContain("Address changed", await RenderSlipsAsync(db));
     }
 
-    private static async Task SeedAsync(TestDb db, OrderItem item, string? address = null)
+    [Fact]
+    public async Task Buyer_note_change_and_seller_note_save_side_by_side()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, Item(), note: "Original buyer note");
+        var audit = new RecordingAudit();
+        var service = new OrderOverrideService(db, audit);
+
+        var form = (await service.GetFormAsync(1))!;
+        form.SellerNote = "Called the buyer";
+        form.ChangeNote = true;
+        form.Note = "Gift wrap please";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Equal("Called the buyer", order.SellerNote);
+            Assert.Equal("Gift wrap please", order.MessageFromBuyerOverride);
+        }
+        Assert.Contains("seller note set", audit.Entries[^1].Details);
+        Assert.Contains("note changed", audit.Entries[^1].Details);
+
+        // Putting the buyer's note back leaves the seller note alone.
+        form = (await service.GetFormAsync(1))!;
+        form.ChangeNote = false;
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Equal("Called the buyer", order.SellerNote);
+            Assert.Null(order.MessageFromBuyerOverride);
+            Assert.Equal("Original buyer note", OrderOverrides.Note(order));
+        }
+        Assert.Equal("note back to Etsy's", audit.Entries[^1].Details);
+    }
+
+    [Fact]
+    public async Task Order_note_override_service_validates_and_saves()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, Item(), note: "Original buyer note");
+        var audit = new RecordingAudit();
+        var service = new OrderOverrideService(db, audit);
+
+        var form = (await service.GetFormAsync(1))!;
+        Assert.Equal("Original buyer note", form.BuyersNote);
+        Assert.False(form.ChangeNote);
+        Assert.Equal("Original buyer note", form.Note);
+
+        // Same note as buyer's: nothing saved
+        form.ChangeNote = true;
+        form.Note = "Original buyer note";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        Assert.Empty(audit.Entries);
+
+        // Validation: note > 1000 characters
+        form.Note = new string('x', 1001);
+        Assert.Equal("Keep the note to 1000 characters.", await service.SaveAsync(form, "tophattwaffle"));
+
+        // Save modification
+        form.Note = "  Please pack securely  \r\n";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Equal("Please pack securely", order.MessageFromBuyerOverride);
+            Assert.Equal("Original buyer note", order.MessageFromBuyer); // untouched
+            Assert.Equal("Please pack securely", OrderOverrides.Note(order));
+        }
+        Assert.Equal(("order.changes", "1001", "note changed", "tophattwaffle"),
+            (audit.Entries[^1].Action, audit.Entries[^1].EntityId, audit.Entries[^1].Details, audit.Entries[^1].User));
+
+        // Form reopened shows existing override
+        form = (await service.GetFormAsync(1))!;
+        Assert.True(form.ChangeNote);
+        Assert.Equal("Please pack securely", form.Note);
+        Assert.Equal("Original buyer note", form.BuyersNote);
+
+        // Clear note: Note = ""
+        form.Note = "";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Equal("", order.MessageFromBuyerOverride);
+            Assert.Null(OrderOverrides.Note(order));
+        }
+
+        // Toggle change off returns to buyer's note
+        form = (await service.GetFormAsync(1))!;
+        Assert.True(form.ChangeNote);
+        Assert.Equal("", form.Note);
+        form.ChangeNote = false;
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Null(order.MessageFromBuyerOverride);
+            Assert.Equal("Original buyer note", OrderOverrides.Note(order));
+            Assert.False(OrderOverrides.HasOverride(order));
+        }
+        Assert.Equal(("order.changes", "1001", "note back to Etsy's", "tophattwaffle"),
+            (audit.Entries[^1].Action, audit.Entries[^1].EntityId, audit.Entries[^1].Details, audit.Entries[^1].User));
+
+        // Re-override and then restore by typing exact original note while ChangeNote is true
+        form.ChangeNote = true;
+        form.Note = "Different note";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        form = (await service.GetFormAsync(1))!;
+        Assert.Equal("Different note", form.Note);
+        form.Note = "Original buyer note"; // typing Etsy's original note
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Null(order.MessageFromBuyerOverride);
+            Assert.Equal("Original buyer note", OrderOverrides.Note(order));
+            Assert.False(OrderOverrides.HasOverride(order));
+        }
+        Assert.Equal(("order.changes", "1001", "note back to Etsy's", "tophattwaffle"),
+            (audit.Entries[^1].Action, audit.Entries[^1].EntityId, audit.Entries[^1].Details, audit.Entries[^1].User));
+    }
+
+    [Fact]
+    public async Task Adding_note_when_none_exists_and_removing_it()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, Item(), note: null);
+        var audit = new RecordingAudit();
+        var service = new OrderOverrideService(db, audit);
+
+        var form = (await service.GetFormAsync(1))!;
+        Assert.Null(form.BuyersNote);
+        Assert.False(form.ChangeNote);
+        Assert.Equal("", form.Note);
+
+        // Empty string with toggle on on order without note: nothing saved
+        form.ChangeNote = true;
+        form.Note = "   ";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        Assert.Empty(audit.Entries);
+
+        // Add note
+        form.Note = "Newly added order note";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Equal("Newly added order note", order.MessageFromBuyerOverride);
+            Assert.Null(order.MessageFromBuyer);
+            Assert.Equal("Newly added order note", OrderOverrides.Note(order));
+        }
+        Assert.Equal(("order.changes", "1001", "note changed", "tophattwaffle"),
+            (audit.Entries[^1].Action, audit.Entries[^1].EntityId, audit.Entries[^1].Details, audit.Entries[^1].User));
+
+        // Re-open and clear added note by emptying the text
+        form = (await service.GetFormAsync(1))!;
+        Assert.True(form.ChangeNote);
+        Assert.Equal("Newly added order note", form.Note);
+        form.Note = "   "; // cleared
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Null(order.MessageFromBuyerOverride);
+            Assert.Null(order.MessageFromBuyer);
+            Assert.Null(OrderOverrides.Note(order));
+            Assert.False(OrderOverrides.HasOverride(order));
+        }
+        Assert.Equal(("order.changes", "1001", "note back to Etsy's", "tophattwaffle"),
+            (audit.Entries[^1].Action, audit.Entries[^1].EntityId, audit.Entries[^1].Details, audit.Entries[^1].User));
+
+        // Add note again and clear by toggling switch off
+        form = (await service.GetFormAsync(1))!;
+        form.ChangeNote = true;
+        form.Note = "Second note";
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        form = (await service.GetFormAsync(1))!;
+        Assert.True(form.ChangeNote);
+        form.ChangeNote = false;
+        Assert.Null(await service.SaveAsync(form, "tophattwaffle"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Null(order.MessageFromBuyerOverride);
+            Assert.Null(OrderOverrides.Note(order));
+            Assert.False(OrderOverrides.HasOverride(order));
+        }
+    }
+
+    [Fact]
+    public async Task Packing_slips_reflect_note_overrides_including_special_characters()
+    {
+        using var db = new TestDb();
+        var item = Item();
+        await SeedAsync(db, item, note: "Buyer original slip note");
+
+        var slips = await RenderSlipsAsync(db);
+        Assert.Contains("Note from buyer", slips);
+        Assert.Contains("Buyer original slip note", slips);
+
+        // Modified note override
+        await using (var ctx = db.CreateDbContext())
+            await ctx.Orders.ExecuteUpdateAsync(s => s.SetProperty(o => o.MessageFromBuyerOverride, "Overridden slip note"));
+
+        slips = await RenderSlipsAsync(db);
+        Assert.Contains("Note from buyer", slips);
+        Assert.Contains("Overridden slip note", slips);
+        Assert.DoesNotContain("Buyer original slip note", slips);
+
+        // Cleared note override
+        await using (var ctx = db.CreateDbContext())
+            await ctx.Orders.ExecuteUpdateAsync(s => s.SetProperty(o => o.MessageFromBuyerOverride, ""));
+
+        slips = await RenderSlipsAsync(db);
+        Assert.DoesNotContain("Buyer original slip note", slips);
+        Assert.DoesNotContain("Overridden slip note", slips);
+        Assert.DoesNotContain("Note from buyer", slips);
+
+        // Special characters: HTML tags, ampersand, emoji
+        var specialNote = "Fragile & <handle with care> 🚀📦";
+        await using (var ctx = db.CreateDbContext())
+            await ctx.Orders.ExecuteUpdateAsync(s => s.SetProperty(o => o.MessageFromBuyerOverride, specialNote));
+
+        slips = await RenderSlipsAsync(db);
+        Assert.Contains("Fragile &amp; &lt;handle with care&gt;", slips);
+        Assert.DoesNotContain("<handle with care>", slips);
+
+        // In HA payload
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            var payload = HaPayloadBuilder.OpenOrders([order], TimeZoneInfo.Utc);
+            Assert.Equal(specialNote, (string?)payload["open_orders"]![0]!["message_from_buyer"]);
+        }
+    }
+
+    [Fact]
+    public void Whitespace_only_notes_evaluate_to_null()
+    {
+        var order = SampleOrder(Item());
+        order.MessageFromBuyer = "   ";
+        Assert.Null(OrderOverrides.Note(order));
+
+        order.MessageFromBuyerOverride = "  \t \n ";
+        Assert.Null(OrderOverrides.Note(order));
+    }
+
+    [Fact]
+    public async Task Changed_mark_renders_label_in_tooltip_and_aria_label()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<Microsoft.JSInterop.IJSRuntime, TestJsRuntime>();
+        services.AddMudServices();
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+
+        var html1 = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var parameters = ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                ["Label"] = "Note from buyer changed here. The buyer entered none.",
+            });
+            var output = await renderer.RenderComponentAsync<ChangedMark>(parameters);
+            return output.ToHtmlString();
+        });
+        Assert.Contains("class=\"esm-changed-mark\"", html1);
+        Assert.Contains("aria-label=\"Note from buyer changed here. The buyer entered none.\"", html1);
+        Assert.Contains("Note from buyer changed here. The buyer entered none.", html1);
+
+        var html2 = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var parameters = ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                ["Label"] = "Note from buyer changed here. The buyer entered: Original note",
+            });
+            var output = await renderer.RenderComponentAsync<ChangedMark>(parameters);
+            return output.ToHtmlString();
+        });
+        Assert.Contains("aria-label=\"Note from buyer changed here. The buyer entered: Original note\"", html2);
+        Assert.Contains("Note from buyer changed here. The buyer entered: Original note", html2);
+    }
+
+    [Fact]
+    public async Task Order_card_renders_note_states_correctly()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<Microsoft.JSInterop.IJSRuntime, TestJsRuntime>();
+        services.AddMudServices();
+        services.AddAuthorizationCore();
+        var adminUser = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity([
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "tophattwaffle"),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, EtsyShopManager.Core.Modules.Roles.Admin)
+        ], "auth"));
+        services.AddScoped<Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider>(_ =>
+            new TestAuthStateProvider(adminUser));
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+
+        var ordersPage = new Orders();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        typeof(Orders).GetProperty("Time", flags)!.SetValue(ordersPage, TimeProvider.System);
+
+        var orderCardMethod = typeof(Orders).GetMethod("OrderCard", flags)!;
+
+        async Task<string> RenderOrderCardAsync(Order order)
+        {
+            var fragment = (RenderFragment)orderCardMethod.Invoke(ordersPage, [order, false])!;
+            return await renderer.Dispatcher.InvokeAsync(async () =>
+            {
+                var parameters = ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    ["ChildContent"] = fragment,
+                });
+                var output = await renderer.RenderComponentAsync<FragmentWrapper>(parameters);
+                return output.ToHtmlString();
+            });
+        }
+
+        var order = SampleOrder(Item());
+        order.Shop = new Shop { Id = 1, Name = "TestShop" };
+
+        // 1. Untouched note: buyer had note, no override
+        order.MessageFromBuyer = "Original buyer note";
+        order.MessageFromBuyerOverride = null;
+        var htmlUntouched = await RenderOrderCardAsync(order);
+        Assert.Contains("class=\"order-message\"", htmlUntouched);
+        Assert.Contains("<b>Note from buyer:</b> Original buyer note", htmlUntouched);
+        Assert.DoesNotContain("order-message esm-changed", htmlUntouched);
+        Assert.DoesNotContain("No note from buyer", htmlUntouched);
+
+        // 2. Modified note: buyer had note, overridden to new text
+        order.MessageFromBuyer = "Original buyer note";
+        order.MessageFromBuyerOverride = "Modified buyer note";
+        var htmlModified = await RenderOrderCardAsync(order);
+        Assert.Contains("order-message esm-changed", htmlModified);
+        Assert.Contains("<b>Note from buyer:</b> Modified buyer note", htmlModified);
+        Assert.Contains("Note from buyer changed here. The buyer entered: Original buyer note", htmlModified);
+
+        // 3. Added note: buyer had no note, overridden to new text
+        order.MessageFromBuyer = null;
+        order.MessageFromBuyerOverride = "Newly added note";
+        var htmlAdded = await RenderOrderCardAsync(order);
+        Assert.Contains("order-message esm-changed", htmlAdded);
+        Assert.Contains("<b>Note from buyer:</b> Newly added note", htmlAdded);
+        Assert.Contains("Note from buyer changed here. The buyer entered none.", htmlAdded);
+
+        // 4. Cleared note: buyer had note, overridden to empty string
+        order.MessageFromBuyer = "Original buyer note";
+        order.MessageFromBuyerOverride = "";
+        var htmlCleared = await RenderOrderCardAsync(order);
+        Assert.Contains("order-message esm-changed", htmlCleared);
+        Assert.Contains("No note from buyer", htmlCleared);
+        Assert.Contains("Note from buyer changed here. The buyer entered: Original buyer note", htmlCleared);
+
+        // 5. No note at all: buyer had no note, no override
+        order.MessageFromBuyer = null;
+        order.MessageFromBuyerOverride = null;
+        var htmlNone = await RenderOrderCardAsync(order);
+        Assert.DoesNotContain("Note from buyer", htmlNone);
+        Assert.DoesNotContain("No note from buyer", htmlNone);
+    }
+
+    [Fact]
+    public async Task Order_note_override_at_boundary_lengths()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, Item(), note: "Buyer note");
+        var audit = new RecordingAudit();
+        var service = new OrderOverrideService(db, audit);
+
+        var form = (await service.GetFormAsync(1))!;
+        form.ChangeNote = true;
+
+        // Exactly 1000 characters should succeed
+        form.Note = new string('A', 1000);
+        Assert.Null(await service.SaveAsync(form, "admin"));
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Equal(1000, order.MessageFromBuyerOverride!.Length);
+            Assert.Equal(new string('A', 1000), OrderOverrides.Note(order));
+        }
+
+        // 1001 characters should fail validation
+        form.Note = new string('A', 1001);
+        Assert.Equal("Keep the note to 1000 characters.", await service.SaveAsync(form, "admin"));
+    }
+
+    [Fact]
+    public async Task OrderChangesDialog_initializes_and_enforces_admin_role_on_save()
+    {
+        using var db = new TestDb();
+        await SeedAsync(db, Item(), note: "Buyer original note");
+        var audit = new RecordingAudit();
+        var service = new OrderOverrideService(db, audit);
+
+        var dialog = new OrderChangesDialog();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        typeof(OrderChangesDialog).GetProperty("Overrides", flags)!.SetValue(dialog, service);
+        typeof(OrderChangesDialog).GetProperty("OrderId", flags)!.SetValue(dialog, 1);
+
+        // Initialize dialog
+        var initMethod = typeof(OrderChangesDialog).GetMethod("OnInitializedAsync", flags)!;
+        await (Task)initMethod.Invoke(dialog, null)!;
+
+        var formField = typeof(OrderChangesDialog).GetField("_form", flags)!;
+        var form = (OrderChangesForm)formField.GetValue(dialog)!;
+        Assert.NotNull(form);
+        Assert.Equal("Buyer original note", form.BuyersNote);
+        Assert.False(form.ChangeNote);
+        Assert.Equal("Buyer original note", form.Note);
+
+        // Non-admin attempting to save
+        form.ChangeNote = true;
+        form.Note = "Edited note by non-admin";
+        var nonAdminUser = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity([
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "worker"),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, EtsyShopManager.Core.Modules.Roles.User)
+        ], "auth"));
+        typeof(OrderChangesDialog).GetProperty("AuthState", flags)!.SetValue(dialog, Task.FromResult(new Microsoft.AspNetCore.Components.Authorization.AuthenticationState(nonAdminUser)));
+
+        var saveMethod = typeof(OrderChangesDialog).GetMethod("SaveAsync", flags)!;
+        await (Task)saveMethod.Invoke(dialog, null)!;
+
+        var errorField = typeof(OrderChangesDialog).GetField("_error", flags)!;
+        Assert.Equal("Only admins can change orders.", errorField.GetValue(dialog));
+
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Null(order.MessageFromBuyerOverride); // Untouched in DB
+        }
+
+        // Admin saving
+        var adminUser = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity([
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "tophattwaffle"),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, EtsyShopManager.Core.Modules.Roles.Admin)
+        ], "auth"));
+        typeof(OrderChangesDialog).GetProperty("AuthState", flags)!.SetValue(dialog, Task.FromResult(new Microsoft.AspNetCore.Components.Authorization.AuthenticationState(adminUser)));
+
+        var testDialogInstance = new TestDialogInstance();
+        typeof(OrderChangesDialog).GetProperty("Dialog", flags)!.SetValue(dialog, testDialogInstance);
+
+        await (Task)saveMethod.Invoke(dialog, null)!;
+
+        Assert.Null(errorField.GetValue(dialog));
+        Assert.True(testDialogInstance.Closed);
+
+        await using (var ctx = db.CreateDbContext())
+        {
+            var order = await ctx.Orders.SingleAsync();
+            Assert.Equal("Edited note by non-admin", order.MessageFromBuyerOverride);
+            Assert.Equal("Edited note by non-admin", OrderOverrides.Note(order));
+        }
+    }
+
+    private static async Task SeedAsync(TestDb db, OrderItem item, string? address = null, string? note = null, string? noteOverride = null)
     {
         await using var ctx = db.CreateDbContext();
         ctx.Shops.Add(new Shop { Id = 1, EtsyShopId = 42, Name = "SampleShop", ConnectedAtUtc = DateTime.UtcNow });
@@ -303,6 +798,8 @@ public class OrderOverrideTests
         ctx.Listings.Add(listing);
         var order = SampleOrder(item);
         order.AddressOverride = address;
+        order.MessageFromBuyer = note;
+        order.MessageFromBuyerOverride = noteOverride;
         ctx.Orders.Add(order);
         await ctx.SaveChangesAsync();
     }
@@ -340,6 +837,47 @@ public class OrderOverrideTests
         {
             Entries.Add((action, entityId, details, userName));
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class TestJsRuntime : Microsoft.JSInterop.IJSRuntime
+    {
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) => default;
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args) => default;
+    }
+
+    private sealed class TestDialogInstance : MudBlazor.IMudDialogInstance
+    {
+        public Guid Id => Guid.NewGuid();
+        public string ElementId => "";
+        public MudBlazor.DialogOptions Options => new();
+        public string Title => "";
+        public bool Closed { get; private set; }
+
+        public void Close() => Closed = true;
+        public void Close(MudBlazor.DialogResult? result) => Closed = true;
+        public void Close<T>(T result) => Closed = true;
+        public void Cancel() { }
+        public void CancelAll() { }
+        public Task SetOptionsAsync(MudBlazor.DialogOptions options) => Task.CompletedTask;
+        public Task SetTitleAsync(string? title) => Task.CompletedTask;
+        public void StateHasChanged() { }
+    }
+
+    private sealed class TestAuthStateProvider(System.Security.Claims.ClaimsPrincipal user) : Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider
+    {
+        public override Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState> GetAuthenticationStateAsync() =>
+            Task.FromResult(new Microsoft.AspNetCore.Components.Authorization.AuthenticationState(user));
+    }
+
+    private sealed class FragmentWrapper : ComponentBase
+    {
+        [Parameter] public RenderFragment ChildContent { get; set; } = default!;
+        protected override void BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<Microsoft.AspNetCore.Components.Authorization.CascadingAuthenticationState>(0);
+            builder.AddAttribute(1, "ChildContent", ChildContent);
+            builder.CloseComponent();
         }
     }
 }
