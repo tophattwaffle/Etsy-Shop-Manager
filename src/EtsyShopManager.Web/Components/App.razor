@@ -7,6 +7,8 @@
     <base href="/" />
     <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
+    @* The order color engine's styles (OrderColorEngine.Css, also sent to the Home Assistant card). *@
+    <link rel="stylesheet" href="@EtsyShopManager.Web.Modules.Orders.OrderColorEngine.VersionedCssUrl" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <ImportMap />
     <HeadOutlet @rendermode="PageRenderMode" />
@@ -21,8 +23,6 @@
     @* Started by app.js (esm.startBlazor) with a faster reconnect schedule. *@
     <script src="@Assets["_framework/blazor.web.js"]" autostart="false"></script>
     <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
-    @* The Home Assistant card: the Orders page uses its coloring engine (window.EtsyOrderColors). *@
-    <script src="@EtsyShopManager.Web.Modules.Orders.OrderCardScript.VersionedUrl"></script>
     <script src="@Assets["app.js"]"></script>
 </body>
 

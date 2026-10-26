@@ -249,37 +249,6 @@ window.esm = {
         const [r1, g1, b1] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
             : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
         return "#" + [r1, g1, b1].map(v => Math.round((v + m) * 255).toString(16).padStart(2, "0")).join("");
-    },
-
-    // Fills the <ColorBox> placeholders on the Orders page using the Home Assistant card's coloring engine
-    // (window.EtsyOrderColors, from /js/etsy-orders-card.js) and the app's color list, so the page and the card color
-    // the same text the same way. Only boxes whose text or list changed are redrawn.
-    colorOrders: function (config) {
-        const Engine = window.EtsyOrderColors;
-        if (Engine && !document.getElementById("esm-order-colors")) {
-            const style = document.createElement("style");
-            style.id = "esm-order-colors";
-            style.textContent = Engine.CSS;
-            document.head.appendChild(style);
-        }
-        const key = (config && config.version) || "";
-        if (Engine && esm._orderColorsKey !== key) {
-            esm._orderColors = new Engine(config || {}, "var(--esm-paper)");
-            esm._orderColorsKey = key;
-        }
-        for (const el of document.querySelectorAll(".esm-colorbox[data-color-text]")) {
-            const { colorText: text, colorClass: cls, colorSeed: seed, colorSmall: small } = el.dataset;
-            const sig = `${key}|${cls}|${seed}|${text}`;
-            if (el.dataset.colored === sig) continue;
-            const box = Engine ? esm._orderColors.box(text, seed, small === "true") : { cls: "", style: "", inner: "" };
-            const inner = document.createElement("span");
-            inner.className = cls + box.cls;
-            if (box.style) inner.style.cssText = box.style;
-            inner.innerHTML = box.inner; // the engine's own markup (lava blobs); the text goes in as text
-            inner.append(text);
-            el.replaceChildren(inner);
-            el.dataset.colored = sig;
-        }
     }
 };
 

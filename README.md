@@ -49,8 +49,9 @@ After that, merges to `master` deploy automatically: [docs/DEPLOY.md](docs/DEPLO
   "to make" list; searchable history.
 - API keys (Admin → API keys) and a read-only Home Assistant API (`/api/ha/v1`) with the open-orders payload the
   existing card reads.
-- A new Home Assistant integration, `etsy_shop_manager` (`homeassistant/`): an Open orders sensor per shop, a
-  new-order event and device trigger. See [homeassistant/README.md](homeassistant/README.md).
+- A new Home Assistant integration, `etsy_shop_manager`: an Open orders sensor per shop, a new-order event and device
+  trigger, in its own repository ([Etsy-Shop-Manager-HA](https://github.com/TopHATTwaffle/Etsy-Shop-Manager-HA)),
+  with the dashboard card in [Etsy-Shop-Manager-HA-Card](https://github.com/TopHATTwaffle/Etsy-Shop-Manager-HA-Card).
 
 ## Solution layout
 
@@ -64,7 +65,6 @@ tests/EtsyShopManager.Tests/
 scripts/                  install-prereqs, build, add-migration, install-service, deploy, grant-deploy-rights, uninstall-service
 .gitea/workflows/         deploy on push to master (self-hosted runner on the Windows host)
 docs/                     PLAN.md, SETUP.md, DEPLOY.md
-homeassistant/            HA integration (HACS layout: custom_components/, hacs.json, tests/) and the card (www/)
 ```
 
 ## Adding a feature module

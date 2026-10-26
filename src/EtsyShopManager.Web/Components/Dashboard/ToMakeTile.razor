@@ -9,7 +9,6 @@
 @inject IJobEvents JobEvents
 @inject OrderMadeService MadeItems
 @inject ISnackbar Snackbar
-@inject IJSRuntime Js
 
 @* What has to be made for the open orders: identical items (same listing, variations and personalization) added up,
    soonest ship-by first, each with its Made checkbox. The same list and marks as Orders → To make. *@
@@ -41,13 +40,13 @@ else
                         {
                             if ((string?)v["value"] is { Length: > 0 } value)
                             {
-                                <ColorBox Text="@value" Title="@((string?)v["property"])" Seed="@($"make|{(string?)row["listing_id"]}|{value}")" />
+                                <ColorBox Colors="_colors" Text="@value" Title="@((string?)v["property"])" Seed="@($"make|{(string?)row["listing_id"]}|{value}")" />
                             }
                         }
                     </div>
                     @if ((string?)row["personalization"] is { Length: > 0 } note)
                     {
-                        <ColorBox Text="@note" Kind="@ColorBox.Note" Seed="@($"make|{note}")" />
+                        <ColorBox Colors="_colors" Text="@note" Kind="@ColorBox.Note" Seed="@($"make|{note}")" />
                     }
                     @* Under the item rather than beside it, so the Made checkbox leaves the item room in a narrow module. *@
                     @if (row["ship_by_ts"] is { } ts)
@@ -64,7 +63,7 @@ else
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private List<ToMakeRow>? _rows;
-    private JsonObject? _colorConfig;
+    private OrderColorEngine? _colors;
     private IDisposable? _live;
 
     // Both Admin and User (including unsigned-in visitors) can mark items made.
@@ -74,7 +73,7 @@ else
     {
         var user = (await AuthState).User;
         _canMark = true;
-        _colorConfig = (await Colors.GetAsync()).ToCardJson();
+        _colors = new OrderColorEngine(await Colors.GetAsync());
         await LoadAsync();
         _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,
             _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
@@ -108,7 +107,6 @@ else
         _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender) => await Js.InvokeVoidAsync("esm.colorOrders", _colorConfig);
 
     public void Dispose()
     {

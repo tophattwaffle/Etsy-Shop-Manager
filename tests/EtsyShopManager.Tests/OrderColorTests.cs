@@ -74,23 +74,110 @@ public class OrderColorTests
         Assert.Equal(json.ToJsonString(), back.ToJsonString());
     }
 
+    private static OrderColorEngine Engine(OrderColorLook? look = null) =>
+        new(OrderColorService.Default with { Look = look });
+
+    [Fact]
+    public void Listed_colors_tint_the_box_and_metallic_ones_shine()
+    {
+        var box = Engine().Box("Black & Copper", "1|0.0", small: true);
+
+        Assert.Equal(" colored metal", box.Cls);
+        Assert.Contains("color-mix(in srgb, #B87333 35%, var(--esm-color-base))", box.Style);
+        Assert.Contains("--shine: 0.6;", box.Style);
+        // Only the copper half shines: the metal mask is opaque over the second share alone.
+        Assert.Contains("--metal-mask: linear-gradient(90deg, transparent 50.0%, #000 62.5%, #000 100%);", box.Style);
+        Assert.Equal("", box.Inner);
+    }
+
+    [Fact]
+    public void Css_color_names_count_and_words_join_but_other_text_stays_plain()
+    {
+        var engine = new OrderColorEngine(new OrderColorConfig([], ["random"]));
+
+        Assert.Contains("darkgreen 0.0%", engine.Box("Dark  Green!", "s", small: true).Style);
+        Assert.Same(OrderColorBox.None, engine.Box("Large, matte", "s", small: true));
+        Assert.Same(OrderColorBox.None, engine.Box("Mark the field", "s", small: true)); // browser system colors don't count
+    }
+
+    [Fact]
+    public void Multi_color_filaments_stack_their_colors()
+    {
+        var box = Engine().Box("Neon Rider", "s", small: false);
+
+        Assert.Equal(" colored multi", box.Cls);
+        Assert.Contains("--multi: linear-gradient(180deg, color-mix(in srgb, #4FC3F7 35%, var(--esm-color-base))", box.Style);
+        Assert.Contains("--multi-mask: none;", box.Style);
+    }
+
+    [Fact]
+    public void Random_boxes_are_seeded_and_follow_the_look()
+    {
+        var engine = Engine();
+        var pill = engine.Box("Random", "42|0.0", small: true);
+
+        Assert.Equal(" colored random lava", pill.Cls);
+        Assert.Equal(3, pill.Inner.Split("class=\"blob\"").Length - 1);
+        Assert.Equal(pill, engine.Box("Random", "42|0.0", small: true));
+        Assert.NotEqual(pill.Style, engine.Box("Random", "43|0.0", small: true).Style);
+        Assert.Equal(4, engine.Box("Random please", "42|0.note", small: false).Inner.Split("class=\"blob\"").Length - 1);
+
+        var confetti = Engine(new OrderColorLook(RandomStyle: OrderColorLook.Confetti, AnimateRandom: false)).Box("Random", "42|0.0", small: true);
+        Assert.Equal(" colored random confetti still", confetti.Cls);
+        Assert.StartsWith("--confetti: radial-gradient(", confetti.Style);
+        Assert.Equal("", confetti.Inner);
+    }
+
+    [Fact]
+    public void No_tint_means_no_coloring()
+    {
+        var engine = Engine(new OrderColorLook(Tint: 0));
+        Assert.Same(OrderColorBox.None, engine.Box("Copper", "s", small: true));
+        Assert.Same(OrderColorBox.None, engine.Box("Random", "s", small: true));
+        Assert.DoesNotContain("--shine", Engine(new OrderColorLook(MetallicShine: 0)).Box("Copper", "s", small: true).Style);
+    }
+
     /// <summary>
-    /// The app serves the HA card file itself (embedded at build) and colors orders with its engine, so the two can't
-    /// drift. This fails if the embedded copy isn't the repo's card, or the card stops exposing what the app uses.
+    /// The HA card no longer colors anything itself: every colored variation and personalization in the payload comes
+    /// drawn, seeded by receipt and position as the card did, and the To make rows are left as they were.
     /// </summary>
     [Fact]
-    public void App_runs_the_same_card_file_as_Home_Assistant()
+    public void Payload_boxes_come_painted()
     {
-        var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (!File.Exists(Path.Combine(root.FullName, "EtsyShopManager.slnx"))) root = root.Parent!;
-        var card = File.ReadAllText(Path.Combine(root.FullName, "homeassistant", "www", "etsy-orders-card.js"));
+        var payload = JsonNode.Parse("""
+            {"shops":[{"items_needed":[{"variations":[{"property":"Color","value":"Copper"}]}],
+              "open_orders":[{"receipt_id":"77","items":[
+                {"variations":[{"property":"Size","value":"Large"},{"property":"Color","value":"Copper"}],"personalization":"Random please"},
+                {"variations":[]}]}]}]}
+            """)!.AsObject();
+        var engine = Engine();
 
-        Assert.Equal(card, Encoding.UTF8.GetString(OrderCardScript.Content));
-        Assert.Contains("window.EtsyOrderColors = EtsyOrderColors;", card);
-        Assert.Contains("static CSS = ", card);
-        Assert.Contains("box(text, seed, small)", card);
-        Assert.Contains("attributes?.color_config", card); // the card reads the list the integration passes on
-        Assert.StartsWith("js/etsy-orders-card.js?v=", OrderCardScript.VersionedUrl);
+        engine.Paint(payload);
+
+        var items = payload["shops"]![0]!["open_orders"]![0]!["items"]!;
+        Assert.Null(items[0]!["variations"]![0]!["paint"]);
+        var paint = items[0]!["variations"]![1]!["paint"]!;
+        Assert.Equal(engine.Box("Copper", "77|0.1", small: true).ToJson().ToJsonString(), paint.ToJsonString());
+        Assert.Equal(engine.Box("Random please", "77|0.note", small: false).Style, (string?)items[0]!["personalization_paint"]!["style"]);
+        Assert.Null(items[1]!["personalization_paint"]);
+        Assert.Null(payload["shops"]![0]!["items_needed"]![0]!["variations"]![0]!["paint"]);
+    }
+
+    [Fact]
+    public async Task Look_is_saved_with_the_list_and_checked()
+    {
+        var settings = new MemorySettings();
+        var service = new OrderColorService(settings);
+        var look = new OrderColorLook(Tint: 50, MetallicShine: 0, AnimateMetallic: false, RandomStyle: OrderColorLook.Confetti,
+            RandomMinBrightness: 40, AnimateRandom: false);
+
+        await service.SaveAsync(OrderColorService.Default with { Look = look }, "tophattwaffle");
+
+        Assert.Equal(look, (await service.GetAsync()).Style);
+        Assert.Equal(OrderColorLook.Default, OrderColorService.Default.Style);
+        var problems = OrderColorService.Validate(OrderColorService.Default with { Look = new OrderColorLook(Tint: 101, RandomStyle: "sparkle") });
+        Assert.Contains(problems, p => p.Contains("Tint strength"));
+        Assert.Contains(problems, p => p.Contains("lava or confetti"));
     }
 
     [Fact]
@@ -109,7 +196,9 @@ public class OrderColorTests
     public void Card_json_keys_are_the_card_config_keys()
     {
         var json = OrderColorService.Default.ToCardJson();
-        Assert.Equal(["colors", "metallic", "random_words", "version"], json.Select(kv => kv.Key));
+        Assert.Equal(["colors", "metallic", "random_words", "color_tint", "metallic_shine", "animate_metallic", "random_style",
+            "random_min_brightness", "animate_random", "version"], json.Select(kv => kv.Key));
         Assert.IsType<JsonArray>(json["colors"]!["Pastel Rainbow"]);
+        Assert.Equal(OrderColorEngine.Css, (string?)OrderColorService.Default.ToCardJson(css: OrderColorEngine.Css)["css"]);
     }
 }

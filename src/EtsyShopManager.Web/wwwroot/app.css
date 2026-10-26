@@ -361,9 +361,11 @@ td > .esm-made { flex-direction: row; align-items: center; }
 tr.is-made > td:not(:first-child) { opacity: 0.55; }
 .order-item.is-made .order-item-body > div:first-child, tr.is-made .esm-made-text { text-decoration: line-through; }
 
-/* Variation pills (.var) and personalization notes (.note), filled in by esm.colorOrders with the HA card's coloring
-   engine; its .colored/.random/.metal rules arrive as EtsyOrderColors.CSS. The card's theme variables map to tokens. */
+/* Variation pills (.var) and personalization notes (.note), drawn by the app's color engine (OrderColorEngine); its
+   .colored/.random/.metal rules are in /css/order-colors.css, shared with the HA card. The card's theme variables map to
+   tokens, and the tints are mixed with the panel background. */
 .esm-orders { --primary-text-color: var(--esm-ink); --divider-color: var(--esm-line); }
+.esm-colorbox { --esm-color-base: var(--esm-paper); }
 .order-vars { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 td > .order-vars { margin-top: 0; min-width: 140px; }
 .esm-colorbox-note { display: block; margin-top: 6px; }

@@ -41,12 +41,9 @@ pwsh scripts/add-migration.ps1 -Name <Change>   # after any EF model change
 dotnet run --project src/EtsyShopManager.Web    # local run (http://0.0.0.0:5080 by default)
 ```
 
-Home Assistant integration (Python, its own test suite), run from `homeassistant/`:
-
-```bash
-pip install pytest-homeassistant-custom-component
-pytest
-```
+The Home Assistant side lives in its own repositories (mirrored to GitHub for HACS): the integration in
+`TopHATTwaffle/Etsy-Shop-Manager-HA` (Python, its own pytest suite) and the dashboard card in
+`TopHATTwaffle/Etsy-Shop-Manager-HA-Card`, both on git.example.lan.
 
 - `build.ps1` fails if the EF model changed without a migration (`dotnet ef migrations has-pending-model-changes`).
   Migrations are committed in `src/EtsyShopManager.Data/Migrations` and applied automatically on startup.
@@ -69,7 +66,6 @@ src/EtsyShopManager.Etsy   Etsy v3 client: OAuth+PKCE, token service, rate limit
 src/EtsyShopManager.Data   AppDbContext (SQLite + Identity), migrations
 src/EtsyShopManager.Web    Host (Program.cs), Blazor UI, setup wizard, job processor, feature modules
 tests/EtsyShopManager.Tests  xUnit
-homeassistant/             HA custom integration `etsy_shop_manager` (HACS layout) + Lovelace card (www/)
 ExistingHASS/              The old `etsyapp` integration and card, reference only
 ```
 
@@ -127,13 +123,14 @@ threshold while the listing is active, on each new order (`OrderReceived`) and i
 ### Orders and Home Assistant
 `OrderPoller` polls receipts per shop (default every 5 min, set in Admin → Settings). `OrdersModule` exposes a
 read-only API at `/api/ha/v1` protected by API keys (`esm_…`, `ApiKeyEndpointFilter`). `HaPayloadBuilder` produces
-the exact attribute shape the old `etsyapp` sensor had, so `homeassistant/www/etsy-orders-card.js` works unchanged;
-keep that payload backward compatible. Order images in the HA payload are Etsy's public CDN URLs. The repo copy of the
-card is the source of truth; the HA dashboard loads it with `?v=<version>`, so bump the card version on every change.
-Order colors: the list lives in the app (`OrderColorService`, Admin → Order colors) and rides along in the HA payload
-as `color_config`; the card's coloring engine (`EtsyOrderColors`) is also what the Orders page uses, because the app
-embeds and serves the card file itself (`OrderCardScript`). Change coloring in the card only; `OrderColorTests` checks
-the embedded copy matches.
+the exact attribute shape the old `etsyapp` sensor had, so the `etsy-orders-card` (its own repository) keeps working;
+keep that payload backward compatible (add keys, never change or remove them). Order images in the HA payload are
+Etsy's public CDN URLs.
+Order colors live only in the app: the list and look (`OrderColorService`, Order colors page) and the engine
+(`OrderColorEngine`, a port of the card's old one). The Orders page draws `ColorBox`es with it on the server, and the
+HA payload carries every box already drawn (`paint` on variations, `personalization_paint` on items, seeded by receipt
+and position) plus the engine's CSS in `color_config.css`, so card 3.0 has no color logic. Change coloring here, never
+in the card. `color_config` still carries the list and look keys for cards before 3.0.
 Order changes a buyer asks for after checkout (personalization, variation values, shipping address) are kept on the
 local order only (`OrderOverrides`, `OrderOverrideService`; polling never touches them). Read item variations through
 `OrderOverrides.Variations` and the address through `OrderPrintService.Address`, so every view shows the change;
