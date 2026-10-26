@@ -28,16 +28,11 @@ public sealed record PendingPushResult(int ListingId, string Title, int? PushId,
 /// </summary>
 public sealed class PendingChangesService(IDbContextFactory<AppDbContext> dbFactory, ListingEditor editor)
 {
-    /// <summary>
-    /// How many listings the Pending changes page lists: those whose local version differs from Etsy. The HasDraft and
-    /// HasDrift flags only narrow the search; a flagged listing whose edits Etsy already holds has nothing to push.
-    /// </summary>
+    /// <summary>How many listings the Pending changes page lists (<see cref="PendingChangesCount.CountAsync"/>).</summary>
     public async Task<int> CountAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var states = await db.Listings.AsNoTracking().Where(l => l.EtsyState != null && (l.HasDraft || l.HasDrift))
-            .Select(l => new { l.EtsyState!.ManagedJson, l.EtsyState.BaseJson, l.DraftJson }).ToListAsync(ct);
-        return states.Count(s => ListingEditModel.Parse(s.ManagedJson, s.BaseJson, s.DraftJson).PendingFields.Count > 0);
+        return await PendingChangesCount.CountAsync(db, ct);
     }
 
     public async Task<IReadOnlyList<PendingListing>> ListAsync(CancellationToken ct = default)

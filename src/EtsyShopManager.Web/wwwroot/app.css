@@ -113,6 +113,15 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-jobs-job { display: flex; gap: 8px; padding-left: 15px; }
 .esm-jobs-progress.mud-progress-linear { margin: 2px 0; }
 @media (max-width: 599.98px) { .esm-jobs-label { display: none; } }
+/* Title-bar Pending changes button (PendingChangesIndicator): always shown to Admins, opens the Pending changes page. */
+.esm-pending-pill { display: inline-flex; align-items: center; gap: 6px; margin: 0 4px; padding: 3px 12px 3px 8px; border-radius: 999px;
+    border: 1px solid var(--esm-line); background: var(--esm-sunk); color: var(--esm-muted); font-size: 0.8rem; font-weight: 600;
+    white-space: nowrap; text-decoration: none; }
+.esm-pending-pill:hover { background: var(--esm-hover); }
+.esm-pending-pill-active { color: var(--esm-ink); }
+.esm-pending-pill-active .esm-pending-icon { color: var(--esm-brand); }
+.esm-pending-icon.mud-icon-root { font-size: 1rem; }
+@media (max-width: 599.98px) { .esm-pending-label { display: none; } }
 @media (prefers-reduced-motion: reduce) { .esm-jobs-spinner .mud-progress-circular-svg { animation: none; } }
 
 /* ---- Page header: every page starts with <PageHeader> ---- */
