@@ -172,8 +172,9 @@ public sealed class PushListingJob(
             logger.LogWarning(ex, "Push {PushId} failed after a partial write; reconciling listing {ListingId}", pushId, listing.EtsyListingId);
             var rest = await ReconcileAsync(pushId, listingId, snapshotId, uploaded, ct);
             var applied = preview.Changes.Select(c => c.Key).Except(rest).Select(ListingEditor.Label).ToList();
+            // Something was written (a deleted photo, say) even when no field fully reached Etsy.
             var message = applied.Count == 0
-                ? $"{ex.Message} Nothing else changed on Etsy; your edits are kept."
+                ? $"{ex.Message} Part of the push reached Etsy before the error; the listing was read again and your edits are kept, so pushing again finishes it."
                 : $"{ex.Message} Applied before the error: {string.Join(", ", applied)}; the rest is still in your edits.";
             await FinishAsync(pushId, ListingPushStatus.PartlyApplied, message);
             await audit.WriteAsync("listing.pushed", nameof(Listing), listing.EtsyListingId.ToString(), message, "system", ct);
@@ -231,18 +232,36 @@ public sealed class PushListingJob(
     /// <summary>
     /// Sends the photo calls (see <see cref="PhotoEditor.Plan"/>), one at a time, planned from a fresh read of Etsy's photos.
     /// A rejection throws, so nothing after it is sent. Moves never use overwrite (it replaces the photo at that position).
+    /// Etsy may renumber the remaining photos when one is deleted (seen 2026-10-25: a photo at 10 moved to 8 after two were
+    /// deleted, so the photo uploaded at 8 tied with it), so the photos are read again afterwards and, if their ranks
+    /// aren't 1 to n in the wanted order, a second plan made from that read puts them right.
     /// </summary>
     private async Task PushPhotosAsync(Listing listing, JsonArray local, EtsyAuth auth, Dictionary<string, long> uploaded,
         Action markWrote, CancellationToken ct)
     {
-        var current = (await etsy.GetListingImagesAsync(listing.EtsyListingId, auth, ct)).OrderBy(i => i.Rank)
-            .Select(i => (i.ListingImageId, i.Rank, ListingMapper.Text(i.AltText))).ToList();
+        for (var pass = 0; pass < 2; pass++)
+        {
+            var wanted = uploaded.Count > 0 ? PhotoEditor.AdoptUploads(local, uploaded) : local;
+            var current = (await etsy.GetListingImagesAsync(listing.EtsyListingId, auth, ct)).OrderBy(i => i.Rank)
+                .Select(i => (i.ListingImageId, i.Rank, ListingMapper.Text(i.AltText))).ToList();
+            var calls = PhotoEditor.Plan(current, wanted);
+            if (calls.Count == 0) return;
+            if (pass > 0)
+                logger.LogInformation("Photos for listing {ListingId}: Etsy renumbered them during the push; {Count} more calls",
+                    listing.EtsyListingId, calls.Count);
+            await SendPhotoCallsAsync(listing, calls, auth, uploaded, markWrote, ct);
+        }
+    }
+
+    private async Task SendPhotoCallsAsync(Listing listing, IReadOnlyList<PhotoCall> calls, EtsyAuth auth,
+        Dictionary<string, long> uploaded, Action markWrote, CancellationToken ct)
+    {
         var shopId = listing.Shop.EtsyShopId;
         var newIds = new Dictionary<long, long>(); // the plan's placeholder id of a new photo -> Etsy's id
         long Id(long planned) => planned > 0 ? planned : newIds[planned];
         string? Alt(string? alt) => string.IsNullOrEmpty(alt) ? null : alt;
 
-        foreach (var call in PhotoEditor.Plan(current, local))
+        foreach (var call in calls)
         {
             logger.LogInformation("Photos for listing {ListingId}: {Call}", listing.EtsyListingId, call.Describe(shopId, listing.EtsyListingId));
             switch (call.Kind)

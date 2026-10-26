@@ -468,6 +468,12 @@ internal sealed class FakeEtsyShop : IDisposable
     /// <summary>Rejects photo moves (POST …/images) with this Etsy error message, like the real "inconsistent order".</summary>
     public string? FailImageMovesWith { get; set; }
 
+    /// <summary>
+    /// Renumbers the remaining photos 1 to n (in their shown order) when one is deleted, as Etsy did on the live shop on
+    /// 2026-10-25 (a photo at rank 10 was at 8 after the two photos before it were deleted).
+    /// </summary>
+    public bool RenumberPhotosOnDelete { get; set; }
+
     public JsonObject ListingJson(long id) => Listings.Single(l => (long)l["listing_id"]! == id);
 
     private long _nextEtsyId = 900_000;
@@ -552,6 +558,11 @@ internal sealed class FakeEtsyShop : IDisposable
             var listing = ListingJson(listingId);
             var images = listing["images"]!.AsArray().Select(i => i!.DeepClone().AsObject())
                 .Where(i => (long)i["listing_image_id"]! != long.Parse(parts[7])).ToList(); // the others keep their ranks (gaps)
+            if (RenumberPhotosOnDelete)
+            {
+                images = [.. images.OrderBy(i => (int)i["rank"]!)];
+                for (var i = 0; i < images.Count; i++) images[i]["rank"] = i + 1;
+            }
             listing["images"] = new JsonArray([.. images]);
             return new HttpResponseMessage(HttpStatusCode.NoContent);
         }

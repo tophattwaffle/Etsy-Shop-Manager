@@ -213,7 +213,7 @@ public sealed class PhotoTemplateService(IDbContextFactory<AppDbContext> dbFacto
         foreach (var (listing, model, links) in await LoadListingsAsync(db, listingIds, ct))
         {
             var local = model.Local(ListingFields.Images) as JsonArray ?? [];
-            var pending = !JsonNode.DeepEquals(local, model.Etsy[ListingFields.Images]);
+            var pending = !ListingFields.Same(ListingFields.Images, model.Etsy[ListingFields.Images], local);
             var mine = links.Single(l => l.Template.Id == templateId);
             PhotoTemplateUseStatus status;
             string? change = null;

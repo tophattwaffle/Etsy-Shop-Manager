@@ -57,6 +57,13 @@ public static class ListingFields
 
     public static bool IsTracked(string key) => ByKey.TryGetValue(key, out var f) && f.Tracked;
     public static bool IsEditable(string key) => ByKey.TryGetValue(key, out var f) && f.Editable;
+
+    /// <summary>
+    /// Whether <paramref name="other"/> holds the same value as <paramref name="etsy"/> (the side read from Etsy, or the
+    /// agreed base when neither side is). Photos compare by order and alt text, not rank numbers (<see cref="PhotoOrder"/>).
+    /// </summary>
+    public static bool Same(string key, JsonNode? etsy, JsonNode? other) =>
+        key == Images ? PhotoOrder.Same(etsy, other) : JsonNode.DeepEquals(etsy, other);
 }
 
 /// <summary>
@@ -84,10 +91,10 @@ public sealed class ListingEditModel
         {
             // Etsy already holds the edit (a push that wrote but never reconciled, or the same change made on etsy.com):
             // nothing to push and nothing to choose between, so it's agreed.
-            if (ListingFields.IsTracked(key) && !JsonNode.DeepEquals(Etsy[key], Base[key]) && JsonNode.DeepEquals(Draft[key], Etsy[key]))
+            if (ListingFields.IsTracked(key) && !ListingFields.Same(key, Etsy[key], Base[key]) && ListingFields.Same(key, Etsy[key], Draft[key]))
                 Base[key] = Etsy[key]?.DeepClone();
             // Draft entries that no longer differ from the base are not edits.
-            if (!ListingFields.IsEditable(key) || JsonNode.DeepEquals(Draft[key], Base[key])) Draft.Remove(key);
+            if (!ListingFields.IsEditable(key) || ListingFields.Same(key, Base[key], Draft[key])) Draft.Remove(key);
         }
     }
 
@@ -122,11 +129,11 @@ public sealed class ListingEditModel
 
     /// <summary>Tracked fields changed on Etsy since the base. Pushing is blocked while there are any.</summary>
     public IReadOnlyList<string> DriftFields =>
-        ListingFields.All.Where(f => f.Tracked && !JsonNode.DeepEquals(Etsy[f.Key], Base[f.Key])).Select(f => f.Key).ToList();
+        ListingFields.All.Where(f => f.Tracked && !ListingFields.Same(f.Key, Etsy[f.Key], Base[f.Key])).Select(f => f.Key).ToList();
 
     /// <summary>Editable fields whose local value differs from Etsy: what a push would change.</summary>
     public IReadOnlyList<string> PendingFields =>
-        ListingFields.All.Where(f => f.Editable && !JsonNode.DeepEquals(Local(f.Key), Etsy[f.Key])).Select(f => f.Key).ToList();
+        ListingFields.All.Where(f => f.Editable && !ListingFields.Same(f.Key, Etsy[f.Key], Local(f.Key))).Select(f => f.Key).ToList();
 
     public bool HasDraft => Draft.Count > 0;
 
@@ -134,7 +141,7 @@ public sealed class ListingEditModel
     public void Set(string key, JsonNode? value)
     {
         if (!ListingFields.IsEditable(key)) throw new ArgumentException($"'{key}' can't be edited.", nameof(key));
-        if (JsonNode.DeepEquals(value, Base[key])) Draft.Remove(key);
+        if (ListingFields.Same(key, Base[key], value)) Draft.Remove(key);
         else Draft[key] = value?.DeepClone();
     }
 
@@ -145,7 +152,7 @@ public sealed class ListingEditModel
     {
         var local = Local(key)?.DeepClone();
         Base[key] = Etsy[key]?.DeepClone();
-        if (JsonNode.DeepEquals(local, Base[key])) Draft.Remove(key);
+        if (ListingFields.Same(key, Base[key], local)) Draft.Remove(key);
         else Draft[key] = local;
     }
 
@@ -165,7 +172,7 @@ public sealed class ListingEditModel
         var notApplied = new List<string>();
         foreach (var key in Draft.Select(p => p.Key).ToList())
         {
-            if (JsonNode.DeepEquals(Draft[key], newEtsy[key])) Draft.Remove(key);
+            if (ListingFields.Same(key, newEtsy[key], Draft[key])) Draft.Remove(key);
             else notApplied.Add(key);
         }
         Etsy.Clear();
