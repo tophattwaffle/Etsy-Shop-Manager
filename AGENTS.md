@@ -13,8 +13,10 @@ code is C# wherever possible and the UI is web-based. Full design and phase plan
 editor (listing fields, photos, variations, prices and processing; preview → push with snapshots; drift; auto-refill)
 is in, including category attributes and personalization (styles and featured rank stay read-only: Etsy's API
 can't change them on an existing listing). Photo pushes follow what Etsy was measured to do (`PhotoEditor`, docs/PLAN.md "Photos"): a photo's rank is
-just a number and Etsy never renumbers the others (ranks tie and have gaps), so a push sets every photo's rank 1..n
-explicitly, always with overwrite=false (overwrite=true drops the photo shown at that rank). `ListingCloner` copies a
+just a number and setting one renumbers no other (ranks tie and have gaps), so a push sets every photo's rank 1..n
+explicitly, always with overwrite=false (overwrite=true drops the photo shown at that rank). Etsy does renumber on its
+own (after a delete, and later replacing ties and gaps with 1..n), so a push re-reads the photos and corrects them, and
+drift and pending compare photos by order and alt text, never rank numbers (`PhotoOrder`). `ListingCloner` copies a
 listing into a new Etsy draft (same shop or the other; profiles chosen per target shop), never published by the app.
 Phase 4 (templates): text blocks (`Modules/Templates`, `TextBlockService`) are `{{text.slug}}` placeholders kept in the
 app's copy of a description (`ListingDescription`); the listing's description and Etsy always get the rendered text.
