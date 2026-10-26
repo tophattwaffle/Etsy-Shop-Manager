@@ -56,7 +56,7 @@
                     </MudTooltip>
                 </span>
                 <MudSpacer />
-                @PrintActions(Picked.Count, PrintLink, ClearPicked)
+                @PrintActions(Picked.Count, PrintLink, ClearPicked, OrderPrintService.UnprintedIds(_open))
             </div>
         @if (_shown.Count == 0)
         {
@@ -545,9 +545,14 @@
     /// The right-hand end of an order list's toolbar: how many orders are selected (with a clear button) and the two print
     /// actions. Each control is drawn twice, labelled and as an icon with its name in a tooltip; CSS shows the labelled set
     /// only when the toolbar is wide enough for the whole row to stay on one line (see .esm-order-actions in app.css).
+    /// With nothing selected, Print packing slips prints <paramref name="unprinted"/> (the open orders whose slip hasn't
+    /// printed; none on History).
     /// </summary>
-    private RenderFragment PrintActions(int selected, Func<string, string> link, Action clear) => __builder =>
+    private RenderFragment PrintActions(int selected, Func<string, string> link, Action clear, IReadOnlyList<int>? unprinted = null) => __builder =>
     {
+        var slipsLink = selected == 0 && unprinted is { Count: > 0 } ? $"orders/print/slips?ids={string.Join(",", unprinted)}" : link("slips");
+        var slipsDisabled = selected == 0 && unprinted is not { Count: > 0 };
+        var slipsLabel = selected == 0 && unprinted is { Count: > 0 } ? $"Print unprinted slips ({unprinted.Count})" : "Print packing slips";
         @if (selected > 0)
         {
             <span class="muted small">@selected selected</span>
@@ -564,7 +569,7 @@
             <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Checklist"
                        Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("pick")))">Print pick list</MudButton>
             <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Print"
-                       Disabled="@(selected == 0)" OnClick="@(() => PrintAsync(link("slips")))">Print packing slips</MudButton>
+                       Disabled="@slipsDisabled" OnClick="@(() => PrintAsync(slipsLink))">@slipsLabel</MudButton>
             <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.LocalPrintshop"
                        Disabled="@(selected == 0)" OnClick="@(() => SendToPrinterAsync(link("slips")))">Send to printer</MudButton>
         </span>
@@ -573,9 +578,9 @@
                 <MudIconButton Icon="@Icons.Material.Filled.Checklist" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
                                OnClick="@(() => PrintAsync(link("pick")))" aria-label="Print pick list" />
             </MudTooltip>
-            <MudTooltip Text="Print packing slips">
-                <MudIconButton Icon="@Icons.Material.Filled.Print" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"
-                               OnClick="@(() => PrintAsync(link("slips")))" aria-label="Print packing slips" />
+            <MudTooltip Text="@slipsLabel">
+                <MudIconButton Icon="@Icons.Material.Filled.Print" Variant="Variant.Outlined" Size="Size.Small" Disabled="@slipsDisabled"
+                               OnClick="@(() => PrintAsync(slipsLink))" aria-label="@slipsLabel" />
             </MudTooltip>
             <MudTooltip Text="Send packing slips to the server's printer">
                 <MudIconButton Icon="@Icons.Material.Filled.LocalPrintshop" Variant="Variant.Outlined" Size="Size.Small" Disabled="@(selected == 0)"

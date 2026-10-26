@@ -39,6 +39,14 @@ public sealed class OrderPrintService(IDbContextFactory<AppDbContext> dbFactory,
         return [.. orders.OrderBy(o => o.ShipByUtc ?? DateTime.MaxValue).ThenBy(o => o.EtsyReceiptId)];
     }
 
+    /// <summary>
+    /// The open orders whose packing slip hasn't printed (here or by automatic printing), soonest ship-by first: what
+    /// Orders → Print packing slips prints when no order is selected.
+    /// </summary>
+    public static List<int> UnprintedIds(IEnumerable<Order> orders) =>
+        [.. orders.Where(o => o.IsOpen && o.SlipPrintedAtUtc is null)
+            .OrderBy(o => o.ShipByUtc ?? DateTime.MaxValue).ThenBy(o => o.EtsyReceiptId).Select(o => o.Id)];
+
     /// <summary>Parses the comma-separated id list the Orders page puts in the print link.</summary>
     public static IReadOnlyList<int> ParseIds(string? ids) =>
         [.. (ids ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

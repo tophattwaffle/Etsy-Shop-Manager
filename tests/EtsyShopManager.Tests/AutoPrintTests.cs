@@ -277,6 +277,38 @@ public class AutoPrintTests
     }
 
     [Fact]
+    public async Task A_slip_printed_by_hand_is_never_printed_again_automatically()
+    {
+        var (db, service, clock, _) = Create();
+        using var _db = db;
+        await service.SaveSettingsAsync(new AutoPrintSettings(AutoPrintMode.DailyThenWindow, Eight, Five, null, "Slip Printer"), "tophattwaffle");
+        clock.Now = clock.Now.AddMinutes(10); // 07:10, before the daily batch
+        var byHand = AddOrder(db, 1001, clock.Now.UtcDateTime);
+        var queuedThenByHand = AddOrder(db, 1002, clock.Now.UtcDateTime);
+        await service.QueueAsync([queuedThenByHand], "tophattwaffle");
+
+        await service.MarkPrintedAsync([byHand, queuedThenByHand]); // Orders → Print packing slips
+        Assert.Empty(await service.NextBatchAsync()); // the waiting one left the queue
+
+        clock.Now = clock.Now.AddHours(1); // 08:10: the daily batch
+        Assert.Equal(0, await service.RunBatchIfDueAsync());
+        await service.OnOrderReceivedAsync(byHand); // in the window
+        Assert.All(Orders(db), o => Assert.Null(o.SlipQueuedAtUtc));
+    }
+
+    [Fact]
+    public void Print_packing_slips_with_nothing_selected_prints_the_unprinted_open_orders()
+    {
+        var day = new DateTime(2026, 10, 20, 0, 0, 0, DateTimeKind.Utc);
+        Order O(int id, DateTime? shipBy, DateTime? printed = null, bool shipped = false) => new()
+        {
+            Id = id, EtsyReceiptId = 1000 + id, IsPaid = true, IsShipped = shipped, Status = "paid", ShipByUtc = shipBy, SlipPrintedAtUtc = printed,
+        };
+        var orders = new[] { O(1, day.AddDays(2)), O(2, day, printed: day), O(3, day), O(4, null), O(5, day, shipped: true) };
+        Assert.Equal([3, 1, 4], OrderPrintService.UnprintedIds(orders)); // soonest ship-by first; printed and shipped left out
+    }
+
+    [Fact]
     public async Task A_new_order_is_queued_through_the_order_received_event()
     {
         var (db, service, clock, _) = Create();

@@ -299,7 +299,8 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 /* Select and print actions above an order list: always one row. Each control comes labelled (.esm-act-wide) and as a
    short label or icon with a tooltip (.esm-act-narrow); the labelled set shows only when the toolbar is wide enough for
    the row as it is now to fit. Measured longest rows: without a selection ("12 of 34", "Select all shown" and the
-   three print buttons) about 650px; with one (plus "123 selected" and Clear) about 790px. */
+   three print buttons, the slips one reading "Print unprinted slips (12)") about 720px; with one (plus "123 selected"
+   and Clear) about 790px. */
 .lp-toolbar.esm-order-actions { flex-wrap: nowrap; gap: 4px; white-space: nowrap; container-type: inline-size; }
 .lp-toolbar.esm-order-actions .mud-icon-button.mud-icon-button-size-small { padding: 5px; margin: 0; }
 /* The hidden frame a printout loads in to print without leaving the page (esm.printPage): not display:none, so it
@@ -308,7 +309,7 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-act-wide { display: none; }
 .esm-act-wide, .esm-act-narrow { align-items: center; gap: 4px; }
 .esm-act-narrow { display: inline-flex; }
-@container (min-width: 670px) {
+@container (min-width: 740px) {
     .esm-order-actions:not(.has-selection) .esm-act-wide { display: inline-flex; }
     .esm-order-actions:not(.has-selection) .esm-act-narrow { display: none; }
 }

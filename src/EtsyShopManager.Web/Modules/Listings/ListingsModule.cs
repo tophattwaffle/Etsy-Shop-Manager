@@ -48,7 +48,9 @@ public sealed class ListingsModule : IModule
             })
             .AllowAnonymous();
 
-        // Signed-in only: unlike the hashed photo names, shop ids are guessable.
+        // No sign-in needed: the pages showing shop icons (Orders, Listings, printouts) are open without one, and headless
+        // Edge prints slips for automatic printing without a sign-in. Shop ids are guessable, but each icon is the shop's
+        // public Etsy profile image anyway.
         endpoints.MapGet(ShopIconCache.UrlPrefix + "{shopId:int}", async (int shopId, ShopIconCache icons, ImageStore store,
                 HttpContext http, CancellationToken ct) =>
             {
@@ -56,7 +58,7 @@ public sealed class ListingsModule : IModule
                 http.Response.Headers[HeaderNames.CacheControl] = "private, max-age=3600";
                 return Results.File(store.PathFor(fileName), ContentTypeFor(fileName));
             })
-            .RequireAuthorization();
+            .AllowAnonymous();
     }
 
     private static string ContentTypeFor(string fileName) => Path.GetExtension(fileName) switch
