@@ -66,7 +66,10 @@ public sealed class VariationChangeForm
 /// Saves the changes a buyer asked for after checkout (see <see cref="OrderOverrides"/>) on the local order. Never writes to
 /// Etsy: the order on Etsy keeps what the buyer entered, and order polling leaves the changes alone.
 /// </summary>
-public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFactory, IAuditLog audit)
+public sealed class OrderOverrideService(
+    IDbContextFactory<AppDbContext> dbFactory,
+    IAuditLog audit,
+    IAddressVerificationService? addressVerification = null)
 {
     /// <summary>The order's current changes, with each variation's choices from its listing; null if no such order.</summary>
     public async Task<OrderChangesForm?> GetFormAsync(int orderId, CancellationToken ct = default)
@@ -163,7 +166,8 @@ public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFacto
             // The same address as on Etsy isn't a change.
             if (address == string.Join("\n", OrderOverrides.Lines(form.EtsyAddress))) address = null;
         }
-        if (address != order.AddressOverride) changes.Add(address is null ? "address back to Etsy's" : "address changed");
+        var addressChanged = address != order.AddressOverride;
+        if (addressChanged) changes.Add(address is null ? "address back to Etsy's" : "address changed");
         order.AddressOverride = address;
 
         var note = string.IsNullOrWhiteSpace(form.SellerNote) ? null : form.SellerNote.Trim();
@@ -224,6 +228,8 @@ public sealed class OrderOverrideService(IDbContextFactory<AppDbContext> dbFacto
         if (changes.Count == 0) return null;
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("order.changes", nameof(Order), order.EtsyReceiptId.ToString(), string.Join("; ", changes), user, ct);
+        if (addressChanged && addressVerification is not null)
+            await addressVerification.QueueCheckAsync(order.Id, ct);
         return null;
     }
 }

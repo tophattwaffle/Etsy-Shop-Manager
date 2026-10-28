@@ -330,6 +330,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.HasIndex(x => x.SlipQueuedAtUtc); // the print station asks for queued slips every few seconds
             e.Property(x => x.Status).HasMaxLength(40);
             e.Property(x => x.CurrencyCode).HasMaxLength(8);
+            e.Property(x => x.AddressCheckStatus).HasMaxLength(40);
+            e.Property(x => x.AddressCheckHash).HasMaxLength(64);
+            e.Property(x => x.AddressCheckDismissedHash).HasMaxLength(64);
+            e.Property(x => x.AddressCheckAlert).HasMaxLength(200);
             e.HasOne(x => x.Shop).WithMany().HasForeignKey(x => x.ShopId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(x => x.Items).WithOne(i => i.Order).HasForeignKey(i => i.OrderId).OnDelete(DeleteBehavior.Cascade);
         });

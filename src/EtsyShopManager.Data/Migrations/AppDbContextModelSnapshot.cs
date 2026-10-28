@@ -930,6 +930,31 @@ namespace EtsyShopManager.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("AddressCheckAlert")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AddressCheckDismissedHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AddressCheckHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AddressCheckRawReply")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AddressCheckStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AddressCheckSuggested")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("AddressCheckedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("AddressOverride")
                         .HasColumnType("TEXT");
 

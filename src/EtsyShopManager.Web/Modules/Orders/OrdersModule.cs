@@ -45,6 +45,20 @@ public sealed class OrdersModule : IModule
         services.AddScoped<IDomainEventHandler<ShopConnected>, PollOrdersOnShopConnected>();
         services.AddScoped<IDomainEventHandler<ShopConnected>, GiftBuyerNamesOnShopConnected>();
 
+        services.AddHttpClient("Usps");
+        services.AddSingleton<EtsyShopManager.Web.Infrastructure.Usps.IUspsClient>(sp =>
+        {
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("Usps");
+            return new EtsyShopManager.Web.Infrastructure.Usps.UspsClient(
+                http,
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EtsyShopManager.Web.Infrastructure.Usps.UspsOptions>>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<EtsyShopManager.Web.Infrastructure.Usps.UspsClient>>());
+        });
+        services.AddSingleton<IAddressVerificationService, AddressVerificationService>();
+        services.AddJobHandler<VerifyAddressJob>();
+        services.AddScoped<IDomainEventHandler<OrderReceived>, OrderReceivedAddressVerificationHandler>();
+
         services.AddRecurringJob(new RecurringJobDefinition("Poll orders (all shops)", PollAllOrdersJob.Type, DefaultPollInterval)
         {
             IntervalSettingKey = SettingKeys.OrdersPollIntervalSeconds,
@@ -71,7 +85,7 @@ public sealed class OrdersModule : IModule
                 .ToDictionary(s => s.EtsyShopId.ToString(System.Globalization.CultureInfo.InvariantCulture), s => byShop[s.Id]);
             var config = await colors.GetAsync(ct);
             new OrderColorEngine(config).Paint(payload);
-            payload["color_config"] = config.ToCardJson(shopAccents, OrderColorEngine.Css);
+            payload["color_config"] = config.ToCardJson(shopAccents, OrderColorEngine.Css + "\n" + HaPayloadBuilder.AddressAlertCss);
             return Results.Json(payload);
         });
         ha.MapGet("/shops/{shopId:long}/open-orders", async (long shopId, OrderQueries q, CancellationToken ct) =>

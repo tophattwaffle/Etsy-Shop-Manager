@@ -263,6 +263,15 @@ The base URL can be changed later under Admin → Settings. When it changes, the
 - **Collapsed sidebar mini icon rail:** `MudDrawer` uses `Variant="DrawerVariant.Mini"` so collapsing the sidebar keeps
   top-level icons visible in a 56px mini rail with tooltips, while hiding Settings subcategories and the footer reorder
   button until the Settings group icon is clicked to uncollapse and expand.
+- **USPS shipping address verification:** domestic US shipping addresses are verified against the USPS Addresses API v3
+  (OAuth 2.0 client credentials, token cached in memory until near expiry, rate limits rescheduled via `RetryLaterException`)
+  when an order arrives (`OrderReceived`), when its shipping address changes (on an Etsy poll or via local override), and
+  across all open US orders when enabled in Admin settings (`/admin/address-verification`). Hard alerts flag addresses
+  not found (DPV "N" / 404), missing units (DPV "D"), or invalid units (DPV "S"), and soft notes flag substantive
+  corrections. Order cards on the Orders page and dashboard provide **Use USPS's version** (saves as local `AddressOverride`
+  preserving recipient name, and rechecks) and **Address is fine** (dismisses for that address hash). Alerts and shared CSS
+  flow into the Home Assistant open orders payload (`address_alerts` and `open_orders[].address_alert`), sensor, and card.
+  Staging isolates USPS calls to `http://127.0.0.1:9` and scrubs credentials on startup.
 
 ## Etsy errors in plain words (2026-10-17)
 - Etsy's error replies (`{"error": "…"}`, or a list of field checks `{"path": "/title/0", "type": "all_caps", "message": "…"}`) are turned into one sentence: what Etsy refused, its reason (known checks and messages reworded, others cleaned up), and what to do ("Change the title and try again", "Reconnect the shop", "Try again in a few minutes" for Etsy's own errors). It is the message of every failed Etsy call, so job results, toasts, the editor's push history, the clone page and the refill panel all show it; the raw reply stays in the Etsy write log.

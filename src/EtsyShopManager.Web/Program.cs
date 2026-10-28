@@ -105,7 +105,10 @@ builder.Services.AddSingleton<ListingCreationService>();
 builder.Services.AddSingleton<VideoStore>();
 builder.Services.AddEtsy(builder.Configuration);
 if (builder.Environment.IsStaging())
+{
     builder.Services.AddStagingEtsyLockout(); // the staging copy never reaches Etsy (docs/STAGING.md)
+    builder.Services.AddStagingUspsLockout(); // the staging copy never reaches USPS
+}
 
 // ---- Feature modules ------------------------------------------------------------------------------
 var modules = builder.AddModules(

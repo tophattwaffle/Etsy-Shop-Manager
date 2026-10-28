@@ -43,6 +43,8 @@ public class HaPayloadTests
     public void Open_orders_payload_matches_the_old_integration()
     {
         var expected = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "open-orders.expected.json")))!;
+        expected["address_alerts"] = new JsonArray();
+        expected["address_alert_css"] = HaPayloadBuilder.AddressAlertCss;
 
         var actual = HaPayloadBuilder.OpenOrders(FixtureOrders(), TimeZoneInfo.Utc);
 

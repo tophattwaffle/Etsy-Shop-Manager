@@ -16,6 +16,8 @@
 @inject IJSRuntime Js
 @inject IDialogService Dialogs
 @inject OrderMadeService MadeItems
+@inject EtsyShopManager.Core.Services.ISettingsStore Settings
+@inject IAddressVerificationService VerificationService
 @inject AutoPrintService AutoPrint
 
 <PageTitle>Orders · Etsy Shop Manager</PageTitle>
@@ -233,17 +235,19 @@
 
     // Both Admin and User (including unsigned-in visitors) can mark items made.
     private bool _canMark;
+    private bool _uspsEnabled;
 
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthState).User;
         _canMark = true;
+        _uspsEnabled = (await Settings.GetAsync(SettingKeys.UspsEnabled)) is "1" or "true";
         _colors = new OrderColorEngine(await Colors.GetAsync());
         await LoadAsync();
         await LoadHistoryAsync();
         // Orders change when a check for orders runs (or a shop is (re)connected): reload then.
         _live = JobEvents.Subscribe(
-            c => c.JobType == PollShopOrdersJob.Type || c.JobType == EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type,
+            c => c.JobType == PollShopOrdersJob.Type || c.JobType == EtsyShopManager.Web.Modules.Shops.ShopRefreshJob.Type || c.JobType == VerifyAddressJob.Type,
             _ => InvokeAsync(async () =>
             {
                 await LoadAsync();
@@ -446,6 +450,27 @@
                     }
                 </div>
             </div>
+            @if (_uspsEnabled && o.IsOpen && o.HasActiveAddressAlert)
+            {
+                <div class="esm-address-alert @(o.AddressCheckStatus == AddressCheckStatuses.SuggestedAddress ? "is-suggested" : "is-error")">
+                    <div class="esm-address-alert-body">
+                        <div>
+                            <div class="esm-address-alert-msg">@o.AddressCheckAlert</div>
+                            @if (!string.IsNullOrWhiteSpace(o.AddressCheckSuggested))
+                            {
+                                <div class="esm-address-alert-suggested">USPS suggests: @OneLineAddress(o.AddressCheckSuggested)</div>
+                            }
+                            <div class="esm-address-alert-actions">
+                                @if (!string.IsNullOrWhiteSpace(o.AddressCheckSuggested))
+                                {
+                                    <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary" OnClick="() => ApplyUspsAddressAsync(o)">Use USPS's version</MudButton>
+                                }
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => DismissAddressAlertAsync(o)">Address is fine</MudButton>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
             @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
             {
                 var (variations, personalization) = Split(i);
@@ -880,6 +905,39 @@
     }
 
     private static string OneLine(ShippingAddress a) => string.Join(", ", a.Name is null ? a.Lines : a.Lines.Prepend(a.Name));
+
+    private static string OneLineAddress(string multiline) =>
+        string.Join(", ", multiline.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    private async Task ApplyUspsAddressAsync(Order o)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var ok = await VerificationService.ApplyUspsSuggestedAddressAsync(o.Id, user);
+        if (ok)
+        {
+            Snackbar.Add("Applied USPS suggested address", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Could not apply suggested address", Severity.Error);
+        }
+    }
+
+    private async Task DismissAddressAlertAsync(Order o)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var ok = await VerificationService.DismissAlertAsync(o.Id, user);
+        if (ok)
+        {
+            Snackbar.Add("Address marked fine", Severity.Info);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Could not dismiss alert", Severity.Error);
+        }
+    }
 
     private static string AddressChangedLabel(Order o, ShippingAddress shipTo) =>
         $"Ships to {OneLine(shipTo)}. The buyer's address on Etsy: {OneLine(OrderPrintService.EtsyAddress(o))}";

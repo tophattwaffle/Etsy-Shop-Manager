@@ -1,0 +1,199 @@
+@page "/admin/address-verification"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Core.Services
+@using EtsyShopManager.Web.Infrastructure.Usps
+@using EtsyShopManager.Web.Modules.Orders
+@inject ISettingsStore Settings
+@inject IAddressVerificationService VerificationService
+@inject IUspsClient UspsClient
+@inject IAuditLog Audit
+@inject ISnackbar Snackbar
+
+<PageTitle>Address verification · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Address verification">
+    <Summary>Validate domestic shipping addresses with USPS to catch delivery issues before making or packing orders.</Summary>
+</PageHeader>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Setup instructions</MudText>
+    <MudText Typo="Typo.body2" Class="mb-2">
+        The USPS Addresses API v3 provides free address standardization and Delivery Point Validation (DPV) for domestic US addresses.
+    </MudText>
+    <ol class="mud-typography mud-typography-body2 ps-4 mb-3">
+        <li class="mb-1">Create an account on the <strong>USPS Developer Portal</strong> (developer.usps.com).</li>
+        <li class="mb-1">Under <strong>My Apps</strong>, create a new developer application to receive your <strong>Consumer Key</strong> and <strong>Consumer Secret</strong>.</li>
+        <li class="mb-1">Request access to the <strong>Addresses 3.0</strong> API and sign the free license agreement in the portal.</li>
+        <li>Copy your Consumer Key and Consumer Secret into the fields below and click <strong>Test connection</strong> to verify.</li>
+    </ol>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Settings</MudText>
+    <MudText Typo="Typo.body2" Class="mb-3">
+        When enabled, new US orders and address changes are verified automatically in the background. Non-US orders are skipped.
+    </MudText>
+
+    <MudSwitch T="bool" @bind-Value="_enabled" Label="Enable USPS address verification" Color="Color.Primary" Class="mb-4" />
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudTextField T="string" @bind-Value="_consumerKey" Label="USPS Consumer Key" Variant="Variant.Outlined" Immediate="true"
+                          Error="@(_keyError is not null)" ErrorText="@_keyError" />
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudTextField T="string" @bind-Value="_consumerSecret" Label="USPS Consumer Secret" Variant="Variant.Outlined" Immediate="true"
+                          InputType="InputType.Password"
+                          Placeholder="@(_hasSecret ? "Saved — leave blank to keep" : "")"
+                          HelperText="@(_hasSecret ? "A consumer secret is saved. Leave blank to keep it." : null)"
+                          Error="@(_secretError is not null)" ErrorText="@_secretError" />
+        </MudItem>
+    </MudGrid>
+
+    <MudStack Row="true" Class="mt-4" AlignItems="AlignItems.Center">
+        <SaveButtons Text="Save settings" Changed="Changed" Busy="_busy" OnSave="SaveAsync" OnCancel="Revert" />
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_testing || _busy" OnClick="TestConnectionAsync">
+            @if (_testing)
+            {
+                <MudProgressCircular Class="me-2" Size="Size.Small" Indeterminate="true" />
+                <span>Testing...</span>
+            }
+            else
+            {
+                <span>Test connection</span>
+            }
+        </MudButton>
+    </MudStack>
+</MudPaper>
+
+@if (_testResult is not null)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" GutterBottom="true">Connection test result</MudText>
+        <MudAlert Severity="@(_testResult.Success ? Severity.Success : Severity.Error)" Elevation="0" Variant="Variant.Outlined">
+            <strong>@_testResult.Message</strong>
+            @if (!string.IsNullOrWhiteSpace(_testResult.Details))
+            {
+                <div class="mt-2">
+                    <code>@_testResult.Details</code>
+                </div>
+            }
+        </MudAlert>
+    </MudPaper>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private bool _enabled;
+    private bool _savedEnabled;
+    private string? _consumerKey;
+    private string? _savedConsumerKey;
+    private string? _consumerSecret;
+    private bool _hasSecret;
+    private bool _busy;
+    private bool _testing;
+    private string? _keyError;
+    private string? _secretError;
+    private UspsConnectionTestResult? _testResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var enabledSetting = await Settings.GetAsync(SettingKeys.UspsEnabled);
+        _enabled = _savedEnabled = enabledSetting is "1" or "true";
+        _consumerKey = _savedConsumerKey = await Settings.GetAsync(SettingKeys.UspsConsumerKey);
+        _hasSecret = await Settings.HasValueAsync(SettingKeys.UspsConsumerSecret);
+    }
+
+    private bool Changed =>
+        _enabled != _savedEnabled
+        || (_consumerKey ?? "") != (_savedConsumerKey ?? "")
+        || !string.IsNullOrEmpty(_consumerSecret);
+
+    private void Revert()
+    {
+        _enabled = _savedEnabled;
+        _consumerKey = _savedConsumerKey;
+        _consumerSecret = null;
+        _keyError = null;
+        _secretError = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_enabled)
+        {
+            _keyError = string.IsNullOrWhiteSpace(_consumerKey) ? "Consumer Key is required when enabled" : null;
+            _secretError = string.IsNullOrWhiteSpace(_consumerSecret) && !_hasSecret ? "Consumer Secret is required when enabled" : null;
+            if (_keyError is not null || _secretError is not null) return;
+        }
+
+        _busy = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var wasDisabled = !_savedEnabled;
+
+            await Settings.SetAsync(SettingKeys.UspsEnabled, _enabled ? "1" : "0", updatedBy: user);
+            _savedEnabled = _enabled;
+
+            if (!string.IsNullOrWhiteSpace(_consumerKey))
+            {
+                await Settings.SetAsync(SettingKeys.UspsConsumerKey, _consumerKey.Trim(), updatedBy: user);
+                _savedConsumerKey = _consumerKey = _consumerKey.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(_consumerSecret))
+            {
+                await Settings.SetAsync(SettingKeys.UspsConsumerSecret, _consumerSecret.Trim(), encrypt: true, updatedBy: user);
+                _hasSecret = true;
+                _consumerSecret = null;
+            }
+
+            await Audit.WriteAsync("settings.usps", "Setting", SettingKeys.UspsEnabled,
+                $"USPS address verification {(_enabled ? "enabled" : "disabled")}", user);
+
+            Snackbar.Add("USPS settings saved", Severity.Success);
+
+            if (_enabled && wasDisabled)
+            {
+                var queued = await VerificationService.QueueCheckForOpenOrdersAsync();
+                if (queued > 0)
+                {
+                    Snackbar.Add($"Queued address verification checks for {queued} open US order(s)", Severity.Info);
+                }
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task TestConnectionAsync()
+    {
+        _testing = true;
+        _testResult = null;
+        try
+        {
+            var keyToTest = !string.IsNullOrWhiteSpace(_consumerKey) ? _consumerKey.Trim() : _savedConsumerKey;
+            var secretToTest = !string.IsNullOrWhiteSpace(_consumerSecret)
+                ? _consumerSecret.Trim()
+                : await Settings.GetAsync(SettingKeys.UspsConsumerSecret);
+
+            if (string.IsNullOrWhiteSpace(keyToTest) || string.IsNullOrWhiteSpace(secretToTest))
+            {
+                _testResult = new UspsConnectionTestResult(
+                    Success: false,
+                    Message: "Please enter both a Consumer Key and Consumer Secret to test the connection.");
+                return;
+            }
+
+            _testResult = await UspsClient.TestConnectionAsync(keyToTest, secretToTest);
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+}

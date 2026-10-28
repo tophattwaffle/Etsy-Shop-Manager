@@ -513,7 +513,8 @@ public class AuthBypassEmpiricalTests
         var adminEntries = SidebarLayout.Build(registry.NavItems.Where(i => CanSee(i, AdminUser)));
         var settingsGroup = Assert.Single(adminEntries, e => e.Group == NavGroups.Settings);
         Assert.Contains(settingsGroup.Children, c => c.Title == "Shops");
-        Assert.Equal(7, settingsGroup.Children.Count);
+        Assert.Contains(settingsGroup.Children, c => c.Title == "Address verification");
+        Assert.Equal(8, settingsGroup.Children.Count);
     }
 
     [Fact]

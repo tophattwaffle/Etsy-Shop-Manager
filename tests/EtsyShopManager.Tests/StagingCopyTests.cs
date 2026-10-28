@@ -34,7 +34,25 @@ public class StagingCopyTests
     }
 
     [Fact]
-    public async Task Start_removes_the_Etsy_keys_and_blanks_shop_tokens_but_keeps_everything_else()
+    public void Usps_addresses_point_at_a_dead_port_in_staging()
+    {
+        var services = new ServiceCollection();
+        services.Configure<EtsyShopManager.Web.Infrastructure.Usps.UspsOptions>(o =>
+        {
+            o.ApiBaseUrl = "https://api.usps.com";
+            o.OAuthUrl = "https://api.usps.com/oauth2/v3/token";
+        });
+        services.AddStagingUspsLockout();
+
+        var o = services.BuildServiceProvider().GetRequiredService<IOptions<EtsyShopManager.Web.Infrastructure.Usps.UspsOptions>>().Value;
+
+        Assert.StartsWith(StagingCopy.DeadUspsAddress, o.ApiBaseUrl);
+        Assert.StartsWith(StagingCopy.DeadUspsAddress, o.OAuthUrl);
+        Assert.DoesNotContain("usps", new Uri(o.ApiBaseUrl).Host, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Start_removes_the_Etsy_and_Usps_keys_and_blanks_shop_tokens_but_keeps_everything_else()
     {
         using var testDb = new TestDb();
         await using (var db = testDb.CreateDbContext())
@@ -47,12 +65,14 @@ public class StagingCopyTests
             db.Settings.AddRange(
                 new AppSetting { Key = SettingKeys.EtsyKeystring, Value = "keystring" },
                 new AppSetting { Key = SettingKeys.EtsySharedSecret, Value = "secret", IsEncrypted = true },
+                new AppSetting { Key = SettingKeys.UspsConsumerKey, Value = "usps_key" },
+                new AppSetting { Key = SettingKeys.UspsConsumerSecret, Value = "usps_secret", IsEncrypted = true },
                 new AppSetting { Key = SettingKeys.SetupCompleted, Value = "true" });
             await db.SaveChangesAsync();
         }
 
         await using (var db = testDb.CreateDbContext())
-            Assert.Equal(3, await StagingCopy.RemoveEtsySecretsAsync(db));
+            Assert.Equal(5, await StagingCopy.RemoveEtsySecretsAsync(db));
 
         await using (var db = testDb.CreateDbContext())
         {
