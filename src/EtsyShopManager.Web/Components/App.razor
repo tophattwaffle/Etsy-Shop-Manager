@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
+    <base href="@BaseHref" />
     <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     @* The order color engine's styles (OrderColorEngine.Css, also sent to the Home Assistant card). *@
@@ -31,6 +31,8 @@
 @code {
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
+
+    private string BaseHref => HttpContext.Request.PathBase + "/";
 
     // Interactive Server everywhere except pages marked [ExcludeFromInteractiveRouting]
     // (sign-in and first-run setup must run as static SSR to set the auth cookie).

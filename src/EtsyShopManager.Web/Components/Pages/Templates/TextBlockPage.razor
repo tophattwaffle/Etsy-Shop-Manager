@@ -374,7 +374,7 @@ else
                 Nav.NavigateTo("account/access-denied", forceLoad: true);
             else
             {
-                var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+                var returnUrl = Nav.ToBaseRelativePath(Nav.Uri);
                 Nav.NavigateTo($"account/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
             }
             return;

@@ -11,7 +11,7 @@
             return;
         }
 
-        var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+        var returnUrl = Nav.ToBaseRelativePath(Nav.Uri);
         Nav.NavigateTo($"account/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
     }
 }
