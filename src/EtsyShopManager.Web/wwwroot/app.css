@@ -856,3 +856,42 @@ a.lp-status-error:hover { text-decoration: underline; }
     .mud-simple-table.esm-stack-table td[data-label]::before { content: attr(data-label); display: block; font-size: 0.75rem; color: var(--esm-muted); }
     .mud-simple-table.esm-stack-table td.text-right { white-space: normal; }
 }
+
+/* ---- USPS Address Verification Alerts (Orders.razor, OpenOrdersTile.razor) ---- */
+.esm-address-alert {
+    margin: 6px 0 8px 0;
+    padding: 8px 12px;
+    border-radius: var(--esm-radius-sm);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    border-left: 3px solid var(--esm-error);
+    background: var(--esm-sunk);
+}
+.esm-address-alert.is-suggested {
+    border-left-color: var(--esm-warning);
+}
+.esm-address-alert-body {
+    display: flex;
+    align-items: flex-start;
+}
+.esm-address-alert-msg {
+    font-weight: 600;
+}
+.esm-address-alert.is-error .esm-address-alert-msg {
+    color: var(--esm-error);
+}
+.esm-address-alert.is-suggested .esm-address-alert-msg {
+    color: var(--esm-warning);
+}
+.esm-address-alert-suggested {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: var(--esm-ink);
+}
+.esm-address-alert-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    align-items: center;
+}
+

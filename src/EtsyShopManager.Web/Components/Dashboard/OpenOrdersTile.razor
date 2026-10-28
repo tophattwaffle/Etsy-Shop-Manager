@@ -11,6 +11,8 @@
 @inject IJobEvents JobEvents
 @inject OrderMadeService MadeItems
 @inject ISnackbar Snackbar
+@inject EtsyShopManager.Core.Services.ISettingsStore Settings
+@inject IAddressVerificationService VerificationService
 @inject TimeProvider Time
 
 @* Open orders, most urgent first, each opening on Etsy in its shop's browser. Variations and personalization are
@@ -39,6 +41,27 @@ else
                     </span>
                     <span class="esm-due" style="@due.Style">@due.Text</span>
                 </a>
+                @if (_uspsEnabled && o.IsOpen && o.HasActiveAddressAlert)
+                {
+                    <div class="esm-address-alert @(o.AddressCheckStatus == AddressCheckStatuses.SuggestedAddress ? "is-suggested" : "is-error")">
+                        <div class="esm-address-alert-body">
+                            <div>
+                                <div class="esm-address-alert-msg">@o.AddressCheckAlert</div>
+                                @if (!string.IsNullOrWhiteSpace(o.AddressCheckSuggested))
+                                {
+                                    <div class="esm-address-alert-suggested">USPS suggests: @OneLineAddress(o.AddressCheckSuggested)</div>
+                                }
+                                <div class="esm-address-alert-actions">
+                                    @if (!string.IsNullOrWhiteSpace(o.AddressCheckSuggested))
+                                    {
+                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary" OnClick="() => ApplyUspsAddressAsync(o)">Use USPS's version</MudButton>
+                                    }
+                                    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => DismissAddressAlertAsync(o)">Address is fine</MudButton>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
                 @foreach (var (i, ii) in o.Items.OrderBy(i => i.EtsyTransactionId).Select((item, index) => (item, index)))
                 {
                     var (variations, personalization) = OrderDue.Split(i);
@@ -84,18 +107,53 @@ else
 
     // Both Admin and User (including unsigned-in visitors) can mark items made.
     private bool _canMark;
+    private bool _uspsEnabled;
 
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthState).User;
         _canMark = true;
+        _uspsEnabled = (await Settings.GetAsync(SettingKeys.UspsEnabled)) is "1" or "true";
         _colors = new OrderColorEngine(await Colors.GetAsync());
         await LoadAsync();
-        _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type,
+        _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type || c.JobType == VerifyAddressJob.Type,
             _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
         MadeItems.Changed += OnMade;
         // Ship-by countdowns are relative to now.
         _timer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private static string OneLineAddress(string multiline) =>
+        string.Join(", ", multiline.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    private async Task ApplyUspsAddressAsync(Order o)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var ok = await VerificationService.ApplyUspsSuggestedAddressAsync(o.Id, user);
+        if (ok)
+        {
+            Snackbar.Add("Applied USPS suggested address", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Could not apply suggested address", Severity.Error);
+        }
+    }
+
+    private async Task DismissAddressAlertAsync(Order o)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var ok = await VerificationService.DismissAlertAsync(o.Id, user);
+        if (ok)
+        {
+            Snackbar.Add("Address marked fine", Severity.Info);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Could not dismiss alert", Severity.Error);
+        }
     }
 
     private async Task SetMadeAsync(OrderItem item, int made)

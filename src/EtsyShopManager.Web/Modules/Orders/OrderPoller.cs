@@ -31,7 +31,8 @@ public sealed class OrderPoller(
     EtsyApiClient etsy,
     IDomainEventPublisher events,
     TimeProvider time,
-    ILogger<OrderPoller> logger)
+    ILogger<OrderPoller> logger,
+    IAddressVerificationService? addressVerification = null)
 {
     public static readonly TimeSpan Overlap = TimeSpan.FromMinutes(2);
 
@@ -129,6 +130,7 @@ public sealed class OrderPoller(
             .ToDictionaryAsync(o => o.EtsyReceiptId, ct);
 
         var received = new List<Order>();
+        var addressChanged = new List<int>();
         var created = 0;
         foreach (var (receipt, raw) in page)
         {
@@ -141,14 +143,31 @@ public sealed class OrderPoller(
                 created++;
             }
             var wasPaid = !isNew && order.IsPaid;
+            var oldHash = !isNew && order.AddressOverride is null ? order.AddressCheckHash : null;
             OrderMapper.Apply(order, receipt, raw, now);
             if (order.IsPaid && !wasPaid) received.Add(order);
+            if (!isNew && order.AddressOverride is null && order.IsOpen && !string.IsNullOrEmpty(oldHash))
+            {
+                var newParsed = UsAddressParser.ParseFromReceipt(order);
+                if (newParsed.IsUs)
+                {
+                    var newHash = UsAddressParser.ComputeAddressHash(newParsed);
+                    if (newHash != oldHash)
+                        addressChanged.Add(order.Id);
+                }
+            }
         }
 
         await FillBuyerNamesAsync(db, shopId, [.. existing.Values.Where(o => o.BuyerUserId > 0
             && (o.IsGift && o.GiftFromName is null || o.IsOpen && o.BuyerProfileName is null))], ct);
         await ResolveImagesAsync(db, shopId, existing.Values.SelectMany(o => o.Items).Where(i => i.ImageUrl is null).ToList(), ct);
         await db.SaveChangesAsync(ct);
+
+        if (addressVerification is not null)
+        {
+            foreach (var orderId in addressChanged)
+                await addressVerification.QueueCheckAsync(orderId, ct);
+        }
 
         if (raiseEvents)
             foreach (var order in received)

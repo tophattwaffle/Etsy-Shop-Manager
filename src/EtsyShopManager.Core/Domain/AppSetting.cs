@@ -35,6 +35,21 @@ public static class SettingKeys
 
     /// <summary>Configured backup directory path (null or empty = default under Storage:DataRoot).</summary>
     public const string BackupsDirectory = "Backups.Directory";
+
+    /// <summary>True when USPS shipping address verification is enabled (default false).</summary>
+    public const string UspsEnabled = "Usps.Enabled";
+
+    /// <summary>USPS Business Portal developer application Consumer Key.</summary>
+    public const string UspsConsumerKey = "Usps.ConsumerKey";
+
+    /// <summary>USPS Business Portal developer application Consumer Secret (encrypted via DPAPI).</summary>
+    public const string UspsConsumerSecret = "Usps.ConsumerSecret";
+
+    /// <summary>USPS API base URL (default https://apis.usps.com, dead local port in staging).</summary>
+    public const string UspsBaseUrl = "Usps.BaseUrl";
+
+    /// <summary>USPS OAuth token URL (default https://apis.usps.com/oauth2/v3/token, dead local port in staging).</summary>
+    public const string UspsOAuthUrl = "Usps.OAuthUrl";
 }
 
 /// <summary>Who changed what. Written for user, settings and shop changes.</summary>

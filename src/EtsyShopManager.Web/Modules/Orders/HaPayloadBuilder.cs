@@ -16,8 +16,9 @@ public static class HaPayloadBuilder
 
     public static JsonObject OpenOrders(IEnumerable<Order> orders, TimeZoneInfo timeZone)
     {
+        var openList = orders.Where(o => o.IsOpen).ToList();
         // Newest first before the (stable) ship-by sort, matching the old integration's order for ties.
-        var summaries = orders.Where(o => o.IsOpen)
+        var summaries = openList
             .OrderByDescending(o => o.EtsyCreatedAtUtc)
             .Select(o => ReceiptSummary(o, timeZone))
             .OrderBy(s => s["ship_by_ts"] is null)
@@ -25,12 +26,30 @@ public static class HaPayloadBuilder
             .ToList();
         var itemsNeeded = AggregateItemsNeeded(summaries);
 
+        var addressAlerts = new JsonArray();
+        foreach (var order in openList.Where(o => o.HasActiveAddressAlert))
+        {
+            var isSuggestion = order.AddressCheckStatus == AddressCheckStatuses.SuggestedAddress;
+            addressAlerts.Add(new JsonObject
+            {
+                ["receipt_id"] = order.EtsyReceiptId.ToString(CultureInfo.InvariantCulture),
+                ["order_id"] = order.Id,
+                ["buyer_name"] = order.BuyerName ?? "",
+                ["status"] = order.AddressCheckStatus,
+                ["message"] = order.AddressCheckAlert,
+                ["is_suggestion"] = isSuggestion,
+                ["suggested_address"] = order.AddressCheckSuggested,
+            });
+        }
+
         return new JsonObject
         {
             ["open_orders_count"] = summaries.Count,
             ["total_items_needed"] = itemsNeeded.Sum(i => (int)i["quantity"]!),
             ["items_needed"] = new JsonArray([.. itemsNeeded]),
             ["open_orders"] = new JsonArray([.. summaries]),
+            ["address_alerts"] = addressAlerts,
+            ["address_alert_css"] = AddressAlertCss,
         };
     }
 
@@ -121,6 +140,18 @@ public static class HaPayloadBuilder
         if (order.ShippingCost is { } ship) summary["total_shipping_cost"] = Amount(ship, order.Divisor);
         if (order.TaxCost is { } tax) summary["total_tax_cost"] = Amount(tax, order.Divisor);
         if (order.DiscountAmount is { } discount && discount != 0) summary["discount_amount"] = Amount(discount, order.Divisor);
+        if (order.HasActiveAddressAlert)
+        {
+            var isSuggestion = order.AddressCheckStatus == AddressCheckStatuses.SuggestedAddress;
+            summary["address_alert"] = new JsonObject
+            {
+                ["status"] = order.AddressCheckStatus,
+                ["severity"] = isSuggestion ? "warning" : "error",
+                ["message"] = order.AddressCheckAlert,
+                ["is_suggestion"] = isSuggestion,
+                ["suggested_address"] = order.AddressCheckSuggested,
+            };
+        }
         return summary;
     }
 
@@ -184,4 +215,48 @@ public static class HaPayloadBuilder
             ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(d, DateTimeKind.Utc), timeZone)
                 .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
             : null;
+
+    /// <summary>Shared CSS rules for address problem banners and alerts across the HA card and payload.</summary>
+    public const string AddressAlertCss = """
+/* Address Alerts in Home Assistant Card and App */
+.address-alerts-blurb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(219, 68, 55, 0.15);
+  border: 1px solid rgba(219, 68, 55, 0.4);
+  color: var(--primary-text-color, inherit);
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+.address-alerts-blurb .blurb-icon { font-size: 16px; flex: none; }
+.address-alerts-blurb .blurb-text { flex: 1; }
+.address-alert {
+  margin: 4px 0 6px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.address-alert.error {
+  background: rgba(219, 68, 55, 0.12);
+  border-left: 3px solid #db4437;
+  color: var(--primary-text-color, inherit);
+}
+.address-alert.suggestion {
+  background: rgba(255, 167, 38, 0.12);
+  border-left: 3px solid #ffa726;
+  color: var(--primary-text-color, inherit);
+}
+.address-alert .alert-icon { flex: none; font-size: 14px; }
+.address-alert .alert-body { flex: 1; min-width: 0; }
+.address-alert .alert-msg { font-weight: 500; }
+.address-alert .alert-suggested { margin-top: 2px; opacity: 0.9; }
+""";
 }

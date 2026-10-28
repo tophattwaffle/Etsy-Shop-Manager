@@ -15,6 +15,7 @@ public static class StagingCopy
 {
     /// <summary>The discard port on this machine: nothing listens there, so every Etsy call fails at once.</summary>
     public const string DeadEtsyAddress = "http://127.0.0.1:9";
+    public const string DeadUspsAddress = "http://127.0.0.1:9";
 
     public const string TokenError = "Staging copy: Etsy is switched off here.";
 
@@ -33,11 +34,20 @@ public static class StagingCopy
             o.TokenUrl = $"{DeadEtsyAddress}/v3/public/oauth/token";
         });
 
-    /// <summary>Deletes the Etsy app keys and blanks every shop token. Returns how many rows it changed.</summary>
+    /// <summary>Points every USPS address at <see cref="DeadUspsAddress"/>, overriding configuration.</summary>
+    public static IServiceCollection AddStagingUspsLockout(this IServiceCollection services) =>
+        services.PostConfigure<EtsyShopManager.Web.Infrastructure.Usps.UspsOptions>(o =>
+        {
+            o.ApiBaseUrl = DeadUspsAddress;
+            o.OAuthUrl = $"{DeadUspsAddress}/oauth2/v3/token";
+        });
+
+    /// <summary>Deletes the Etsy/USPS app keys and blanks every shop token. Returns how many rows it changed.</summary>
     public static async Task<int> RemoveEtsySecretsAsync(AppDbContext db, CancellationToken ct = default)
     {
         var keys = await db.Settings
-            .Where(s => s.Key == SettingKeys.EtsyKeystring || s.Key == SettingKeys.EtsySharedSecret)
+            .Where(s => s.Key == SettingKeys.EtsyKeystring || s.Key == SettingKeys.EtsySharedSecret
+                     || s.Key == SettingKeys.UspsConsumerKey || s.Key == SettingKeys.UspsConsumerSecret)
             .ExecuteDeleteAsync(ct);
         var tokens = await db.ShopTokens.ExecuteUpdateAsync(s => s
             .SetProperty(t => t.EncryptedAccessToken, "")

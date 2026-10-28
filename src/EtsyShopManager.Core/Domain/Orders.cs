@@ -87,6 +87,33 @@ public class Order
     /// </summary>
     public string? MessageFromBuyerOverride { get; set; }
 
+    /// <summary>USPS address check outcome: Ok, AddressNotFound, MissingUnit, UnitNotFound, SuggestedAddress, SkippedNonUs, Error.</summary>
+    public string? AddressCheckStatus { get; set; }
+
+    /// <summary>User-facing address alert summary text (e.g. "Apartment or unit missing"). Null when valid or no alert.</summary>
+    public string? AddressCheckAlert { get; set; }
+
+    /// <summary>Normalized SHA-256 hash of the effective address that was checked. Changing address triggers a recheck.</summary>
+    public string? AddressCheckHash { get; set; }
+
+    /// <summary>When the address was verified with USPS.</summary>
+    public DateTime? AddressCheckedAtUtc { get; set; }
+
+    /// <summary>USPS's suggested standardized address lines (name + street + unit + city state zip).</summary>
+    public string? AddressCheckSuggested { get; set; }
+
+    /// <summary>Raw JSON reply from USPS Addresses API v3.</summary>
+    public string? AddressCheckRawReply { get; set; }
+
+    /// <summary>Address hash when the user clicked "Address is fine". Alert is dismissed while AddressCheckHash == AddressCheckDismissedHash.</summary>
+    public string? AddressCheckDismissedHash { get; set; }
+
+    /// <summary>True when there is an active, undismissed address alert for the current address hash.</summary>
+    public bool HasActiveAddressAlert =>
+        !string.IsNullOrEmpty(AddressCheckAlert)
+        && !string.IsNullOrEmpty(AddressCheckHash)
+        && !string.Equals(AddressCheckHash, AddressCheckDismissedHash, StringComparison.Ordinal);
+
     public List<OrderItem> Items { get; set; } = [];
 
     /// <summary>Statuses that close an order even when it was never shipped.</summary>
@@ -195,4 +222,16 @@ public class ApiKey
     public string? CreatedBy { get; set; }
     public DateTime? LastUsedAtUtc { get; set; }
     public DateTime? RevokedAtUtc { get; set; }
+}
+
+/// <summary>Standard outcome statuses for USPS address verification.</summary>
+public static class AddressCheckStatuses
+{
+    public const string Ok = "Ok";
+    public const string AddressNotFound = "AddressNotFound";
+    public const string MissingUnit = "MissingUnit";
+    public const string UnitNotFound = "UnitNotFound";
+    public const string SuggestedAddress = "SuggestedAddress";
+    public const string SkippedNonUs = "SkippedNonUs";
+    public const string Error = "Error";
 }
