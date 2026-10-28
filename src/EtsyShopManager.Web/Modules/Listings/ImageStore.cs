@@ -18,7 +18,7 @@ public sealed partial class ImageStore(StorageOptions storage)
 
     public static bool IsValidFileName(string? fileName) => fileName is not null && FileNamePattern().IsMatch(fileName);
 
-    public static string? UrlFor(string? fileName) => IsValidFileName(fileName) ? UrlPrefix + fileName : null;
+    public static string? UrlFor(string? fileName) => IsValidFileName(fileName) ? UrlPrefix.TrimStart('/') + fileName : null;
 
     public string PathFor(string fileName)
     {

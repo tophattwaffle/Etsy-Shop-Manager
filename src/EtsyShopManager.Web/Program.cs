@@ -158,6 +158,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 
 // ---- Pipeline --------------------------------------------------------------------------------------
 app.UseForwardedHeaders();
+app.UseMiddleware<IngressPathBaseMiddleware>();
 if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 app.UseStatusCodePagesWithReExecute("/not-found");

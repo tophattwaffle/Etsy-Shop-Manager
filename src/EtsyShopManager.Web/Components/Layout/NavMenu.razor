@@ -41,8 +41,10 @@ else
             {
                 // A group starts open while one of its pages is showing.
                 var group = entry.Group!;
-                <MudNavGroup Title="@group" Icon="@GroupIcon(group)" Expanded="@IsOpen(group, entry.Children)"
-                             ExpandedChanged="@(open => _open[group] = open)">
+                <MudNavGroup Title="@group" Icon="@GroupIcon(group)"
+                             Expanded="@(Mini ? false : IsOpen(group, entry.Children))"
+                             ExpandedChanged="@(open => HandleGroupExpandedChanged(group, open))"
+                             @onclick="@(() => HandleGroupClick(group))">
                     @foreach (var child in entry.Children)
                     {
                         @Link(child.Item!)
@@ -51,7 +53,7 @@ else
             }
         }
     </MudNavMenu>
-    @if (_user.IsInRole(Roles.Admin))
+    @if (_user.IsInRole(Roles.Admin) && !Mini)
     {
         <div class="esm-nav-foot">
             <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.SwapVert" Class="esm-nav-reorder"
@@ -61,6 +63,9 @@ else
 }
 
 @code {
+    [Parameter] public bool Mini { get; set; }
+    [Parameter] public EventCallback OnOpenDrawer { get; set; }
+
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private ClaimsPrincipal _user = new(new ClaimsIdentity());
@@ -70,6 +75,33 @@ else
     private bool _editing;
     private string? _dragKey;
     private string? _overKey;
+
+    protected override void OnParametersSet()
+    {
+        if (Mini && _editing) _editing = false;
+    }
+
+    private async Task HandleGroupExpandedChanged(string group, bool expanded)
+    {
+        if (Mini)
+        {
+            _open[group] = true;
+            await OnOpenDrawer.InvokeAsync();
+        }
+        else
+        {
+            _open[group] = expanded;
+        }
+    }
+
+    private async Task HandleGroupClick(string group)
+    {
+        if (Mini)
+        {
+            _open[group] = true;
+            await OnOpenDrawer.InvokeAsync();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -85,7 +117,7 @@ else
         item.Roles is null || item.Roles.Split(',').Any(r => user.IsInRole(r.Trim()));
 
     private static RenderFragment Link(NavItem item) =>
-        @<MudNavLink Href="@item.Href" Icon="@item.Icon"
+        @<MudNavLink Href="@item.Href" Icon="@item.Icon" title="@item.Title"
                      Match="@(item.MatchAll ? NavLinkMatch.All : NavLinkMatch.Prefix)">@item.Title</MudNavLink>;
 
     private RenderFragment EditRow(List<SidebarEntry> all, SidebarEntry entry, IReadOnlyList<SidebarEntry> siblings, bool child)

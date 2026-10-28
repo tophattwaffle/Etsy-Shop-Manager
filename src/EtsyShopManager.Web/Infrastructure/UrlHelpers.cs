@@ -48,5 +48,39 @@ public static class UrlHelpers
         !string.IsNullOrEmpty(url) && url[0] == '/'
         && (url.Length == 1 || (url[1] != '/' && url[1] != '\\'));
 
-    public static string SafeLocal(string? url, string fallback = "/") => IsLocalUrl(url) ? url! : fallback;
+    /// <summary>True for in-app relative paths ("orders", "admin/settings", "") or "/path" style local URLs.</summary>
+    public static bool IsSafeRelative(string? url)
+    {
+        if (string.IsNullOrEmpty(url)) return true;
+        if (url.StartsWith("//") || url.StartsWith("/\\") || url.StartsWith('\\')) return false;
+        var colon = url.IndexOf(':');
+        var slash = url.IndexOf('/');
+        if (colon >= 0 && (slash < 0 || colon < slash)) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Returns a safe relative path for in-app client navigation (Blazor NavigationManager.NavigateTo),
+    /// defaulting to "" so it resolves against the HTML base href rather than escaping to the host root "/".
+    /// </summary>
+    public static string SafeRelative(string? url, string fallback = "")
+    {
+        if (string.IsNullOrWhiteSpace(url)) return fallback;
+        if (!IsSafeRelative(url)) return fallback;
+        var trimmed = url.Trim();
+        return trimmed.StartsWith('/') ? trimmed.TrimStart('/') : trimmed;
+    }
+
+    /// <summary>
+    /// Safe local URL for client navigation or redirects. Defaults to "" (dashboard under base href)
+    /// to avoid escaping base href when running under Ingress.
+    /// </summary>
+    public static string SafeLocal(string? url, string fallback = "")
+    {
+        if (string.IsNullOrWhiteSpace(url)) return fallback;
+        if (IsLocalUrl(url))
+            return string.IsNullOrEmpty(fallback) ? url.TrimStart('/') : url;
+        if (IsSafeRelative(url)) return url.Trim();
+        return fallback;
+    }
 }

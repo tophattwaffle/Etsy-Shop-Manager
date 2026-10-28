@@ -515,6 +515,15 @@ public class OrderPrintTests
         Assert.Equal((1, 1001L), (total, Assert.Single(gifts).EtsyReceiptId));
     }
 
+    [Fact]
+    public void Built_in_packing_slip_includes_divider_between_items()
+    {
+        var css = SlipLayoutService.BuiltIn(SlipKind.Packing).Css;
+        Assert.Contains(".slip-item + .slip-item", css);
+        Assert.Contains("border-top: 0.75pt solid var(--print-ink);", css);
+        Assert.Contains("margin-top: 12pt;", css);
+    }
+
     private static int CountOf(string text, string part) => (text.Length - text.Replace(part, "").Length) / part.Length;
 
     internal static async Task<string> RenderAsync<T>(TestDb db, InMemorySettings settings, string relativeUrl) where T : IComponent

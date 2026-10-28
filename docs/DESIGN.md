@@ -40,6 +40,13 @@ everything: titles, buttons, tabs, labels. No all-caps labels and no overlines.
 holds, or a count) and `<Actions>` (the page's main buttons). Pages never style their own `h1`. Inside the page, `h6`
 (`Typo.h6`) titles a panel and `h5` titles a larger section. *(checked)*
 
+**Sidebar and navigation.** The navigation drawer uses `Variant="DrawerVariant.Mini"`. When collapsed
+(`_drawerOpen == false`), it stays visible as a 56px mini icon rail with top-level icons centered and text labels clipped.
+Hovering an icon shows its title via native tooltip. Category groups (Settings) display their group icon; the expand
+chevron and child subcategories are hidden while collapsed. Clicking a category group icon while collapsed opens the
+drawer to full width (240px) and expands the category group. The sidebar footer (reorder button) is hidden while
+collapsed. Under Home Assistant Ingress, the sidebar starts collapsed on initial load.
+
 **Panels.** Bordered, not shadowed: `<MudPaper Elevation="0" Outlined="true">`, 12px corners. Tabs use
 `Elevation="0" Outlined="true" Rounded="true"`; the tab bar is a rounded box that clips the selected tab to its corners,
 and the selected tab gets a light wash and an underline in the accent: the shop's (`--shop` on the `MudTabs`) on a page

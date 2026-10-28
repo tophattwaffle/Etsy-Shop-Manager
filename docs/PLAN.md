@@ -1,6 +1,6 @@
 # Etsy Shop Manager — Project Plan
 
-_Status: every phase implemented: 0 (Foundation), 1 (Import), 2 (Orders + HA), 3 (editor: all writable fields, photos, variations, push, drift, clone, auto-refill), 4 (text blocks, shared variation lists, photo templates) and 5 (new listing from scratch). What is left to do is in [BACKLOG.md](BACKLOG.md). Last updated 2026-10-26._
+_Status: every phase implemented: 0 (Foundation), 1 (Import), 2 (Orders + HA), 3 (editor: all writable fields, photos, variations, push, drift, clone, auto-refill), 4 (text blocks, shared variation lists, photo templates) and 5 (new listing from scratch). What is left to do is in [BACKLOG.md](BACKLOG.md). Last updated 2026-10-28._
 
 ## Goals
 
@@ -253,6 +253,16 @@ The base URL can be changed later under Admin → Settings. When it changes, the
   `OrderOverrideService`), made marks shared with the HA card (`OrderMadeService`), listing instructions printed on
   slips (`SlipDocumentService`), automatic slip printing on the host's printer (`AutoPrint.cs`), and order colors drawn
   by the app (`OrderColorEngine`). `AGENTS.md` describes each.
+- **Packing slip item divider:** multi-item packing slips (`Modules/Orders/Slips/packing.css`, `.slip-item + .slip-item`)
+  render a horizontal divider line (0.75pt solid `var(--print-ink)`) with 12pt margin between adjacent items, separating
+  items clearly without an extra top border or doubled bottom border.
+- **Home Assistant Ingress support:** the full application can run inside Home Assistant (`X-Ingress-Path` header).
+  `IngressPathBaseMiddleware` sets `HttpContext.Request.PathBase` from a sanitized header, `App.razor` computes dynamic
+  `<base href="@BaseHref">`, all navigation, media URLs and redirects resolve relative to base href, and the sidebar
+  starts collapsed when loaded under an Ingress path.
+- **Collapsed sidebar mini icon rail:** `MudDrawer` uses `Variant="DrawerVariant.Mini"` so collapsing the sidebar keeps
+  top-level icons visible in a 56px mini rail with tooltips, while hiding Settings subcategories and the footer reorder
+  button until the Settings group icon is clicked to uncollapse and expand.
 
 ## Etsy errors in plain words (2026-10-17)
 - Etsy's error replies (`{"error": "…"}`, or a list of field checks `{"path": "/title/0", "type": "all_caps", "message": "…"}`) are turned into one sentence: what Etsy refused, its reason (known checks and messages reworded, others cleaned up), and what to do ("Change the title and try again", "Reconnect the shop", "Try again in a few minutes" for Etsy's own errors). It is the message of every failed Etsy call, so job results, toasts, the editor's push history, the clone page and the refill panel all show it; the raw reply stays in the Etsy write log.

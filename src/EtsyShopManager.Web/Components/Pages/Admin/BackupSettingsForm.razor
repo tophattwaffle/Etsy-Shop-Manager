@@ -53,7 +53,7 @@
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateBackupNowAsync" Disabled="_busy || _restoring">
             Create backup now
         </MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Href="/admin/backups/export" Target="_blank" Disabled="_restoring">
+        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Href="admin/backups/export" Target="_blank" Disabled="_restoring">
             Export listings (.zip)
         </MudButton>
         <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="RefreshBackups" Size="Size.Small" title="Refresh backup list" Disabled="_restoring" />
@@ -94,7 +94,7 @@
                                                OnClick="() => ConfirmRestoreRowAsync(b)" title="Restore this backup" />
                             }
                             <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small"
-                                           Href="@($"/admin/backups/download/{b.FileName}")" Target="_blank" title="Download" />
+                                           Href="@($"admin/backups/download/{b.FileName}")" Target="_blank" title="Download" />
                             <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
                                            Disabled="_busy || _restoring || _validating"
                                            OnClick="() => ConfirmDeleteAsync(b)" title="Delete" />

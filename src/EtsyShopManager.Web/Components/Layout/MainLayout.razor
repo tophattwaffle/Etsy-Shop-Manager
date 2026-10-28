@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @inject SetupState Setup
 @inject IWebHostEnvironment Env
+@inject NavigationManager Nav
 
 <MudThemeProvider Theme="_theme" IsDarkMode="_dark" />
 <MudPopoverProvider />
@@ -35,7 +36,7 @@
                 <span class="esm-user">@context.User.Identity?.Name</span>
                 <form action="account/logout" method="post" class="d-inline">
                     <AntiforgeryToken />
-                    <input type="hidden" name="returnUrl" value="/" />
+                    <input type="hidden" name="returnUrl" value="" />
                     <MudIconButton ButtonType="ButtonType.Submit" Icon="@Icons.Material.Filled.Logout" Color="Color.Inherit" title="Sign out" />
                 </form>
             </Authorized>
@@ -45,8 +46,8 @@
         </AuthorizeView>
     </MudAppBar>
 
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="0" Class="esm-drawer">
-        <NavMenu />
+    <MudDrawer @bind-Open="_drawerOpen" Variant="DrawerVariant.Mini" ClipMode="DrawerClipMode.Always" Elevation="0" Class="esm-drawer">
+        <NavMenu Mini="@(!_drawerOpen)" OnOpenDrawer="() => _drawerOpen = true" />
     </MudDrawer>
 
     <MudMainContent>
@@ -84,6 +85,9 @@
 
     private static string StagingBranch => StagingCopy.Branch is { } branch ? $" · {branch}" : "";
 
-    protected override async Task OnInitializedAsync() =>
+    protected override async Task OnInitializedAsync()
+    {
+        _drawerOpen = !EmbedRoutes.IsUnderIngress(Nav.BaseUri);
         _setupIncomplete = !await Setup.IsSetupCompletedAsync();
+    }
 }

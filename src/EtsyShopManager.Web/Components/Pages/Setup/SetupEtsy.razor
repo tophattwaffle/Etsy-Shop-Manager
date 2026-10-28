@@ -54,6 +54,6 @@
         var user = (await AuthState).User.Identity?.Name;
         await Setup.MarkSetupCompletedAsync(user);
         await Audit.WriteAsync("setup.completed", userName: user);
-        Nav.NavigateTo("/", forceLoad: true);
+        Nav.NavigateTo("", forceLoad: true);
     }
 }

@@ -25,6 +25,7 @@
 .slip-count { font-weight: 600; padding-bottom: 12pt; border-bottom: 0.75pt solid var(--print-ink); }
 .slip-items { border-bottom: 0.75pt solid var(--print-ink); padding: 0 0 16pt; }
 .slip-item { display: grid; grid-template-columns: 42pt 1fr auto; column-gap: 12pt; padding-top: 12pt; break-inside: avoid; }
+.slip-item + .slip-item { border-top: 0.75pt solid var(--print-ink); margin-top: 12pt; }
 .slip-item img, .slip-noimg { width: 42pt; height: 42pt; object-fit: cover; background: var(--print-sunk); display: block; }
 .slip-item-text > div + div { margin-top: 5.6pt; }
 .slip-item-title { font-weight: 600; line-height: 11.7pt; }

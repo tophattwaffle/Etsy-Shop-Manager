@@ -79,6 +79,14 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-nav .mud-nav-link:hover { background: var(--esm-hover); }
 .esm-nav .mud-nav-link.active { background: var(--esm-sunk); color: var(--esm-ink); font-weight: 600; }
 .esm-nav .mud-nav-link.active .mud-nav-link-icon { color: var(--esm-ink); }
+/* Collapsed mini icon rail */
+.mud-drawer--closed.mud-drawer-mini .esm-nav { padding: 12px 4px; }
+.mud-drawer--closed.mud-drawer-mini .esm-nav .mud-nav-link { padding: 8px 0; justify-content: center; }
+.mud-drawer--closed.mud-drawer-mini .esm-nav .mud-nav-link .mud-nav-link-icon { margin-right: 0; }
+.mud-drawer--closed.mud-drawer-mini .mud-nav-group .mud-nav-link-expand-icon { display: none; }
+.mud-drawer--closed.mud-drawer-mini .mud-nav-group .mud-collapse-container { display: none; }
+.mud-drawer--closed.mud-drawer-mini .esm-nav-foot { display: none; }
+.mud-drawer--closed.mud-drawer-mini .esm-nav-edit { display: none; }
 /* Sidebar reorder mode: each page or group is a dashed row with a grip and up/down arrows. */
 .esm-nav-foot { flex: none; padding: 8px; border-top: 1px solid var(--esm-line); }
 .esm-nav-foot .esm-nav-reorder { color: var(--esm-muted); }

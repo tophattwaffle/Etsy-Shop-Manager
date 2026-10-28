@@ -323,8 +323,8 @@ public class ChallengerM6VideoStoreStressTests
         var mp4File = $"{hash}.mp4";
         var movFile = $"{hash}.mov";
 
-        Assert.Equal($"/media/videos/{mp4File}", VideoStore.UrlFor(mp4File));
-        Assert.Equal($"/media/videos/{movFile}", VideoStore.UrlFor(movFile));
+        Assert.Equal($"media/videos/{mp4File}", VideoStore.UrlFor(mp4File));
+        Assert.Equal($"media/videos/{movFile}", VideoStore.UrlFor(movFile));
 
         Assert.Equal("video/mp4", VideoStore.ContentTypeFor(mp4File));
         Assert.Equal("video/quicktime", VideoStore.ContentTypeFor(movFile));

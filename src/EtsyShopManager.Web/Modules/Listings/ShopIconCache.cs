@@ -21,7 +21,7 @@ public sealed class ShopIconCache(
     // image store's orphan clean-up removed (no listing image refers to it).
     private readonly ConcurrentDictionary<string, string> _files = new();
 
-    public static string UrlFor(int shopId) => UrlPrefix + shopId;
+    public static string UrlFor(int shopId) => UrlPrefix.TrimStart('/') + shopId;
 
     /// <summary>The stored icon's file name, fetching it from Etsy's CDN the first time. Null if the shop has none.</summary>
     public async Task<string?> GetFileNameAsync(int shopId, CancellationToken ct = default)
