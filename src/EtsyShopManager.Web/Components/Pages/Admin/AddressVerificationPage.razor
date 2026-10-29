@@ -38,11 +38,11 @@
 
     <MudGrid>
         <MudItem xs="12" md="6">
-            <MudTextField T="string" @bind-Value="_consumerKey" Label="USPS Consumer Key" Variant="Variant.Outlined" Immediate="true"
+            <MudTextField T="string" @bind-Value="_consumerKey" Label="USPS Consumer Key" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
                           Error="@(_keyError is not null)" ErrorText="@_keyError" />
         </MudItem>
         <MudItem xs="12" md="6">
-            <MudTextField T="string" @bind-Value="_consumerSecret" Label="USPS Consumer Secret" Variant="Variant.Outlined" Immediate="true"
+            <MudTextField T="string" @bind-Value="_consumerSecret" Label="USPS Consumer Secret" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
                           InputType="InputType.Password"
                           Placeholder="@(_hasSecret ? "Saved — leave blank to keep" : "")"
                           HelperText="@(_hasSecret ? "A consumer secret is saved. Leave blank to keep it." : null)"

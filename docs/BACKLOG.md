@@ -8,7 +8,7 @@ list and is described in `docs/PLAN.md`.
 
 ## To do
 
-*(No open items at present.)*
+Nothing open.
 
 ## Unverified until real pushes
 Behaviour that can only be confirmed by TopHATTwaffle's own pushes to the real shops (the app is never tested against

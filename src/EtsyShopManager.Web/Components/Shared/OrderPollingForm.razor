@@ -6,9 +6,9 @@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Order polling</MudText>
     <MudText Typo="Typo.body2" Class="mb-3">
-        How often the app checks Etsy for new and changed orders (all shops). The old Home Assistant integration
-        checked every @((int)OrdersModule.DefaultPollInterval.TotalMinutes) minutes. Each check costs one Etsy call
-        per shop (more when many orders changed). Takes effect at the next check.
+        How often the app checks Etsy for new and changed orders (all shops). Default is every
+        @((int)OrdersModule.DefaultPollInterval.TotalMinutes) minutes. Each check costs one Etsy call per shop (more
+        when many orders changed). Takes effect at the next check.
     </MudText>
     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
         <MudNumericField T="int" @bind-Value="_minutes" Immediate="true" Label="Minutes between checks" Min="1" Max="1440"

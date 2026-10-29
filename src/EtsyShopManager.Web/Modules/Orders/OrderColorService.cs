@@ -16,11 +16,15 @@ public sealed record OrderColor(string Name, IReadOnlyList<string> Hex, bool Met
 /// metal glint and the random effect move.
 /// </summary>
 public sealed record OrderColorLook(int Tint = 35, int MetallicShine = 60, bool AnimateMetallic = true,
-    string RandomStyle = OrderColorLook.Lava, int RandomMinBrightness = 60, bool AnimateRandom = true)
+    string RandomStyle = OrderColorLook.Lava, int RandomMinBrightness = 60, bool AnimateRandom = true,
+    int? MetallicTint = null, int? RandomTint = null)
 {
     public const string Lava = "lava";
     public const string Confetti = "confetti";
     public static readonly OrderColorLook Default = new();
+
+    public int EffectiveMetallicTint => MetallicTint ?? Tint;
+    public int EffectiveRandomTint => RandomTint ?? Tint;
 }
 
 /// <summary>
@@ -54,6 +58,8 @@ public sealed record OrderColorConfig(IReadOnlyList<OrderColor> Colors, IReadOnl
             ["random_min_brightness"] = Style.RandomMinBrightness,
             ["animate_random"] = Style.AnimateRandom,
         };
+        if (Style.MetallicTint is { } mt) json["metallic_tint"] = mt;
+        if (Style.RandomTint is { } rt) json["random_tint"] = rt;
         if (shopAccents is { Count: > 0 })
             json["shop_accents"] = new JsonObject(shopAccents.OrderBy(kv => kv.Key, StringComparer.Ordinal)
                 .Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value)));
@@ -102,6 +108,8 @@ public sealed partial class OrderColorService(ISettingsStore settings)
         }
         var look = config.Style;
         if (look.Tint is < 0 or > 100) problems.Add("Tint strength must be 0 to 100.");
+        if (look.MetallicTint is < 0 or > 100) problems.Add("Metallic tint strength must be 0 to 100.");
+        if (look.RandomTint is < 0 or > 100) problems.Add("Random tint strength must be 0 to 100.");
         if (look.MetallicShine is < 0 or > 100) problems.Add("Metal shine must be 0 to 100.");
         if (look.RandomMinBrightness is < 0 or > 100) problems.Add("Random color brightness must be 0 to 100.");
         if (look.RandomStyle is not (OrderColorLook.Lava or OrderColorLook.Confetti)) problems.Add("The random effect must be lava or confetti.");
@@ -127,7 +135,9 @@ public sealed partial class OrderColorService(ISettingsStore settings)
             (bool?)root["animate_metallic"] ?? d.AnimateMetallic,
             (string?)root["random_style"] ?? d.RandomStyle,
             (int?)root["random_min_brightness"] ?? d.RandomMinBrightness,
-            (bool?)root["animate_random"] ?? d.AnimateRandom);
+            (bool?)root["animate_random"] ?? d.AnimateRandom,
+            (int?)root["metallic_tint"],
+            (int?)root["random_tint"]);
         return new OrderColorConfig(colors, randomWords, look);
     }
 

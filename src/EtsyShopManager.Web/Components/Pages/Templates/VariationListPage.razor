@@ -49,7 +49,7 @@ else
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" Class="mb-2">Template</MudText>
-        <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
+        <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Class="mb-3 esm-w-lg"
                       ReadOnly="!_canEdit" Counter="VariationListService.MaxNameLength" MaxLength="VariationListService.MaxNameLength" />
         <MudText Typo="Typo.body2" Class="muted mb-2">
             Switch an option off to retire it: linked listings keep the value but buyers can't pick it. Renaming an option renames
@@ -94,31 +94,6 @@ else
 
     @if (_saved is not null)
     {
-        <MudPaper Class="pa-3 mb-4" Elevation="0" Outlined="true">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
-                <MudTextField T="string" Value="_filterText" ValueChanged="OnFilterTextChanged" Placeholder="Search title, SKU, tag, listing ID..."
-                              Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
-                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                              Class="esm-w-md" aria-label="Search listings" />
-                <MudSelect T="int?" Value="_filterShopId" ValueChanged="OnFilterShopChanged" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
-                    <MudSelectItem T="int?" Value="@((int?)null)">All shops</MudSelectItem>
-                    @foreach (var s in FilterShops)
-                    {
-                        <MudSelectItem T="int?" Value="@((int?)s.Id)">@s.Name</MudSelectItem>
-                    }
-                </MudSelect>
-                <MudSelect T="string" Value="_filterStatus" ValueChanged="OnFilterStatusChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
-                    <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("draft")">Draft</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("expired")">Expired</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("sold_out")">Sold out</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("inactive")">Inactive</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("missing")">Gone from Etsy</MudSelectItem>
-                </MudSelect>
-            </MudStack>
-        </MudPaper>
-
         <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
                 <MudText Typo="Typo.h6">Listings using this template</MudText>
@@ -133,7 +108,7 @@ else
                     </AuthorizeView>
                 </MudStack>
             </MudStack>
-            <MudText Typo="Typo.body2" Class="muted mb-2">
+            <MudText Typo="Typo.body2" Class="muted mb-3">
                 Applying changes each listing's variations as unpushed edits; nothing is sent to Etsy until you review and push.
                 New combinations start with the listing's current stock and follow its prices. Values a listing has of its own
                 are left alone.
@@ -142,48 +117,52 @@ else
             {
                 <MudText Typo="Typo.body2" Class="muted">No listings yet. Link the ones below.</MudText>
             }
-            else if (VisibleUses.Count == 0)
-            {
-                <MudText Typo="Typo.body2" Class="muted">No listings match these filters.</MudText>
-            }
             else
             {
-                <MudSimpleTable Dense="true">
-                    <thead>
-                        <tr>
-                            <SortHeader Sort="_useSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
-                            <SortHeader Sort="_useSort" Column="variation" Changed="StateHasChanged">Variation</SortHeader>
-                            <SortHeader Sort="_useSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var u in _useSort.Apply(VisibleUses))
-                        {
+                @FilterBar(_useFilter, f => _useFilter = f)
+                @if (VisibleUses.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">No listings match these filters.</MudText>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true">
+                        <thead>
                             <tr>
-                                <td><a href="@(_canEdit ? $"listings/{u.ListingId}/edit" : $"listings/{u.ListingId}")">@u.Title</a> <span class="muted small">· @u.ShopName</span></td>
-                                <td>
-                                    @u.VariationName
-                                    @if (u.CombinedWith is { Count: > 0 } others)
-                                    {
-                                        <div class="small muted">Combined with @string.Join(", ", others)</div>
-                                    }
-                                </td>
-                                <td>
-                                    <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
-                                    @foreach (var c in u.Changes.Skip(1)) { <div class="small">@c</div> }
-                                    @foreach (var n in u.Notes) { <div class="small muted">@n</div> }
-                                </td>
-                                <td class="text-right">
-                                    @if (_canEdit)
-                                    {
-                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkAsync(u))">Unlink</MudButton>
-                                    }
-                                </td>
+                                <SortHeader Sort="_useSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                                <SortHeader Sort="_useSort" Column="variation" Changed="StateHasChanged">Variation</SortHeader>
+                                <SortHeader Sort="_useSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                                <th></th>
                             </tr>
-                        }
-                    </tbody>
-                </MudSimpleTable>
+                        </thead>
+                        <tbody>
+                            @foreach (var u in _useSort.Apply(VisibleUses))
+                            {
+                                <tr>
+                                    <td><a href="@(_canEdit ? $"listings/{u.ListingId}/edit" : $"listings/{u.ListingId}")">@u.Title</a> <span class="muted small">· @u.ShopName</span></td>
+                                    <td>
+                                        @u.VariationName
+                                        @if (u.CombinedWith is { Count: > 0 } others)
+                                        {
+                                            <div class="small muted">Combined with @string.Join(", ", others)</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
+                                        @foreach (var c in u.Changes.Skip(1)) { <div class="small">@c</div> }
+                                        @foreach (var n in u.Notes) { <div class="small muted">@n</div> }
+                                    </td>
+                                    <td class="text-right">
+                                        @if (_canEdit)
+                                        {
+                                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => UnlinkAsync(u))">Unlink</MudButton>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
             }
         </MudPaper>
 
@@ -238,11 +217,12 @@ else
         {
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
                 <MudText Typo="Typo.h6" Class="mb-2">Listings with matching variations</MudText>
-                <MudText Typo="Typo.body2" Class="muted mb-2">
+                <MudText Typo="Typo.body2" Class="muted mb-3">
                     Variations whose values are mostly in this list. Linking changes nothing yet: the next apply adds the list's
                     missing options to them and switches retired ones off. A variation that already follows another template
                     is counted on the values that template doesn't cover, and linking adds this one after it.
                 </MudText>
+                @FilterBar(_candidateFilter, f => _candidateFilter = f)
                 @if (VisibleCandidates.Count == 0)
                 {
                     <MudText Typo="Typo.body2" Class="muted">No listings match these filters.</MudText>
@@ -299,7 +279,7 @@ else
                     listing has takes each option; the price stays as it is (it doesn't vary by the new variation) and the listing's
                     stock is shared. It's an unpushed edit until you review and push.
                 </MudText>
-                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
+                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
                     <MudAutocomplete T="VariationListAddable" Value="@_addTo" ValueChanged="PickAddToAsync" SearchFunc="SearchAddableAsync"
                                      ToStringFunc="@(a => a is null ? "" : $"{a.Title} · {a.ShopName}")" Label="Listing" Variant="Variant.Outlined"
                                      Margin="Margin.Dense" ResetValueOnEmptyText="true" Class="esm-w-lg" />
@@ -328,6 +308,32 @@ else
 }
 
 @code {
+    private RenderFragment FilterBar(TemplateListingFilter filter, Action<TemplateListingFilter> setFilter) => __builder =>
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap" Class="mb-3">
+            <MudTextField T="string" Value="filter.Text" ValueChanged="@(v => setFilter(filter with { Text = v }))" Placeholder="Search title, SKU, tag, listing ID..."
+                          Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Class="esm-w-md" aria-label="Search listings" />
+            <MudSelect T="int?" Value="filter.ShopId" ValueChanged="@(v => setFilter(filter with { ShopId = v }))" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                <MudSelectItem T="int?" Value="@((int?)null)">All shops</MudSelectItem>
+                @foreach (var s in FilterShops)
+                {
+                    <MudSelectItem T="int?" Value="@((int?)s.Id)">@s.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="string" Value="filter.Status" ValueChanged="@(v => setFilter(filter with { Status = v }))" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+                <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
+                <MudSelectItem T="string" Value="@("draft")">Draft</MudSelectItem>
+                <MudSelectItem T="string" Value="@("expired")">Expired</MudSelectItem>
+                <MudSelectItem T="string" Value="@("sold_out")">Sold out</MudSelectItem>
+                <MudSelectItem T="string" Value="@("inactive")">Inactive</MudSelectItem>
+                <MudSelectItem T="string" Value="@("missing")">Gone from Etsy</MudSelectItem>
+            </MudSelect>
+        </MudStack>
+    };
+
     [Parameter] public int? Id { get; set; }
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
@@ -336,9 +342,8 @@ else
     private string _name = "";
     private string? _add;
     private List<VariationListOption> _options = [];
-    private string? _filterText;
-    private int? _filterShopId;
-    private string _filterStatus = "all";
+    private TemplateListingFilter _useFilter = new();
+    private TemplateListingFilter _candidateFilter = new();
     private IReadOnlyList<ShopSummary> _shops = [];
     private IReadOnlyList<VariationListUse> _uses = [];
     private IReadOnlyList<VariationListCandidate> _candidates = [];
@@ -349,18 +354,11 @@ else
     private string? _addName, _addError;
     private VariationListAddPlan? _addPlan;
 
-    private TemplateListingFilter Filter => new()
-    {
-        Text = _filterText,
-        ShopId = _filterShopId,
-        Status = _filterStatus,
-    };
-
     private IReadOnlyList<VariationListUse> VisibleUses =>
-        [.. _uses.Where(u => TemplateFilterMatcher.Matches(u, Filter))];
+        [.. _uses.Where(u => TemplateFilterMatcher.Matches(u, _useFilter))];
 
     private IReadOnlyList<VariationListCandidate> VisibleCandidates =>
-        [.. _candidates.Where(c => TemplateFilterMatcher.Matches(c, Filter))];
+        [.. _candidates.Where(c => TemplateFilterMatcher.Matches(c, _candidateFilter))];
 
     private record ShopOption(int Id, string Name);
 
@@ -404,10 +402,6 @@ else
             _picked.UnionWith(visible);
         _range.Reset();
     }
-
-    private void OnFilterTextChanged(string? val) => _filterText = val;
-    private void OnFilterShopChanged(int? val) => _filterShopId = val;
-    private void OnFilterStatusChanged(string val) => _filterStatus = val;
 
     private bool Dirty => _saved is null
         ? _name.Trim().Length > 0 || _options.Count > 0

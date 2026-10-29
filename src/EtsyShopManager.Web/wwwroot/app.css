@@ -200,6 +200,17 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 /* Multi-line text boxes (a MudTextField with Lines) can be made taller or shorter by dragging their bottom-right corner;
    MudBlazor turns that off. Single-line inputs are not textareas, so they stay as they are. */
 .mud-input > textarea.mud-input-root { resize: vertical; min-height: 1.5em; }
+/* Text boxes and selects in a row sit on the same line: MudBlazor gives outlined inputs with a Label 8px/4px vertical
+   margins and unlabeled ones 4px/0px, which shifts labeled fields down by 2px beside unlabeled ones. */
+.mud-input-control,
+.mud-input-control.mud-input-outlined-with-label,
+.mud-input-control.mud-input-control-margin-dense,
+.mud-input-control.mud-input-control-margin-dense.mud-input-outlined-with-label,
+.mud-input-control.mud-input-control-margin-normal,
+.mud-input-control.mud-input-control-margin-normal.mud-input-outlined-with-label {
+    margin-top: 0;
+    margin-bottom: 0;
+}
 /* Links are ink like the text around them, so they are always underlined (as on Etsy). */
 .mud-link, .esm-content a:not([class]) { text-decoration: underline; text-underline-offset: 2px; }
 
@@ -283,6 +294,9 @@ code { font-size: 0.85em; padding: 1px 6px; border-radius: 6px; background: var(
 .esm-shop-color .esm-shop-link-select { width: 100% !important; }
 .esm-shop-color .esm-shop-link-profile { flex: 0 0 200px; width: 200px !important; }
 .esm-shop-color .esm-shop-link-custom { flex: 0 1 320px; width: 320px !important; }
+/* Shop defaults (Shops page): each shop's default profiles and section in one compact block */
+.esm-shop-default { padding: 10px 4px; border-top: 1px solid var(--esm-line); }
+.esm-shop-default:first-of-type { border-top: 0; padding-top: 2px; }
 
 /* ---- Listing detail and lookups ---- */
 .listing-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: var(--esm-radius-sm); display: block; }
@@ -736,6 +750,10 @@ a.lp-status-error:hover { text-decoration: underline; }
 .esm-variation-values { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .esm-variation-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .esm-variation-add .mud-input-control { margin: 0; }
+.esm-variation-add > .mud-select { flex: 0 1 auto; }
+.esm-variation + .esm-variation { margin-top: 12px; }
+.esm-variations > .esm-variation + .esm-variation { margin-top: 0; }
+.esm-variation + .esm-variations { margin-top: 12px; }
 
 /* ---- Admin: photo order test ---- */
 .esm-photo-strip { display: flex; flex-wrap: wrap; gap: 12px; }

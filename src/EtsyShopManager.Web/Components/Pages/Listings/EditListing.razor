@@ -209,7 +209,7 @@ else
                                     <div class="esm-variation-add">
                                         <MudSelect T="int?" Value="@_linkPick.GetValueOrDefault(propertyId)" ValueChanged="@(id => PickLinkAsync(propertyId, id))"
                                                    Label="@(followed.Count > 0 ? "Combine with another template" : "Link to variation template")"
-                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-minw-md esm-w-md">
                                             @foreach (var (listId, listName) in pickable)
                                             {
                                                 <MudSelectItem T="int?" Value="@listId">@listName</MudSelectItem>
@@ -262,7 +262,7 @@ else
                             <div class="esm-variation-name">Add from variation template</div>
                             <div class="esm-variation-add">
                                 <MudSelect T="int?" Value="@_fromList" ValueChanged="PickFromListAsync" Label="Variation template" Variant="Variant.Outlined"
-                                           Margin="Margin.Dense" Class="esm-w-sm">
+                                           Margin="Margin.Dense" Class="esm-minw-md esm-w-md">
                                     @foreach (var (listId, listName) in _variationLists)
                                     {
                                         <MudSelectItem T="int?" Value="@listId">@listName</MudSelectItem>
@@ -280,41 +280,270 @@ else
                         </div>
                     }
                 }
-                @if (Products.Count > 0)
+                @if (Products.Count > 0 && _form![ListingFields.Inventory] is { } invNode)
                 {
-                    <MudSimpleTable Dense="true">
-                        @* An editing grid: rows stay in variation order while prices are typed in (not sortable). *@
-                        <thead class="esm-fixed-order"><tr><th>Variation</th><th>Price (@(l.CurrencyCode ?? ""))</th><th>Processing profile</th><th>Available</th></tr></thead>
-                        <tbody>
-                            @foreach (var (product, index) in Products.Select((p, i) => (p!, i)))
-                            {
-                                var offering = product["offerings"]![0]!;
-                                <tr>
-                                    <td>@EditorLookups.VariationName(product, VariationEditor.EtsyOrder(l))</td>
-                                    <td>
-                                        <MudNumericField T="decimal" Value="@Price(offering)" ValueChanged="@(v => SetPrice(index, v))"
+                    var etsyOrder = VariationEditor.EtsyOrder(l);
+                    var variations = VariationEditor.Variations(invNode, etsyOrder);
+                    var priceOnProps = (invNode[VariationEditor.PriceOnProperty]?.AsArray() ?? []).Select(x => (long)x!).ToHashSet();
+                    var procOnProps = (invNode[VariationEditor.ProcessingOnProperty]?.AsArray() ?? []).Select(x => (long)x!).ToHashSet();
+                    var isDualPriceOrProc = priceOnProps.Count > 1 || procOnProps.Count > 1;
+                    var isDualPrice = variations.Count >= 2 && priceOnProps.Count >= 2;
+
+                    @if (priceOnProps.Count == 0 || procOnProps.Count == 0)
+                    {
+                        var firstOffering = Products[0]!["offerings"]![0]!;
+                        <div class="esm-variations">
+                            <div class="esm-variation">
+                                <div class="esm-variation-name">
+                                    @(priceOnProps.Count == 0 && procOnProps.Count == 0 ? "Price and processing profile" : priceOnProps.Count == 0 ? "Price" : "Processing profile")
+                                </div>
+                                <div class="esm-variation-add">
+                                    @if (priceOnProps.Count == 0)
+                                    {
+                                        <MudNumericField T="decimal" Value="@Price(firstOffering)" ValueChanged="@(v => SetPrice(0, v))"
+                                                         Label="@($"Price ({l.CurrencyCode ?? ""})")"
                                                          Min="0.20m" Step="0.01m" Format="0.00" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                         Disabled="@(!Leads(index, "price_on_property"))" Class="esm-w-sm esm-minw-price" />
-                                    </td>
-                                    <td>
-                                        <MudSelect T="long?" Value="@((long?)offering["readiness_state_id"])" ValueChanged="@(v => SetProcessing(index, v))"
-                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!Leads(index, "readiness_state_on_property"))" Class="esm-minw-md">
+                                                         Class="esm-w-sm esm-minw-price" />
+                                    }
+                                    @if (procOnProps.Count == 0)
+                                    {
+                                        <MudSelect T="long?" Value="@((long?)firstOffering["readiness_state_id"])" ValueChanged="@(v => SetProcessing(0, v))"
+                                                   Label="@(priceOnProps.Count == 0 ? "Processing profile" : null)" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-minw-md esm-w-md">
                                             <MudSelectItem T="long?" Value="null">—</MudSelectItem>
                                             @foreach (var (id, name) in _lookups.ProcessingProfiles)
                                             {
                                                 <MudSelectItem T="long?" Value="id">@name</MudSelectItem>
                                             }
                                         </MudSelect>
-                                    </td>
-                                    <td>
-                                        <MudSwitch T="bool" Value="@((bool?)offering["is_enabled"] ?? true)" Color="Color.Primary"
-                                                   ValueChanged="@(on => Set(ListingFields.Inventory, VariationEditor.SetAvailable(_form![ListingFields.Inventory]!, index, on)))"
-                                                   aria-label="@($"{EditorLookups.VariationName(product)} available to buyers")" />
-                                    </td>
-                                </tr>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (variations.Count > 0 && !isDualPriceOrProc && !_showAllCombinations)
+                    {
+                        <div class="esm-variations">
+                            @foreach (var v in variations)
+                            {
+                                var propId = v.PropertyId;
+                                var showPrice = priceOnProps.Contains(propId);
+                                var showProc = procOnProps.Contains(propId);
+                                var valueSort = GetValueSort(propId);
+                                <div class="esm-variation">
+                                    <div class="esm-variation-head">
+                                        <span class="esm-variation-name">@(v.Name ?? $"Variation {propId}")</span>
+                                        <span class="small muted">@v.Values.Count @(v.Values.Count == 1 ? "variant" : "variants")</span>
+                                    </div>
+                                    <MudSimpleTable Dense="true">
+                                        <thead>
+                                            <tr>
+                                                <SortHeader Sort="valueSort" Column="value" Changed="StateHasChanged">@(v.Name ?? "Option")</SortHeader>
+                                                @if (showPrice)
+                                                {
+                                                    <SortHeader Sort="valueSort" Column="price" Changed="StateHasChanged">Price (@(l.CurrencyCode ?? ""))</SortHeader>
+                                                }
+                                                @if (showProc)
+                                                {
+                                                    <SortHeader Sort="valueSort" Column="processing" Changed="StateHasChanged">Processing profile</SortHeader>
+                                                }
+                                                <SortHeader Sort="valueSort" Column="available" Changed="StateHasChanged">Available</SortHeader>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var val in valueSort.Apply(v.Values))
+                                            {
+                                                <tr>
+                                                    <td>@val</td>
+                                                    @if (showPrice)
+                                                    {
+                                                        <td>
+                                                            <MudNumericField T="decimal"
+                                                                             Value="@VariationEditor.GetValuePrice(invNode, propId, val)"
+                                                                             ValueChanged="@(p => Set(ListingFields.Inventory, VariationEditor.SetValuePrice(_form![ListingFields.Inventory]!, propId, val, p)))"
+                                                                             Min="0.20m" Step="0.01m" Format="0.00" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                             Class="esm-w-sm esm-minw-price" aria-label="@($"Price for {val}")" />
+                                                        </td>
+                                                    }
+                                                    @if (showProc)
+                                                    {
+                                                        <td>
+                                                            <MudSelect T="long?"
+                                                                       Value="@VariationEditor.GetValueProcessing(invNode, propId, val)"
+                                                                       ValueChanged="@(r => Set(ListingFields.Inventory, VariationEditor.SetValueProcessing(_form![ListingFields.Inventory]!, propId, val, r)))"
+                                                                       Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-minw-md">
+                                                                <MudSelectItem T="long?" Value="null">—</MudSelectItem>
+                                                                @foreach (var (id, name) in _lookups.ProcessingProfiles)
+                                                                {
+                                                                    <MudSelectItem T="long?" Value="id">@name</MudSelectItem>
+                                                                }
+                                                            </MudSelect>
+                                                        </td>
+                                                    }
+                                                    <td>
+                                                        <MudSwitch T="bool"
+                                                                   Value="@VariationEditor.IsValueAvailable(invNode, propId, val)"
+                                                                   Color="Color.Primary"
+                                                                   ValueChanged="@(on => Set(ListingFields.Inventory, VariationEditor.SetValueAvailable(_form![ListingFields.Inventory]!, propId, val, on)))"
+                                                                   aria-label="@($"{val} available to buyers")" />
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </MudSimpleTable>
+                                </div>
                             }
-                        </tbody>
-                    </MudSimpleTable>
+                        </div>
+                        @if (variations.Count > 1)
+                        {
+                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _showAllCombinations = true)">
+                                Show all @Products.Count combinations
+                            </MudButton>
+                        }
+                    }
+                    else if (variations.Count > 0)
+                    {
+                        @if (variations.Count > 1 && !isDualPriceOrProc && _showAllCombinations)
+                        {
+                            <div class="mb-2">
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _showAllCombinations = false)">
+                                    Show compact view by variation
+                                </MudButton>
+                            </div>
+                        }
+                        @if (isDualPrice)
+                        {
+                            var bulkPropId = BulkPricePropertyId(variations);
+                            var bulkVar = variations.First(v => v.PropertyId == bulkPropId);
+                            var otherVar = variations.First(v => v.PropertyId != bulkPropId);
+                            var bulkSort = GetValueSort(bulkPropId);
+                            <div class="esm-variation mb-3">
+                                <div class="esm-variation-head">
+                                    <span class="esm-variation-name">Set prices by one variation</span>
+                                    @foreach (var v in variations)
+                                    {
+                                        var vId = v.PropertyId;
+                                        <MudButton Variant="@(vId == bulkPropId ? Variant.Filled : Variant.Outlined)"
+                                                   Color="@(vId == bulkPropId ? Color.Primary : Color.Default)"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => _bulkPricePropertyId = vId)">
+                                            By @(v.Name ?? $"Variation {vId}") (@v.Values.Count)
+                                        </MudButton>
+                                    }
+                                </div>
+                                <div class="small muted">
+                                    Setting a price for a @(bulkVar.Name ?? "variation") option applies it across all @otherVar.Values.Count @(otherVar.Name ?? "other") options. Adjust individual exceptions (such as Random) in the combinations table below.
+                                </div>
+                                <MudSimpleTable Dense="true">
+                                    <thead>
+                                        <tr>
+                                            <SortHeader Sort="bulkSort" Column="value" Changed="StateHasChanged">@(bulkVar.Name ?? "Option")</SortHeader>
+                                            <SortHeader Sort="bulkSort" Column="price" Changed="StateHasChanged">Price for all @(otherVar.Name ?? "options") (@(l.CurrencyCode ?? ""))</SortHeader>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var val in bulkSort.Apply(bulkVar.Values))
+                                        {
+                                            var currentPrice = VariationEditor.GetValuePrice(invNode, bulkPropId, val);
+                                            var distinctPrices = VariationEditor.GetDistinctValuePrices(invNode, bulkPropId, val);
+                                            <tr>
+                                                <td>@val</td>
+                                                <td>
+                                                    <div class="d-flex align-center gap-2 flex-wrap">
+                                                        <MudNumericField T="decimal"
+                                                                         Value="@currentPrice"
+                                                                         ValueChanged="@(p => Set(ListingFields.Inventory, VariationEditor.SetValuePrice(_form![ListingFields.Inventory]!, bulkPropId, val, p)))"
+                                                                         Min="0.20m" Step="0.01m" Format="0.00" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                         Class="esm-w-sm esm-minw-price" aria-label="@($"Price for all {val}")" />
+                                                        @if (distinctPrices.Count > 1)
+                                                        {
+                                                            <span class="small muted">@distinctPrices.Count prices (@distinctPrices[0].ToString("0.00")–@distinctPrices[^1].ToString("0.00"))</span>
+                                                            <MudButton Variant="Variant.Text" Size="Size.Small"
+                                                                       OnClick="@(() => Set(ListingFields.Inventory, VariationEditor.SetValuePrice(_form![ListingFields.Inventory]!, bulkPropId, val, currentPrice)))">
+                                                                Apply @currentPrice.ToString("0.00") to all
+                                                            </MudButton>
+                                                        }
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </MudSimpleTable>
+                            </div>
+                        }
+                        var productSort = ProductSort(variations);
+                        <MudSimpleTable Dense="true">
+                            <thead>
+                                <tr>
+                                    @if (variations.Count > 0)
+                                    {
+                                        @foreach (var v in variations)
+                                        {
+                                            <SortHeader Sort="productSort" Column="@($"prop:{v.PropertyId}")" Changed="StateHasChanged">@(v.Name ?? $"Variation {v.PropertyId}")</SortHeader>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <SortHeader Sort="productSort" Column="name" Changed="StateHasChanged">Variation</SortHeader>
+                                    }
+                                    @if (priceOnProps.Count > 0)
+                                    {
+                                        <SortHeader Sort="productSort" Column="price" Changed="StateHasChanged">Price (@(l.CurrencyCode ?? ""))</SortHeader>
+                                    }
+                                    @if (procOnProps.Count > 0)
+                                    {
+                                        <SortHeader Sort="productSort" Column="processing" Changed="StateHasChanged">Processing profile</SortHeader>
+                                    }
+                                    <SortHeader Sort="productSort" Column="available" Changed="StateHasChanged">Available</SortHeader>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var (product, index) in productSort.Apply(Products.Select((p, i) => (Product: p!, Index: i))))
+                                {
+                                    var offering = product["offerings"]![0]!;
+                                    <tr>
+                                        @if (variations.Count > 0)
+                                        {
+                                            @foreach (var v in variations)
+                                            {
+                                                <td>@(VariationEditor.ValueOf(product, v.PropertyId) ?? "—")</td>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <td>@EditorLookups.VariationName(product, etsyOrder)</td>
+                                        }
+                                        @if (priceOnProps.Count > 0)
+                                        {
+                                            <td>
+                                                <MudNumericField T="decimal" Value="@Price(offering)" ValueChanged="@(v => SetPrice(index, v))"
+                                                                 Min="0.20m" Step="0.01m" Format="0.00" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                 Disabled="@(!Leads(index, "price_on_property"))" Class="esm-w-sm esm-minw-price" />
+                                            </td>
+                                        }
+                                        @if (procOnProps.Count > 0)
+                                        {
+                                            <td>
+                                                <MudSelect T="long?" Value="@((long?)offering["readiness_state_id"])" ValueChanged="@(v => SetProcessing(index, v))"
+                                                           Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!Leads(index, "readiness_state_on_property"))" Class="esm-minw-md">
+                                                    <MudSelectItem T="long?" Value="null">—</MudSelectItem>
+                                                    @foreach (var (id, name) in _lookups.ProcessingProfiles)
+                                                    {
+                                                        <MudSelectItem T="long?" Value="id">@name</MudSelectItem>
+                                                    }
+                                                </MudSelect>
+                                            </td>
+                                        }
+                                        <td>
+                                            <MudSwitch T="bool" Value="@((bool?)offering["is_enabled"] ?? true)" Color="Color.Primary"
+                                                       ValueChanged="@(on => Set(ListingFields.Inventory, VariationEditor.SetAvailable(_form![ListingFields.Inventory]!, index, on)))"
+                                                       aria-label="@($"{EditorLookups.VariationName(product)} available to buyers")" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
                     @if (Products.Count > 1)
                     {
                         <MudText Typo="Typo.body2" Class="muted mt-2">
@@ -508,6 +737,51 @@ else
     private IDisposable? _live;
     private string? _skuPattern;
     private string? _savedSkuPattern;
+    private bool _showAllCombinations;
+    private long? _bulkPricePropertyId;
+    private readonly TableSort<(JsonNode Product, int Index)> _productSort = new();
+    private readonly Dictionary<long, TableSort<string>> _valueSorts = [];
+
+    private long BulkPricePropertyId(IReadOnlyList<Variation> variations) =>
+        _bulkPricePropertyId is { } id && variations.Any(v => v.PropertyId == id)
+            ? id
+            : variations.OrderBy(v => v.Values.Count).First().PropertyId;
+
+    private TableSort<string> GetValueSort(long propertyId)
+    {
+        if (!_valueSorts.TryGetValue(propertyId, out var sort))
+        {
+            sort = new TableSort<string>();
+            _valueSorts[propertyId] = sort;
+        }
+        sort["value"] = val => val;
+        sort["price"] = val => _form?[ListingFields.Inventory] is { } inv
+            ? VariationEditor.GetValuePrice(inv, propertyId, val)
+            : 0m;
+        sort["processing"] = val => _form?[ListingFields.Inventory] is { } inv
+            && VariationEditor.GetValueProcessing(inv, propertyId, val) is { } rs
+            ? _lookups?.ProcessingProfiles.GetValueOrDefault(rs, $"#{rs}")
+            : null;
+        sort["available"] = val => _form?[ListingFields.Inventory] is { } inv
+            && VariationEditor.IsValueAvailable(inv, propertyId, val);
+        return sort;
+    }
+
+    private TableSort<(JsonNode Product, int Index)> ProductSort(IReadOnlyList<Variation> variations)
+    {
+        _productSort["name"] = r => EditorLookups.VariationName(r.Product);
+        _productSort["price"] = r => Price(r.Product["offerings"]![0]!);
+        _productSort["processing"] = r => (long?)r.Product["offerings"]![0]!["readiness_state_id"] is { } rs
+            ? _lookups?.ProcessingProfiles.GetValueOrDefault(rs, $"#{rs}")
+            : null;
+        _productSort["available"] = r => (bool?)r.Product["offerings"]![0]!["is_enabled"] ?? true;
+        foreach (var v in variations)
+        {
+            var propId = v.PropertyId;
+            _productSort[$"prop:{propId}"] = r => VariationEditor.ValueOf(r.Product, propId);
+        }
+        return _productSort;
+    }
 
     private TableSort<FieldChange> _changeSort = new();
     private readonly TableSort<ListingPush> _pushSort = new()

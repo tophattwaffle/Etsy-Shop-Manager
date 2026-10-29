@@ -91,11 +91,11 @@
 
         <MudGrid>
             <MudItem xs="12" md="6">
-                <MudTextField T="string" @bind-Value="_formName" Label="Rule name" Variant="Variant.Outlined" Immediate="true"
+                <MudTextField T="string" @bind-Value="_formName" Label="Rule name" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
                               Placeholder="e.g. Choose 2 colors" Class="mb-3" />
             </MudItem>
             <MudItem xs="12" md="6">
-                <MudSelect T="PersonalizationRuleType" @bind-Value="_formType" Label="Rule type" Variant="Variant.Outlined" Class="mb-3">
+                <MudSelect T="PersonalizationRuleType" @bind-Value="_formType" Label="Rule type" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
                     <MudSelectItem Value="PersonalizationRuleType.ColorCount">Color count</MudSelectItem>
                     <MudSelectItem Value="PersonalizationRuleType.WordList">Must mention one of</MudSelectItem>
                     <MudSelectItem Value="PersonalizationRuleType.NotEmpty">Not empty</MudSelectItem>
@@ -106,18 +106,18 @@
             @if (_formType == PersonalizationRuleType.ColorCount)
             {
                 <MudItem xs="12" md="6">
-                    <MudNumericField T="int?" @bind-Value="_formMinColors" Label="Minimum colors (per item unit)" Variant="Variant.Outlined" Min="0" Immediate="true"
+                    <MudNumericField T="int?" @bind-Value="_formMinColors" Label="Minimum colors (per item unit)" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Immediate="true"
                                     HelperText="Leave blank for no minimum. Scales by item quantity." Class="mb-3" />
                 </MudItem>
                 <MudItem xs="12" md="6">
-                    <MudNumericField T="int?" @bind-Value="_formMaxColors" Label="Maximum colors (per item unit)" Variant="Variant.Outlined" Min="1" Immediate="true"
+                    <MudNumericField T="int?" @bind-Value="_formMaxColors" Label="Maximum colors (per item unit)" Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Immediate="true"
                                     HelperText="Leave blank for no maximum. Scales by item quantity." Class="mb-3" />
                 </MudItem>
             }
             else if (_formType == PersonalizationRuleType.WordList)
             {
                 <MudItem xs="12">
-                    <MudTextField T="string" @bind-Value="_formWordList" Label="Required word options (one per line)" Variant="Variant.Outlined" Lines="4" Immediate="true"
+                    <MudTextField T="string" @bind-Value="_formWordList" Label="Required word options (one per line)" Variant="Variant.Outlined" Margin="Margin.Dense" Lines="4" Immediate="true"
                                   HelperText="One option per line; separate synonyms with / (e.g. 'linear / red / yellow' on one line, 'tactile / brown' on another)." Class="mb-3" />
                 </MudItem>
             }
@@ -132,7 +132,7 @@
             else if (_formType == PersonalizationRuleType.Regex)
             {
                 <MudItem xs="12">
-                    <MudTextField T="string" @bind-Value="_formRegexPattern" Label="Regular expression pattern" Variant="Variant.Outlined" Immediate="true"
+                    <MudTextField T="string" @bind-Value="_formRegexPattern" Label="Regular expression pattern" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
                                   HelperText="Pattern to match case-insensitively with ReDoS protection (e.g. '^[A-Z]{3}-\d{4}$')." Class="mb-3" />
                 </MudItem>
             }
@@ -140,7 +140,7 @@
             <MudItem xs="12" md="6">
                 <div @onclick="OpenVariationFilterDialogAsync">
                     <MudTextField T="string" Value="@(_formVariationFilter ?? "")" Label="Variation filter (optional)"
-                                  Placeholder="Click to select variations..." Variant="Variant.Outlined" ReadOnly="true"
+                                  Placeholder="Click to select variations..." Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="true"
                                   Adornment="Adornment.End"
                                   AdornmentIcon="@(string.IsNullOrWhiteSpace(_formVariationFilter) ? Icons.Material.Filled.Checklist : Icons.Material.Filled.Clear)"
                                   OnAdornmentClick="OnVariationAdornmentClick"
@@ -148,7 +148,7 @@
                 </div>
             </MudItem>
             <MudItem xs="12" md="6">
-                <MudTextField T="string" @bind-Value="_formCustomAlert" Label="Custom alert message override (optional)" Variant="Variant.Outlined" Immediate="true"
+                <MudTextField T="string" @bind-Value="_formCustomAlert" Label="Custom alert message override (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
                               HelperText="Optional text shown on the order card when validation fails. Leave blank to use standard generated message." Class="mb-3" />
             </MudItem>
         </MudGrid>
@@ -208,28 +208,23 @@
                 Search and select listings to link to <strong>@_selectedRule.Name</strong>.
             </MudText>
 
-            <MudGrid Class="mb-3">
-                <MudItem xs="12" md="6">
-                    <MudTextField T="string" Value="_candidateSearch" ValueChanged="OnSearchChanged" Placeholder="Search title or SKU..."
-                                  Variant="Variant.Outlined" Immediate="true" Clearable="true" />
-                </MudItem>
-                <MudItem xs="6" md="3">
-                    <MudSelect T="int?" Value="_candidateShopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined" Clearable="true">
-                        @foreach (var s in _shops)
-                        {
-                            <MudSelectItem Value="@((int?)s.Id)">@s.Name</MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="6" md="3">
-                    <MudSelect T="string" Value="_candidateStatus" ValueChanged="OnStatusChanged" Label="Status" Variant="Variant.Outlined">
-                        <MudSelectItem Value="@("all")">All</MudSelectItem>
-                        <MudSelectItem Value="@("active")">Active</MudSelectItem>
-                        <MudSelectItem Value="@("draft")">Draft</MudSelectItem>
-                        <MudSelectItem Value="@("inactive")">Inactive</MudSelectItem>
-                    </MudSelect>
-                </MudItem>
-            </MudGrid>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap" Class="mb-3">
+                <MudTextField T="string" Value="_candidateSearch" ValueChanged="OnSearchChanged" Placeholder="Search title or SKU..."
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Clearable="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="esm-w-md" />
+                <MudSelect T="int?" Value="_candidateShopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="esm-w-sm">
+                    @foreach (var s in _shops)
+                    {
+                        <MudSelectItem Value="@((int?)s.Id)">@s.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" Value="_candidateStatus" ValueChanged="OnStatusChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                    <MudSelectItem Value="@("all")">All</MudSelectItem>
+                    <MudSelectItem Value="@("active")">Active</MudSelectItem>
+                    <MudSelectItem Value="@("draft")">Draft</MudSelectItem>
+                    <MudSelectItem Value="@("inactive")">Inactive</MudSelectItem>
+                </MudSelect>
+            </MudStack>
 
             @if (VisibleCandidates.Count == 0)
             {

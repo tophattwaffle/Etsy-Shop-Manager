@@ -27,19 +27,20 @@
     </MudAlert>
 }
 
-<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
-    <MudText Typo="Typo.h6" GutterBottom="true">Look</MudText>
+<MudPaper Class="pa-4 mb-4 esm-orders" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Metallic</MudText>
     <MudText Typo="Typo.body2" Class="muted mb-2">
         How strongly boxes are tinted and how metallic colors shine, here and on the Home Assistant card. 0 turns either off.
     </MudText>
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="4">
-        <MudNumericField T="int" Value="_look.Tint" ValueChanged="@(v => SetLook(_look with { Tint = v }))" Label="Tint strength (%)"
+        <MudNumericField T="int" Value="_look.EffectiveMetallicTint" ValueChanged="@(v => SetLook(_look with { MetallicTint = v }))" Label="Tint strength (%)"
                          Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="!_canEdit" />
         <MudNumericField T="int" Value="_look.MetallicShine" ValueChanged="@(v => SetLook(_look with { MetallicShine = v }))" Label="Metal shine (%)"
                          Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="!_canEdit" />
         <MudSwitch T="bool" Value="_look.AnimateMetallic" ValueChanged="@(v => SetLook(_look with { AnimateMetallic = v }))" Color="Color.Primary"
                    Label="Glint sweeps across metal" Disabled="!_canEdit" />
     </MudStack>
+    <div class="mt-3"><ColorBox Colors="_metallicColors" Text="@_metallicExample" Seed="preview" /> <ColorBox Colors="_metallicColors" Text="@($"{_metallicExample}, please")" Kind="@ColorBox.Note" Seed="preview" /></div>
 </MudPaper>
 
 <MudPaper Class="pa-4 mb-4 esm-orders" Elevation="0" Outlined="true">
@@ -56,6 +57,8 @@
             <MudSelectItem Value="@OrderColorLook.Lava">Lava lamp</MudSelectItem>
             <MudSelectItem Value="@OrderColorLook.Confetti">Confetti</MudSelectItem>
         </MudSelect>
+        <MudNumericField T="int" Value="_look.EffectiveRandomTint" ValueChanged="@(v => SetLook(_look with { RandomTint = v }))"
+                         Label="Tint strength (%)" Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="!_canEdit" />
         <MudNumericField T="int" Value="_look.RandomMinBrightness" ValueChanged="@(v => SetLook(_look with { RandomMinBrightness = v }))"
                          Label="Least brightness (%)" Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="!_canEdit" />
         <MudSwitch T="bool" Value="_look.AnimateRandom" ValueChanged="@(v => SetLook(_look with { AnimateRandom = v }))" Color="Color.Primary"
@@ -68,6 +71,8 @@
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
         <MudText Typo="Typo.h6">Colors (@_rows.Count)</MudText>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudNumericField T="int" Value="_look.Tint" ValueChanged="@(v => SetLook(_look with { Tint = v, MetallicTint = _look.EffectiveMetallicTint, RandomTint = _look.EffectiveRandomTint }))"
+                             Label="Tint strength (%)" Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm" ReadOnly="!_canEdit" />
             <MudTextField T="string" @bind-Value="_filter" Placeholder="Find a color" Variant="Variant.Outlined" Margin="Margin.Dense"
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" Clearable="true" />
             <AuthorizeView Roles="@Roles.Admin">
@@ -139,6 +144,8 @@
     private List<string> _problems = [];
     private OrderColorLook _look = OrderColorLook.Default;
     private OrderColorEngine? _colors;
+    private OrderColorEngine? _metallicColors;
+    private string _metallicExample = "Copper";
 
     private IEnumerable<Row> Visible => string.IsNullOrWhiteSpace(_filter)
         ? _rows
@@ -187,6 +194,18 @@
                 .ToList(),
         };
         _colors = new OrderColorEngine(usable);
+        var metalRow = usable.Colors.FirstOrDefault(c => c.Metallic);
+        _metallicExample = metalRow?.Name ?? "Copper";
+        _metallicColors = metalRow is not null
+            ? _colors
+            : new OrderColorEngine(usable with
+            {
+                Colors =
+                [
+                    .. usable.Colors.Where(c => !string.Equals(c.Name, "Copper", StringComparison.OrdinalIgnoreCase)),
+                    new OrderColor("Copper", [OrderColorService.ExampleHex], true)
+                ],
+            });
     }
 
     private void Changed() => UpdatePreview();

@@ -83,7 +83,7 @@ else
                         Orders with any of these listings print the instructions, once per order however many of the listings it
                         has. A listing prints one set of instructions, so linking one here replaces any it had.
                     </MudText>
-                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2" Class="mb-2">
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
                         <MudAutocomplete T="SlipDocumentListing" Value="@_pick" ValueChanged="Pick" SearchFunc="SearchAsync" DebounceInterval="250"
                                          ToStringFunc="@(l => l is null ? "" : $"{l.Title} · {l.ShopName}")" Label="Find a listing by title or Etsy id"
                                          Variant="Variant.Outlined" Margin="Margin.Dense" ResetValueOnEmptyText="true" Class="esm-w-lg" />
