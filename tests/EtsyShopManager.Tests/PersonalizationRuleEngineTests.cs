@@ -8,12 +8,12 @@ public class PersonalizationRuleEngineTests
     private static OrderColorEngine Engine() => new(OrderColorService.Default);
 
     [Fact]
-    public void Colour_count_exact_match_passes_when_matching()
+    public void Color_count_exact_match_passes_when_matching()
     {
         var rule = new PersonalizationRule
         {
-            Name = "Two colours",
-            RuleType = PersonalizationRuleType.ColourCount,
+            Name = "Two colors",
+            RuleType = PersonalizationRuleType.ColorCount,
             MinColors = 2,
             MaxColors = 2,
         };
@@ -25,12 +25,12 @@ public class PersonalizationRuleEngineTests
     }
 
     [Fact]
-    public void Colour_count_fails_when_below_minimum()
+    public void Color_count_fails_when_below_minimum()
     {
         var rule = new PersonalizationRule
         {
-            Name = "Two colours",
-            RuleType = PersonalizationRuleType.ColourCount,
+            Name = "Two colors",
+            RuleType = PersonalizationRuleType.ColorCount,
             MinColors = 2,
             MaxColors = 2,
         };
@@ -38,16 +38,16 @@ public class PersonalizationRuleEngineTests
         var result = PersonalizationEngine.Evaluate(rule, "Only Copper", quantity: 1, Engine());
 
         Assert.False(result.IsValid);
-        Assert.Contains("Expected 2 colours, found 1", result.ErrorMessage);
+        Assert.Contains("Expected 2 colors, found 1", result.ErrorMessage);
     }
 
     [Fact]
-    public void Colour_count_fails_when_above_maximum()
+    public void Color_count_fails_when_above_maximum()
     {
         var rule = new PersonalizationRule
         {
-            Name = "Up to two colours",
-            RuleType = PersonalizationRuleType.ColourCount,
+            Name = "Up to two colors",
+            RuleType = PersonalizationRuleType.ColorCount,
             MinColors = 1,
             MaxColors = 2,
         };
@@ -55,41 +55,41 @@ public class PersonalizationRuleEngineTests
         var result = PersonalizationEngine.Evaluate(rule, "Red, Blue and Green", quantity: 1, Engine());
 
         Assert.False(result.IsValid);
-        Assert.Contains("Expected between 1 and 2 colours, found 3", result.ErrorMessage);
+        Assert.Contains("Expected between 1 and 2 colors, found 3", result.ErrorMessage);
     }
 
     [Fact]
-    public void Colour_count_scales_linearly_with_item_quantity()
+    public void Color_count_scales_linearly_with_item_quantity()
     {
         var rule = new PersonalizationRule
         {
-            Name = "Two colours per item",
-            RuleType = PersonalizationRuleType.ColourCount,
+            Name = "Two colors per item",
+            RuleType = PersonalizationRuleType.ColorCount,
             MinColors = 2,
             MaxColors = 2,
         };
 
-        // Quantity 2 with rule of 2 colours expects 4 colours
+        // Quantity 2 with rule of 2 colors expects 4 colors
         var failResult = PersonalizationEngine.Evaluate(rule, "Red, Blue, Green", quantity: 2, Engine());
         Assert.False(failResult.IsValid);
-        Assert.Contains("Expected 4 colours, found 3", failResult.ErrorMessage);
+        Assert.Contains("Expected 4 colors, found 3", failResult.ErrorMessage);
 
         var passResult = PersonalizationEngine.Evaluate(rule, "Red, Blue, Green, Copper", quantity: 2, Engine());
         Assert.True(passResult.IsValid);
     }
 
     [Fact]
-    public void Multi_colour_filament_counts_as_one_colour()
+    public void Multi_color_filament_counts_as_one_color()
     {
         var rule = new PersonalizationRule
         {
-            Name = "One colour",
-            RuleType = PersonalizationRuleType.ColourCount,
+            Name = "One color",
+            RuleType = PersonalizationRuleType.ColorCount,
             MinColors = 1,
             MaxColors = 1,
         };
 
-        // "Neon Rider" is a 2-colour filament (#4FC3F7, #FF1FD1), but should count as 1 colour
+        // "Neon Rider" is a 2-color filament (#4FC3F7, #FF1FD1), but should count as 1 color
         var result = PersonalizationEngine.Evaluate(rule, "Neon Rider", quantity: 1, Engine());
 
         Assert.True(result.IsValid);
@@ -100,8 +100,8 @@ public class PersonalizationRuleEngineTests
     {
         var rule = new PersonalizationRule
         {
-            Name = "Two colours",
-            RuleType = PersonalizationRuleType.ColourCount,
+            Name = "Two colors",
+            RuleType = PersonalizationRuleType.ColorCount,
             MinColors = 2,
             MaxColors = 2,
             CustomAlertMessage = "Please pick exactly two filaments from the swatch chart.",
@@ -211,20 +211,20 @@ public class PersonalizationRuleEngineTests
     {
         var engine = Engine();
 
-        // 1. Failing colour count rule
-        var colourRule = new PersonalizationRule
+        // 1. Failing color count rule
+        var colorRule = new PersonalizationRule
         {
-            Name = "Exact 5 colours",
-            RuleType = PersonalizationRuleType.ColourCount,
+            Name = "Exact 5 colors",
+            RuleType = PersonalizationRuleType.ColorCount,
             MinColors = 5,
             MaxColors = 5,
         };
-        Assert.True(PersonalizationEngine.Evaluate(colourRule, "random please", 1, engine).IsValid);
-        Assert.True(PersonalizationEngine.Evaluate(colourRule, "any random colors", 1, engine).IsValid);
+        Assert.True(PersonalizationEngine.Evaluate(colorRule, "random please", 1, engine).IsValid);
+        Assert.True(PersonalizationEngine.Evaluate(colorRule, "any random colors", 1, engine).IsValid);
 
         // Custom random words
         var customEngine = new OrderColorEngine(new OrderColorConfig([], ["random", "surprise me"]));
-        Assert.True(PersonalizationEngine.Evaluate(colourRule, "surprise me with colours", 1, customEngine).IsValid);
+        Assert.True(PersonalizationEngine.Evaluate(colorRule, "surprise me with colors", 1, customEngine).IsValid);
 
         // 2. Failing word list rule
         var wordRule = new PersonalizationRule

@@ -100,8 +100,8 @@ public class PersonalizationVerificationTests
             var rule = new PersonalizationRule
             {
                 Id = 1,
-                Name = "Min 1 colour",
-                RuleType = PersonalizationRuleType.ColourCount,
+                Name = "Min 1 color",
+                RuleType = PersonalizationRuleType.ColorCount,
                 MinColors = 1,
             };
             var link = new ListingPersonalizationRule { Id = 1, ListingId = 1, PersonalizationRuleId = 1 };
@@ -163,8 +163,8 @@ public class PersonalizationVerificationTests
             var rule = new PersonalizationRule
             {
                 Id = 1,
-                Name = "Min 1 colour",
-                RuleType = PersonalizationRuleType.ColourCount,
+                Name = "Min 1 color",
+                RuleType = PersonalizationRuleType.ColorCount,
                 MinColors = 1,
             };
             var link = new ListingPersonalizationRule { Id = 1, ListingId = 1, PersonalizationRuleId = 1 };
@@ -187,7 +187,7 @@ public class PersonalizationVerificationTests
                         EtsyListingId = 1001,
                         Title = "Custom Widget",
                         Quantity = 1,
-                        Variations = [new OrderVariation { PropertyId = HaPayloadBuilder.PersonalizationPropertyId, Name = "Personalization", Value = "Plain no colour" }]
+                        Variations = [new OrderVariation { PropertyId = HaPayloadBuilder.PersonalizationPropertyId, Name = "Personalization", Value = "Plain no color" }]
                     }
                 ]
             };
@@ -207,7 +207,7 @@ public class PersonalizationVerificationTests
             var order = await ctx.Orders.FirstAsync(o => o.Id == 1);
             Assert.Equal("Failed", order.PersonalizationCheckStatus);
             Assert.NotNull(order.PersonalizationCheckAlert);
-            Assert.Contains("Min 1 colour", order.PersonalizationCheckAlert);
+            Assert.Contains("Min 1 color", order.PersonalizationCheckAlert);
             Assert.True(order.HasActivePersonalizationAlert);
         }
     }
@@ -227,8 +227,8 @@ public class PersonalizationVerificationTests
             var rule = new PersonalizationRule
             {
                 Id = 1,
-                Name = "Colour count",
-                RuleType = PersonalizationRuleType.ColourCount,
+                Name = "Color count",
+                RuleType = PersonalizationRuleType.ColorCount,
                 MinColors = 2,
             };
             var link = new ListingPersonalizationRule { Id = 1, ListingId = 1, PersonalizationRuleId = 1 };
@@ -316,8 +316,8 @@ public class PersonalizationVerificationTests
             var rule = new PersonalizationRule
             {
                 Id = 1,
-                Name = "Min 1 colour",
-                RuleType = PersonalizationRuleType.ColourCount,
+                Name = "Min 1 color",
+                RuleType = PersonalizationRuleType.ColorCount,
                 MinColors = 1,
             };
             var link = new ListingPersonalizationRule { Id = 1, ListingId = 1, PersonalizationRuleId = 1 };
@@ -340,7 +340,7 @@ public class PersonalizationVerificationTests
                         EtsyListingId = 1001,
                         Title = "Custom Widget",
                         Quantity = 1,
-                        Variations = [new OrderVariation { PropertyId = HaPayloadBuilder.PersonalizationPropertyId, Name = "Personalization", Value = "No colour" }]
+                        Variations = [new OrderVariation { PropertyId = HaPayloadBuilder.PersonalizationPropertyId, Name = "Personalization", Value = "No color" }]
                     }
                 ]
             };
@@ -378,8 +378,8 @@ public class PersonalizationVerificationTests
             var rule = new PersonalizationRule
             {
                 Id = 1,
-                Name = "Colour Count",
-                RuleType = PersonalizationRuleType.ColourCount,
+                Name = "Color Count",
+                RuleType = PersonalizationRuleType.ColorCount,
                 MinColors = 2,
             };
             var link = new ListingPersonalizationRule { Id = 1, ListingId = 1, PersonalizationRuleId = 1 };
@@ -415,7 +415,7 @@ public class PersonalizationVerificationTests
             await ctx.SaveChangesAsync();
         }
 
-        // Fails initially (expects 2 colours, only Blue present)
+        // Fails initially (expects 2 colors, only Blue present)
         await service.RecheckAllOpenOrdersAsync();
         await using (var ctx = db.CreateDbContext())
         {
@@ -423,7 +423,7 @@ public class PersonalizationVerificationTests
             Assert.True(order.HasActivePersonalizationAlert);
         }
 
-        // Change rule to require only 1 colour
+        // Change rule to require only 1 color
         await using (var ctx = db.CreateDbContext())
         {
             var rule = await ctx.PersonalizationRules.FirstAsync(r => r.Id == 1);
@@ -519,7 +519,7 @@ public class PersonalizationVerificationTests
             IsPaid = true,
             IsShipped = false,
             PersonalizationCheckStatus = "Failed",
-            PersonalizationCheckAlert = "Rule 'Colour Count': Expected 2 colours, found 1.",
+            PersonalizationCheckAlert = "Rule 'Color Count': Expected 2 colors, found 1.",
             PersonalizationCheckHash = "hash123",
             Items =
             [
@@ -547,7 +547,7 @@ public class PersonalizationVerificationTests
         Assert.Equal(42, alerts[0]!["order_id"]?.GetValue<int>());
         Assert.Equal("Jane Doe", alerts[0]!["buyer_name"]?.GetValue<string>());
         Assert.Equal("Failed", alerts[0]!["status"]?.GetValue<string>());
-        Assert.Contains("Expected 2 colours", alerts[0]!["message"]?.GetValue<string>());
+        Assert.Contains("Expected 2 colors", alerts[0]!["message"]?.GetValue<string>());
 
         // Top-level alert css
         Assert.Equal(HaPayloadBuilder.PersonalizationAlertCss, payload["personalization_alert_css"]?.GetValue<string>());
@@ -560,7 +560,7 @@ public class PersonalizationVerificationTests
         Assert.NotNull(alertObj);
         Assert.Equal("Failed", alertObj["status"]?.GetValue<string>());
         Assert.Equal("error", alertObj["severity"]?.GetValue<string>());
-        Assert.Contains("Expected 2 colours", alertObj["message"]?.GetValue<string>());
+        Assert.Contains("Expected 2 colors", alertObj["message"]?.GetValue<string>());
 
         // When dismissed, alert is omitted from summary and top-level array is empty
         order.PersonalizationCheckDismissedHash = order.PersonalizationCheckHash;

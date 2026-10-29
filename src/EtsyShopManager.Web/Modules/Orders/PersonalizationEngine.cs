@@ -25,7 +25,7 @@ public static class PersonalizationEngine
 
         return rule.RuleType switch
         {
-            PersonalizationRuleType.ColourCount => EvaluateColourCount(rule, text, quantity, colorEngine),
+            PersonalizationRuleType.ColorCount => EvaluateColorCount(rule, text, quantity, colorEngine),
             PersonalizationRuleType.WordList => EvaluateWordList(rule, text),
             PersonalizationRuleType.NotEmpty => EvaluateNotEmpty(rule, text),
             PersonalizationRuleType.Regex => EvaluateRegex(rule, text),
@@ -33,7 +33,7 @@ public static class PersonalizationEngine
         };
     }
 
-    private static PersonalizationEvaluationResult EvaluateColourCount(
+    private static PersonalizationEvaluationResult EvaluateColorCount(
         PersonalizationRule rule,
         string text,
         int quantity,
@@ -54,15 +54,15 @@ public static class PersonalizationEngine
             string msg;
             if (rule.MinColors.HasValue && rule.MaxColors.HasValue && rule.MinColors == rule.MaxColors)
             {
-                msg = $"Rule '{rule.Name}': Expected {expectedMin} colours, found {count}.";
+                msg = $"Rule '{rule.Name}': Expected {expectedMin} colors, found {count}.";
             }
             else if (expectedMax.HasValue)
             {
-                msg = $"Rule '{rule.Name}': Expected between {expectedMin} and {expectedMax.Value} colours, found {count}.";
+                msg = $"Rule '{rule.Name}': Expected between {expectedMin} and {expectedMax.Value} colors, found {count}.";
             }
             else
             {
-                msg = $"Rule '{rule.Name}': Expected at least {expectedMin} colours, found {count}.";
+                msg = $"Rule '{rule.Name}': Expected at least {expectedMin} colors, found {count}.";
             }
             return PersonalizationEvaluationResult.Fail(msg);
         }

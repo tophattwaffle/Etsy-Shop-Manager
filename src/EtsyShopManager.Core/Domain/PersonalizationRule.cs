@@ -2,7 +2,7 @@ namespace EtsyShopManager.Core.Domain;
 
 public enum PersonalizationRuleType
 {
-    ColourCount = 1,
+    ColorCount = 1,
     WordList = 2,
     NotEmpty = 3,
     Regex = 4,
@@ -21,10 +21,10 @@ public class PersonalizationRule
     /// <summary>Type of rule evaluation.</summary>
     public PersonalizationRuleType RuleType { get; set; }
 
-    /// <summary>Colour count: minimum expected colours per item unit (null if unbounded).</summary>
+    /// <summary>Color count: minimum expected colors per item unit (null if unbounded).</summary>
     public int? MinColors { get; set; }
 
-    /// <summary>Colour count: maximum expected colours per item unit (null if unbounded).</summary>
+    /// <summary>Color count: maximum expected colors per item unit (null if unbounded).</summary>
     public int? MaxColors { get; set; }
 
     /// <summary>

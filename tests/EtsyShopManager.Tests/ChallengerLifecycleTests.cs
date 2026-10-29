@@ -110,8 +110,8 @@ public class ChallengerLifecycleTests
             var rule = new PersonalizationRule
             {
                 Id = 1,
-                Name = "Two Colours Required",
-                RuleType = PersonalizationRuleType.ColourCount,
+                Name = "Two Colors Required",
+                RuleType = PersonalizationRuleType.ColorCount,
                 MinColors = 2,
                 MaxColors = 2,
             };
@@ -165,7 +165,7 @@ public class ChallengerLifecycleTests
             var order = await ctx.Orders.FirstAsync(o => o.Id == 1);
             Assert.Equal("Failed", order.PersonalizationCheckStatus);
             Assert.NotNull(order.PersonalizationCheckAlert);
-            Assert.Contains("Two Colours Required", order.PersonalizationCheckAlert);
+            Assert.Contains("Two Colors Required", order.PersonalizationCheckAlert);
             Assert.NotNull(order.PersonalizationCheckHash);
             Assert.Null(order.PersonalizationCheckDismissedHash);
             Assert.True(order.HasActivePersonalizationAlert);
@@ -697,7 +697,7 @@ public class ChallengerLifecycleTests
             {
                 Id = 1,
                 Name = "Color Rule",
-                RuleType = PersonalizationRuleType.ColourCount,
+                RuleType = PersonalizationRuleType.ColorCount,
                 MinColors = 1,
             };
 
@@ -927,7 +927,7 @@ public class ChallengerLifecycleTests
             Subtotal = 2500,
             Grandtotal = 2500,
             PersonalizationCheckStatus = "Failed",
-            PersonalizationCheckAlert = "Failed rule 'Two Colours': Expected 2 colours, found 1.",
+            PersonalizationCheckAlert = "Failed rule 'Two Colors': Expected 2 colors, found 1.",
             PersonalizationCheckHash = "sha256_active_hash",
             PersonalizationCheckDismissedHash = null,
             Items =
@@ -964,7 +964,7 @@ public class ChallengerLifecycleTests
         Assert.Equal(77, alertEntry["order_id"]?.GetValue<int>());
         Assert.Equal("Adversarial Buyer", alertEntry["buyer_name"]?.GetValue<string>());
         Assert.Equal("Failed", alertEntry["status"]?.GetValue<string>());
-        Assert.Equal("Failed rule 'Two Colours': Expected 2 colours, found 1.", alertEntry["message"]?.GetValue<string>());
+        Assert.Equal("Failed rule 'Two Colors': Expected 2 colors, found 1.", alertEntry["message"]?.GetValue<string>());
 
         var css = payload["personalization_alert_css"]?.GetValue<string>();
         Assert.NotNull(css);
@@ -984,7 +984,7 @@ public class ChallengerLifecycleTests
         Assert.NotNull(alertObj);
         Assert.Equal("Failed", alertObj["status"]?.GetValue<string>());
         Assert.Equal("error", alertObj["severity"]?.GetValue<string>());
-        Assert.Equal("Failed rule 'Two Colours': Expected 2 colours, found 1.", alertObj["message"]?.GetValue<string>());
+        Assert.Equal("Failed rule 'Two Colors': Expected 2 colors, found 1.", alertObj["message"]?.GetValue<string>());
     }
 
     [Fact]
