@@ -57,6 +57,7 @@ namespace EtsyShopManager.Data.Migrations
                     MaxColors = table.Column<int>(type: "INTEGER", nullable: true),
                     WordList = table.Column<string>(type: "TEXT", nullable: true),
                     RegexPattern = table.Column<string>(type: "TEXT", maxLength: 500, nullable: true),
+                    VariationFilter = table.Column<string>(type: "TEXT", maxLength: 500, nullable: true),
                     CustomAlertMessage = table.Column<string>(type: "TEXT", maxLength: 500, nullable: true),
                     CreatedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: false),

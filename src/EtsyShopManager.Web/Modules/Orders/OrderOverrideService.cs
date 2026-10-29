@@ -226,7 +226,7 @@ public sealed class OrderOverrideService(
             }
             var before = string.Join(", ", item.VariationOverrides.Select(o => $"{o.Name}: {o.Value}"));
             var after = string.Join(", ", overrides.Select(o => $"{o.Name}: {o.Value}"));
-            if (before != after) changes.Add(after.Length == 0 ? $"{title}: buyer's variations" : $"{title}: {after}");
+            if (before != after) { personalizationChanged = true; changes.Add(after.Length == 0 ? $"{title}: buyer's variations" : $"{title}: {after}"); }
             item.VariationOverrides = overrides;
         }
 

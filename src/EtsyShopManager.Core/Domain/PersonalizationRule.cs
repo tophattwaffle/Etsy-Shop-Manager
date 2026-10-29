@@ -36,6 +36,12 @@ public class PersonalizationRule
     /// <summary>Regular expression pattern for Regex rule type.</summary>
     public string? RegexPattern { get; set; }
 
+    /// <summary>
+    /// Optional variation filter: when set, the rule only evaluates if the item's chosen variations match one of the
+    /// options (separated by '/' or newlines, e.g. "Dual Color" or "Single Color / Choose Color").
+    /// </summary>
+    public string? VariationFilter { get; set; }
+
     /// <summary>Optional custom alert message override (defaults to rule engine explanation if null).</summary>
     public string? CustomAlertMessage { get; set; }
 

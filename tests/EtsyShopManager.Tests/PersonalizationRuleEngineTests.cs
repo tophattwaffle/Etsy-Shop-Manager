@@ -243,5 +243,62 @@ public class PersonalizationRuleEngineTests
             RegexPattern = @"^\d{10}$",
         };
         Assert.True(PersonalizationEngine.Evaluate(regexRule, "random", 1, engine).IsValid);
+
+        // 4. Random variation choice bypasses rule even when personalization text does not say "random"
+        var randomVariation = new List<OrderVariation>
+        {
+            new() { PropertyId = 513, Name = "Color Choice", Value = "Random Color" }
+        };
+        Assert.True(PersonalizationEngine.Evaluate(colorRule, "Blue", 1, engine, randomVariation).IsValid);
+    }
+
+    [Fact]
+    public void Variation_filter_scopes_rule_to_matching_variations()
+    {
+        var engine = Engine();
+
+        var dualColorRule = new PersonalizationRule
+        {
+            Name = "Dual Color (2 colors)",
+            RuleType = PersonalizationRuleType.ColorCount,
+            MinColors = 2,
+            MaxColors = 2,
+            VariationFilter = "Dual Color",
+        };
+
+        var singleColorRule = new PersonalizationRule
+        {
+            Name = "Single Color (1 color)",
+            RuleType = PersonalizationRuleType.ColorCount,
+            MinColors = 1,
+            MaxColors = 1,
+            VariationFilter = "Single Color / Choose Color",
+        };
+
+        var dualVars = new List<OrderVariation>
+        {
+            new() { PropertyId = 513, Name = "Color Choice", Value = "Dual Color" },
+            new() { PropertyId = 514, Name = "Haptics", Value = "Silent" },
+        };
+        var singleVars = new List<OrderVariation>
+        {
+            new() { PropertyId = 513, Name = "Color Choice", Value = "Single Color" },
+            new() { PropertyId = 514, Name = "Haptics", Value = "Silent" },
+        };
+
+        // On Dual Color order with 1 color ("Mint"): dualColorRule fails, singleColorRule is skipped (passes)
+        Assert.False(PersonalizationEngine.Evaluate(dualColorRule, "Mint", 1, engine, dualVars).IsValid);
+        Assert.True(PersonalizationEngine.Evaluate(singleColorRule, "Mint", 1, engine, dualVars).IsValid);
+
+        // On Dual Color order with 2 colors ("Black Base, Mint Pattern"): both pass
+        Assert.True(PersonalizationEngine.Evaluate(dualColorRule, "Black Base, Mint Pattern", 1, engine, dualVars).IsValid);
+        Assert.True(PersonalizationEngine.Evaluate(singleColorRule, "Black Base, Mint Pattern", 1, engine, dualVars).IsValid);
+
+        // On Single Color order with 1 color ("Mint"): dualColorRule is skipped (passes), singleColorRule passes
+        Assert.True(PersonalizationEngine.Evaluate(dualColorRule, "Mint", 1, engine, singleVars).IsValid);
+        Assert.True(PersonalizationEngine.Evaluate(singleColorRule, "Mint", 1, engine, singleVars).IsValid);
+
+        // On Single Color order with 2 colors ("Black, Mint"): singleColorRule fails
+        Assert.False(PersonalizationEngine.Evaluate(singleColorRule, "Black, Mint", 1, engine, singleVars).IsValid);
     }
 }

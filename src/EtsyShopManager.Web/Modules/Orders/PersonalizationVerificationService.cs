@@ -39,11 +39,23 @@ public class PersonalizationVerificationService : IPersonalizationVerificationSe
     public static string EffectivePersonalization(OrderItem item) =>
         item.PersonalizationOverride ?? OrderOverrides.BuyersPersonalization(item) ?? "";
 
+    public static IReadOnlyList<OrderVariation> EffectiveNonPersonalizationVariations(OrderItem item) =>
+        OrderOverrides.Variations(item)
+            .Where(v => v.PropertyId != HaPayloadBuilder.PersonalizationPropertyId && !string.IsNullOrWhiteSpace(v.Value))
+            .ToList();
+
     public static string ComputePersonalizationHash(Order order)
     {
         var canonical = string.Join("\n", order.Items
             .OrderBy(i => i.EtsyTransactionId)
-            .Select(i => $"{i.EtsyTransactionId}:{EffectivePersonalization(i).Trim()}"));
+            .Select(i =>
+            {
+                var vars = string.Join("|", EffectiveNonPersonalizationVariations(i)
+                    .Select(v => $"{v.PropertyId}:{v.Name.Trim()}={v.Value.Trim()}"));
+                return vars.Length > 0
+                    ? $"{i.EtsyTransactionId}:{EffectivePersonalization(i).Trim()}[{vars}]"
+                    : $"{i.EtsyTransactionId}:{EffectivePersonalization(i).Trim()}";
+            }));
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
@@ -99,9 +111,10 @@ public class PersonalizationVerificationService : IPersonalizationVerificationSe
                 continue;
 
             var text = EffectivePersonalization(item);
+            var variations = EffectiveNonPersonalizationVariations(item);
             foreach (var rule in rules)
             {
-                var result = PersonalizationEngine.Evaluate(rule, text, item.Quantity, colorEngine);
+                var result = PersonalizationEngine.Evaluate(rule, text, item.Quantity, colorEngine, variations);
                 if (!result.IsValid)
                 {
                     failures.Add((item, result.ErrorMessage ?? $"Failed rule '{rule.Name}'."));
@@ -176,9 +189,10 @@ public class PersonalizationVerificationService : IPersonalizationVerificationSe
                     continue;
 
                 var text = EffectivePersonalization(item);
+                var variations = EffectiveNonPersonalizationVariations(item);
                 foreach (var rule in rules)
                 {
-                    var result = PersonalizationEngine.Evaluate(rule, text, item.Quantity, colorEngine);
+                    var result = PersonalizationEngine.Evaluate(rule, text, item.Quantity, colorEngine, variations);
                     if (!result.IsValid)
                     {
                         failures.Add((item, result.ErrorMessage ?? $"Failed rule '{rule.Name}'."));

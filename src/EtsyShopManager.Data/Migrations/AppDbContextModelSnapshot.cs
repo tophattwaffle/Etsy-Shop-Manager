@@ -1220,6 +1220,10 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<string>("UpdatedBy")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("VariationFilter")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("WordList")
                         .HasColumnType("TEXT");
 

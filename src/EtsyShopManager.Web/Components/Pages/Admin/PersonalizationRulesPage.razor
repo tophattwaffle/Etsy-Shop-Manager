@@ -137,7 +137,12 @@
                 </MudItem>
             }
 
-            <MudItem xs="12">
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" @bind-Value="_formVariationFilter" Label="Variation filter (optional)" Variant="Variant.Outlined" Immediate="true"
+                              Placeholder="e.g. Dual Color or Single Color / Choose Color"
+                              HelperText="Only check this rule when a chosen variation matches (separate options with /, or use Name = Value). Leave blank for all variations." Class="mb-3" />
+            </MudItem>
+            <MudItem xs="12" md="6">
                 <MudTextField T="string" @bind-Value="_formCustomAlert" Label="Custom alert message override (optional)" Variant="Variant.Outlined" Immediate="true"
                               HelperText="Optional text shown on the order card when validation fails. Leave blank to use standard generated message." Class="mb-3" />
             </MudItem>
@@ -286,6 +291,7 @@
     private int? _formMaxColors;
     private string? _formWordList = "";
     private string? _formRegexPattern = "";
+    private string? _formVariationFilter = "";
     private string? _formCustomAlert = "";
 
     // Candidate filter state
@@ -303,6 +309,7 @@
           || _formMaxColors != _selectedRule.MaxColors
           || (_formWordList ?? "").Trim() != (_selectedRule.WordList ?? "").Trim()
           || (_formRegexPattern ?? "").Trim() != (_selectedRule.RegexPattern ?? "").Trim()
+          || (_formVariationFilter ?? "").Trim() != (_selectedRule.VariationFilter ?? "").Trim()
           || (_formCustomAlert ?? "").Trim() != (_selectedRule.CustomAlertMessage ?? "").Trim();
 
     private sealed record CandidateListing(int ListingId, string Title, string ShopName, int ShopId, string State);
@@ -437,6 +444,7 @@
         _formMaxColors = null;
         _formWordList = "";
         _formRegexPattern = "";
+        _formVariationFilter = "";
         _formCustomAlert = "";
         _picked.Clear();
         _range.Reset();
@@ -453,6 +461,7 @@
         _formMaxColors = r.MaxColors;
         _formWordList = r.WordList;
         _formRegexPattern = r.RegexPattern;
+        _formVariationFilter = r.VariationFilter;
         _formCustomAlert = r.CustomAlertMessage;
         _picked.Clear();
         _range.Reset();
@@ -508,6 +517,7 @@
                 MaxColors = _formMaxColors,
                 WordList = _formWordList,
                 RegexPattern = _formRegexPattern,
+                VariationFilter = string.IsNullOrWhiteSpace(_formVariationFilter) ? null : _formVariationFilter.Trim(),
                 CustomAlertMessage = string.IsNullOrWhiteSpace(_formCustomAlert) ? null : _formCustomAlert.Trim(),
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now,
@@ -531,6 +541,7 @@
             rule.MaxColors = _formMaxColors;
             rule.WordList = _formWordList;
             rule.RegexPattern = _formRegexPattern;
+            rule.VariationFilter = string.IsNullOrWhiteSpace(_formVariationFilter) ? null : _formVariationFilter.Trim();
             rule.CustomAlertMessage = string.IsNullOrWhiteSpace(_formCustomAlert) ? null : _formCustomAlert.Trim();
             rule.UpdatedAtUtc = now;
             rule.UpdatedBy = user;
@@ -658,17 +669,21 @@
         _ => type.ToString(),
     };
 
-    private static string RuleDetailsDisplay(PersonalizationRule r) => r.RuleType switch
+    private static string RuleDetailsDisplay(PersonalizationRule r)
     {
-        PersonalizationRuleType.ColorCount =>
-            r.MinColors.HasValue && r.MaxColors.HasValue
-                ? (r.MinColors == r.MaxColors ? $"{r.MinColors} color(s)" : $"{r.MinColors}–{r.MaxColors} colors")
-                : r.MinColors.HasValue ? $"Min {r.MinColors} color(s)" : r.MaxColors.HasValue ? $"Max {r.MaxColors} color(s)" : "Any count",
-        PersonalizationRuleType.WordList =>
-            string.Join(", ", (r.WordList ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Take(3)) +
-            ((r.WordList ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Length > 3 ? "…" : ""),
-        PersonalizationRuleType.NotEmpty => "Text required",
-        PersonalizationRuleType.Regex => r.RegexPattern ?? "—",
-        _ => "—",
-    };
+        var baseText = r.RuleType switch
+        {
+            PersonalizationRuleType.ColorCount =>
+                r.MinColors.HasValue && r.MaxColors.HasValue
+                    ? (r.MinColors == r.MaxColors ? $"{r.MinColors} color(s)" : $"{r.MinColors}–{r.MaxColors} colors")
+                    : r.MinColors.HasValue ? $"Min {r.MinColors} color(s)" : r.MaxColors.HasValue ? $"Max {r.MaxColors} color(s)" : "Any count",
+            PersonalizationRuleType.WordList =>
+                string.Join(", ", (r.WordList ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Take(3)) +
+                ((r.WordList ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Length > 3 ? "…" : ""),
+            PersonalizationRuleType.NotEmpty => "Text required",
+            PersonalizationRuleType.Regex => r.RegexPattern ?? "—",
+            _ => "—",
+        };
+        return string.IsNullOrWhiteSpace(r.VariationFilter) ? baseText : $"{baseText} (when {r.VariationFilter})";
+    }
 }

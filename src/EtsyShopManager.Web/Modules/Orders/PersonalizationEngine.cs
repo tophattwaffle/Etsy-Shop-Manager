@@ -15,12 +15,21 @@ public static class PersonalizationEngine
         PersonalizationRule rule,
         string? personalizationText,
         int quantity,
-        OrderColorEngine colorEngine)
+        OrderColorEngine colorEngine,
+        IReadOnlyList<OrderVariation>? variations = null)
     {
+        var nonPersonalization = variations?
+            .Where(v => v.PropertyId != HaPayloadBuilder.PersonalizationPropertyId && !string.IsNullOrWhiteSpace(v.Value))
+            .ToList() ?? [];
+
+        // If the rule specifies a variation filter, skip evaluation unless a chosen variation matches.
+        if (!string.IsNullOrWhiteSpace(rule.VariationFilter) && !MatchesVariationFilter(rule.VariationFilter, nonPersonalization))
+            return PersonalizationEvaluationResult.Success();
+
         var text = personalizationText ?? "";
 
-        // Invariant: Any personalization text recognized as "Random" by OrderColorEngine.IsRandom immediately passes all rules.
-        if (colorEngine.IsRandom(text))
+        // Invariant: Any personalization text or chosen variation recognized as "Random" by OrderColorEngine.IsRandom immediately passes all rules.
+        if (colorEngine.IsRandom(text) || nonPersonalization.Any(v => colorEngine.IsRandom(v.Value)))
             return PersonalizationEvaluationResult.Success();
 
         return rule.RuleType switch
@@ -31,6 +40,44 @@ public static class PersonalizationEngine
             PersonalizationRuleType.Regex => EvaluateRegex(rule, text),
             _ => PersonalizationEvaluationResult.Success()
         };
+    }
+
+    public static bool MatchesVariationFilter(string filter, IReadOnlyList<OrderVariation> variations)
+    {
+        var terms = filter.Split(['\r', '\n', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => t.Length > 0)
+            .ToList();
+        if (terms.Count == 0) return true;
+        if (variations.Count == 0) return false;
+
+        foreach (var term in terms)
+        {
+            var sepIndex = term.IndexOfAny(['=', ':']);
+            if (sepIndex > 0 && sepIndex < term.Length - 1)
+            {
+                var propTerm = term[..sepIndex].Trim();
+                var valTerm = term[(sepIndex + 1)..].Trim();
+                if (propTerm.Length > 0 && valTerm.Length > 0)
+                {
+                    if (variations.Any(v => MatchesTerm(v.Name, propTerm) && MatchesTerm(v.Value, valTerm)))
+                        return true;
+                    continue;
+                }
+            }
+
+            if (variations.Any(v => MatchesTerm(v.Value, term)))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool MatchesTerm(string input, string term)
+    {
+        if (string.Equals(input.Trim(), term, StringComparison.OrdinalIgnoreCase))
+            return true;
+        var pattern = $@"(?:\b|^){Regex.Escape(term)}(?:\b|$)";
+        return Regex.IsMatch(input, pattern, RegexOptions.IgnoreCase);
     }
 
     private static PersonalizationEvaluationResult EvaluateColorCount(

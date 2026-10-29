@@ -303,6 +303,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Name).HasMaxLength(100).UseCollation("NOCASE");
             e.Property(x => x.RuleType).HasConversion<int>();
             e.Property(x => x.RegexPattern).HasMaxLength(500);
+            e.Property(x => x.VariationFilter).HasMaxLength(500);
             e.Property(x => x.CustomAlertMessage).HasMaxLength(500);
         });
 
