@@ -468,14 +468,89 @@ public static class VariationEditor
     public static JsonObject SetValueAvailable(JsonNode inventory, long propertyId, string value, bool available)
     {
         var inv = Clone(inventory);
+        var otherProps = Variations(inv).Where(v => v.PropertyId != propertyId).ToList();
+        var availableOtherValues = otherProps.ToDictionary(
+            v => v.PropertyId,
+            v => v.Values.Where(val => IsValueAvailable(inv, v.PropertyId, val)).ToHashSet(StringComparer.Ordinal));
         foreach (var product in Products(inv).Where(p => ValueOf(p, propertyId) == value))
-            foreach (var offering in Offerings(product)) offering["is_enabled"] = available;
-        return inv;
+        {
+            var enable = available && otherProps.All(v =>
+                availableOtherValues[v.PropertyId].Count == 0 ||
+                (ValueOf(product, v.PropertyId) is { } otherVal && availableOtherValues[v.PropertyId].Contains(otherVal)));
+            foreach (var offering in Offerings(product)) offering["is_enabled"] = enable;
+        }
+        return Canonical(inv);
     }
 
     /// <summary>Whether any combination with this value is available to buyers.</summary>
     public static bool IsValueAvailable(JsonNode inventory, long propertyId, string value) =>
         Products(inventory).Any(p => ValueOf(p, propertyId) == value && Available(p));
+
+    /// <summary>The price of combinations with this variation value (the most common price when individual combinations differ).</summary>
+    public static decimal GetValuePrice(JsonNode inventory, long propertyId, string value) =>
+        Products(inventory)
+            .Where(p => ValueOf(p, propertyId) == value)
+            .SelectMany(Offerings)
+            .Select(OfferingPrice)
+            .GroupBy(p => p)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .FirstOrDefault();
+
+    /// <summary>The distinct prices across combinations with this variation value, in ascending order.</summary>
+    public static IReadOnlyList<decimal> GetDistinctValuePrices(JsonNode inventory, long propertyId, string value) =>
+        [.. Products(inventory)
+            .Where(p => ValueOf(p, propertyId) == value)
+            .SelectMany(Offerings)
+            .Select(OfferingPrice)
+            .Distinct()
+            .Order()];
+
+    /// <summary>
+    /// Sets the price on every combination with this variation value (or on every combination when price does not vary by
+    /// any variation). Used both for single-variation pricing and for bulk-pricing one variation across another.
+    /// </summary>
+    public static JsonObject SetValuePrice(JsonNode inventory, long propertyId, string value, decimal price)
+    {
+        var inv = Clone(inventory);
+        var priceVaries = (inv[PriceOnProperty]?.AsArray().Count ?? 0) > 0;
+        var targets = priceVaries
+            ? Products(inv).Where(p => ValueOf(p, propertyId) == value)
+            : Products(inv);
+        foreach (var product in targets)
+            foreach (var offering in Offerings(product))
+                SetOfferingPrice(offering, price);
+        return Canonical(inv);
+    }
+
+    /// <summary>The processing profile (readiness_state_id) of combinations with this variation value.</summary>
+    public static long? GetValueProcessing(JsonNode inventory, long propertyId, string value) =>
+        Products(inventory)
+            .Where(p => ValueOf(p, propertyId) == value)
+            .SelectMany(Offerings)
+            .Select(o => (long?)o["readiness_state_id"])
+            .FirstOrDefault();
+
+    /// <summary>
+    /// Sets the processing profile on every combination with this variation value (or on every combination when processing
+    /// does not vary by any variation).
+    /// </summary>
+    public static JsonObject SetValueProcessing(JsonNode inventory, long propertyId, string value, long? readinessStateId)
+    {
+        var inv = Clone(inventory);
+        var processingVaries = (inv[ProcessingOnProperty]?.AsArray().Count ?? 0) > 0;
+        var targets = processingVaries
+            ? Products(inv).Where(p => ValueOf(p, propertyId) == value)
+            : Products(inv);
+        foreach (var product in targets)
+            foreach (var offering in Offerings(product))
+                offering["readiness_state_id"] = readinessStateId is null ? null : JsonValue.Create(readinessStateId.Value);
+        return Canonical(inv);
+    }
+
+    /// <summary>The value of <paramref name="propertyId"/> on a product row in managed-state JSON.</summary>
+    public static string? ValueOf(JsonNode product, long propertyId) =>
+        product is JsonObject obj ? ValueOf(obj, propertyId) : null;
 
     /// <summary>What changed between two inventories' structure, in words, for the push preview.</summary>
     public static IReadOnlyList<string> Describe(JsonNode before, JsonNode after)

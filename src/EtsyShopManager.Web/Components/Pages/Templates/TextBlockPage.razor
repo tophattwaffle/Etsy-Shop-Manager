@@ -55,10 +55,10 @@ else
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" Class="mb-2">Template</MudText>
-        <MudTextField T="string" Value="_name" ValueChanged="NameChanged" Label="Name" Variant="Variant.Outlined" Immediate="true" Class="mb-3 esm-w-lg"
+        <MudTextField T="string" Value="_name" ValueChanged="NameChanged" Label="Name" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Class="mb-3 esm-w-lg"
                       ReadOnly="!_canEdit" Counter="TextBlockService.MaxNameLength" MaxLength="TextBlockService.MaxNameLength" />
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3" Wrap="Wrap.Wrap">
-            <MudTextField T="string" @bind-Value="_slug" Label="Placeholder name" Variant="Variant.Outlined" Immediate="true" Class="esm-w-lg"
+            <MudTextField T="string" @bind-Value="_slug" Label="Placeholder name" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Class="esm-w-lg"
                           ReadOnly="!_canEdit" Counter="TextBlockService.MaxSlugLength" MaxLength="TextBlockService.MaxSlugLength"
                           HelperText="@($"Put {TextBlockMarkup.Token(SlugOrDefault)} in a description to show this template there. Lowercase letters, numbers and hyphens.")" />
             <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopyTokenAsync">Copy placeholder</MudButton>
@@ -69,31 +69,6 @@ else
 
     @if (_saved is not null)
     {
-        <MudPaper Class="pa-3 mb-4" Elevation="0" Outlined="true">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
-                <MudTextField T="string" Value="_filterText" ValueChanged="OnFilterTextChanged" Placeholder="Search title, SKU, tag, listing ID..."
-                              Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
-                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                              Class="esm-w-md" aria-label="Search listings" />
-                <MudSelect T="int?" Value="_filterShopId" ValueChanged="OnFilterShopChanged" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
-                    <MudSelectItem T="int?" Value="@((int?)null)">All shops</MudSelectItem>
-                    @foreach (var s in FilterShops)
-                    {
-                        <MudSelectItem T="int?" Value="@((int?)s.Id)">@s.Name</MudSelectItem>
-                    }
-                </MudSelect>
-                <MudSelect T="string" Value="_filterStatus" ValueChanged="OnFilterStatusChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
-                    <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("draft")">Draft</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("expired")">Expired</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("sold_out")">Sold out</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("inactive")">Inactive</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("missing")">Gone from Etsy</MudSelectItem>
-                </MudSelect>
-            </MudStack>
-        </MudPaper>
-
         <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
                 <MudText Typo="Typo.h6">Listings using this template</MudText>
@@ -108,7 +83,7 @@ else
                     </MudStack>
                 </AuthorizeView>
             </MudStack>
-            <MudText Typo="Typo.body2" Class="muted mb-2">
+            <MudText Typo="Typo.body2" Class="muted mb-3">
                 Applying puts the template's new text into each listing's description as an unpushed edit; nothing is sent to Etsy
                 until you review and push. Listings whose description changed on Etsy are left alone until that's resolved.
             </MudText>
@@ -116,50 +91,54 @@ else
             {
                 <MudText Typo="Typo.body2" Class="muted">No listings yet. Use it in the listings below, or insert it from a listing's editor.</MudText>
             }
-            else if (VisibleUses.Count == 0)
-            {
-                <MudText Typo="Typo.body2" Class="muted">No listings match these filters.</MudText>
-            }
             else
             {
-                <MudSimpleTable Dense="true">
-                    <thead>
-                        <tr>
-                            <SortHeader Sort="_useSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
-                            <SortHeader Sort="_useSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
-                            <SortHeader Sort="_useSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var u in _useSort.Apply(VisibleUses))
-                        {
+                @FilterBar(_useFilter, f => _useFilter = f)
+                @if (VisibleUses.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">No listings match these filters.</MudText>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true">
+                        <thead>
                             <tr>
-                                <td><a href="@(_canEdit ? $"listings/{u.ListingId}/edit" : $"listings/{u.ListingId}")">@u.Title</a></td>
-                                <td>@u.ShopName</td>
-                                <td>
-                                    <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
-                                    @if (u.Status == TextBlockUseStatus.WillChange)
-                                    {
-                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Toggle(u.ListingId))">
-                                            @(_open.Contains(u.ListingId) ? "Hide changes" : "Show changes")
-                                        </MudButton>
-                                    }
-                                </td>
-                                <td class="text-right">
-                                    @if (_canEdit)
-                                    {
-                                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => DetachAsync(u))">Stop using</MudButton>
-                                    }
-                                </td>
+                                <SortHeader Sort="_useSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                                <SortHeader Sort="_useSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                                <SortHeader Sort="_useSort" Column="status" Changed="StateHasChanged">Status</SortHeader>
+                                <th></th>
                             </tr>
-                            @if (_open.Contains(u.ListingId))
+                        </thead>
+                        <tbody>
+                            @foreach (var u in _useSort.Apply(VisibleUses))
                             {
-                                <tr><td colspan="4"><TextDiff Before="@u.Before" After="@u.After" /></td></tr>
+                                <tr>
+                                    <td><a href="@(_canEdit ? $"listings/{u.ListingId}/edit" : $"listings/{u.ListingId}")">@u.Title</a></td>
+                                    <td>@u.ShopName</td>
+                                    <td>
+                                        <span class="esm-status-dot @StatusClass(u.Status)"></span> @StatusText(u)
+                                        @if (u.Status == TextBlockUseStatus.WillChange)
+                                        {
+                                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Toggle(u.ListingId))">
+                                                @(_open.Contains(u.ListingId) ? "Hide changes" : "Show changes")
+                                            </MudButton>
+                                        }
+                                    </td>
+                                    <td class="text-right">
+                                        @if (_canEdit)
+                                        {
+                                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => DetachAsync(u))">Stop using</MudButton>
+                                        }
+                                    </td>
+                                </tr>
+                                @if (_open.Contains(u.ListingId))
+                                {
+                                    <tr><td colspan="4"><TextDiff Before="@u.Before" After="@u.After" /></td></tr>
+                                }
                             }
-                        }
-                    </tbody>
-                </MudSimpleTable>
+                        </tbody>
+                    </MudSimpleTable>
+                }
             }
         </MudPaper>
 
@@ -214,10 +193,11 @@ else
         {
             <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
                 <MudText Typo="Typo.h6" Class="mb-2">Listings that already contain this text</MudText>
-                <MudText Typo="Typo.body2" Class="muted mb-2">
+                <MudText Typo="Typo.body2" Class="muted mb-3">
                     Their description has the template's text word for word. Using the template there puts its placeholder in place of the
                     text (nothing changes on Etsy); from then on they follow the template.
                 </MudText>
+                @FilterBar(_candidateFilter, f => _candidateFilter = f)
                 @if (VisibleCandidates.Count == 0)
                 {
                     <MudText Typo="Typo.body2" Class="muted">No listings match these filters.</MudText>
@@ -262,15 +242,40 @@ else
 }
 
 @code {
+    private RenderFragment FilterBar(TemplateListingFilter filter, Action<TemplateListingFilter> setFilter) => __builder =>
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap" Class="mb-3">
+            <MudTextField T="string" Value="filter.Text" ValueChanged="@(v => setFilter(filter with { Text = v }))" Placeholder="Search title, SKU, tag, listing ID..."
+                          Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="300" Clearable="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Class="esm-w-md" aria-label="Search listings" />
+            <MudSelect T="int?" Value="filter.ShopId" ValueChanged="@(v => setFilter(filter with { ShopId = v }))" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                <MudSelectItem T="int?" Value="@((int?)null)">All shops</MudSelectItem>
+                @foreach (var s in FilterShops)
+                {
+                    <MudSelectItem T="int?" Value="@((int?)s.Id)">@s.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="string" Value="filter.Status" ValueChanged="@(v => setFilter(filter with { Status = v }))" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Class="esm-w-sm">
+                <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+                <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
+                <MudSelectItem T="string" Value="@("draft")">Draft</MudSelectItem>
+                <MudSelectItem T="string" Value="@("expired")">Expired</MudSelectItem>
+                <MudSelectItem T="string" Value="@("sold_out")">Sold out</MudSelectItem>
+                <MudSelectItem T="string" Value="@("inactive")">Inactive</MudSelectItem>
+                <MudSelectItem T="string" Value="@("missing")">Gone from Etsy</MudSelectItem>
+            </MudSelect>
+        </MudStack>
+    };
+
     [Parameter] public int? Id { get; set; }
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private TextBlock? _saved;
     private bool _loaded, _pushing, _canEdit;
     private string _name = "", _text = "", _slug = "";
-    private string? _filterText;
-    private int? _filterShopId;
-    private string _filterStatus = "all";
+    private TemplateListingFilter _useFilter = new();
+    private TemplateListingFilter _candidateFilter = new();
     private IReadOnlyList<ShopSummary> _shops = [];
     private IReadOnlyList<TextBlockUse> _uses = [];
     private IReadOnlyList<TextBlockCandidate> _candidates = [];
@@ -278,18 +283,11 @@ else
     private readonly HashSet<int> _picked = [];
     private readonly HashSet<int> _open = [];
 
-    private TemplateListingFilter Filter => new()
-    {
-        Text = _filterText,
-        ShopId = _filterShopId,
-        Status = _filterStatus,
-    };
-
     private IReadOnlyList<TextBlockUse> VisibleUses =>
-        [.. _uses.Where(u => TemplateFilterMatcher.Matches(u, Filter))];
+        [.. _uses.Where(u => TemplateFilterMatcher.Matches(u, _useFilter))];
 
     private IReadOnlyList<TextBlockCandidate> VisibleCandidates =>
-        [.. _candidates.Where(c => TemplateFilterMatcher.Matches(c, Filter))];
+        [.. _candidates.Where(c => TemplateFilterMatcher.Matches(c, _candidateFilter))];
 
     private record ShopOption(int Id, string Name);
 
@@ -333,10 +331,6 @@ else
             _picked.UnionWith(visible);
         _range.Reset();
     }
-
-    private void OnFilterTextChanged(string? val) => _filterText = val;
-    private void OnFilterShopChanged(int? val) => _filterShopId = val;
-    private void OnFilterStatusChanged(string val) => _filterStatus = val;
 
     private bool Dirty => _saved is null
         ? _name.Trim().Length > 0 || _text.Trim().Length > 0

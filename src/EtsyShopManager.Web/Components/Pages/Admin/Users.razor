@@ -21,11 +21,11 @@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
     <MudText Typo="Typo.h6" GutterBottom="true">Add user</MudText>
     <MudGrid>
-        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newUserName" Label="User name" Variant="Variant.Outlined" /></MudItem>
-        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newDisplayName" Label="Display name" Variant="Variant.Outlined" /></MudItem>
-        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newPassword" Label="Password (10+ chars)" InputType="InputType.Password" Variant="Variant.Outlined" /></MudItem>
+        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newUserName" Label="User name" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newDisplayName" Label="Display name" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_newPassword" Label="Password (10+ chars)" InputType="InputType.Password" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
         <MudItem xs="12" md="2">
-            <MudSelect T="string" @bind-Value="_newRole" Label="Role" Variant="Variant.Outlined">
+            <MudSelect T="string" @bind-Value="_newRole" Label="Role" Variant="Variant.Outlined" Margin="Margin.Dense">
                 @foreach (var r in Roles.All)
                 {
                     <MudSelectItem T="string" Value="@r">@r</MudSelectItem>
@@ -98,7 +98,7 @@
     <MudPaper Class="pa-4 mt-4" Elevation="0" Outlined="true">
         <MudText Typo="Typo.h6" GutterBottom="true">Set password for @_passwordUser.UserName</MudText>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudTextField T="string" @bind-Value="_resetPassword" Label="New password (10+ chars)" InputType="InputType.Password" Variant="Variant.Outlined" />
+            <MudTextField T="string" @bind-Value="_resetPassword" Label="New password (10+ chars)" InputType="InputType.Password" Variant="Variant.Outlined" Margin="Margin.Dense" />
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SavePasswordAsync" Disabled="_busy">Save</MudButton>
             <MudButton Variant="Variant.Text" OnClick="() => _passwordUser = null">Cancel</MudButton>
         </MudStack>

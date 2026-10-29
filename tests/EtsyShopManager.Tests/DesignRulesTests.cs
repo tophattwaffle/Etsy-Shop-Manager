@@ -150,6 +150,9 @@ public partial class DesignRulesTests
         var css = File.ReadAllText(Path.Combine(Root, "src", "EtsyShopManager.Web", "wwwroot", "app.css"));
         Assert.Contains(".mud-input > textarea.mud-input-root { resize: vertical;", css);
         Assert.DoesNotContain("resize: none", css);
+        Assert.Contains(".mud-input-control.mud-input-outlined-with-label", css);
+        Assert.Contains("margin-top: 0;", css);
+        Assert.Contains("margin-bottom: 0;", css);
     }
 
     /// <summary>

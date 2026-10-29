@@ -69,7 +69,10 @@ it. Text fields use `Immediate="true"` so Save lights up while typing. Something
 
 **Text boxes.** Longer text (descriptions, notes, addresses, templates, slip layouts) uses a `MudTextField` with `Lines`,
 sized for typical content. Every multi-line box can be dragged taller or shorter by its bottom-right corner, through the
-shared style in `app.css`; single-line inputs don't resize. Never turn resizing off for one box. *(checked)*
+shared style in `app.css`; single-line inputs don't resize. Never turn resizing off for one box. Inputs (`MudTextField`,
+`MudNumericField`, `MudSelect`, `MudAutocomplete`) placed on the same row use the same `Margin` (`Margin.Dense` in
+toolbars, tables and compact forms) and align their input boxes on the same baseline regardless of whether a field has a
+floating label, placeholder only, or helper text. *(checked)*
 
 **Status.** Prefer a small dot in the status colour next to plain text, or the `lp-badge` pill used on the listing cards.
 MudChips with `Color.Success`/`Error` are acceptable in tables. Never put status in colour alone: the text says it too.
@@ -82,8 +85,10 @@ same-origin `/media/shop-icons/{id}`), with `--esm-shop-fallback-0..3` as fallba
 belongs to the shop: a ring around `<ShopMark>`, a 3px edge on a card or row, the tint of a selected shop filter.
 Never use it for text.
 
-**Filtering lists.** Follow the listings page: pill search box, sort select and view toggle in one row, and filters in a
-right-hand panel with counts. On phones the panel becomes swipeable chip rows above the results.
+**Filtering lists.** Full-page lists follow the listings page: pill search box, sort select and view toggle in one row,
+and filters in a right-hand panel with counts (on phones the panel becomes swipeable chip rows above the results). When a
+table inside a card (`MudPaper`) has its own search or filter controls, those controls live inside the same card directly
+above the table, never in a separate card disconnected from the table they filter.
 
 **Tables.** Every data table sorts by clicking a column header; clicking again flips the direction, and an arrow shows
 which column and which way. Use `<SortHeader>` with a `TableSort<T>` (rows already loaded: numbers, dates and money sort

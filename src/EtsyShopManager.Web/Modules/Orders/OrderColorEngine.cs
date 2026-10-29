@@ -105,31 +105,33 @@ public sealed partial class OrderColorEngine
     // so it stays opaque over the outline layer.
     private string ColorStyle(List<Group> groups)
     {
-        var t = _look.Tint;
-        if (groups.Count == 0 || !(t > 0)) return "";
-        // In the left-to-right blend a filament counts as the mix of its top and bottom colors.
-        var stops = groups.Select((g, gi) => (Col: g.Colors.Count > 1 ? $"color-mix(in srgb, {g.Colors[0]}, {g.Colors[^1]})" : g.Colors[0],
+        int GroupTint(Group g) => g.Metal ? _look.EffectiveMetallicTint : _look.Tint;
+        if (groups.Count == 0 || !groups.Any(g => GroupTint(g) > 0)) return "";
+        var stops = groups.Select((g, gi) => (
+            Col: g.Colors.Count > 1 ? $"color-mix(in srgb, {g.Colors[0]}, {g.Colors[^1]})" : g.Colors[0],
+            Tint: GroupTint(g),
             P: (gi + 0.5) / groups.Count * 100)).ToList();
-        if (stops.Count == 1) stops = [(stops[0].Col, 0), (stops[0].Col, 100)];
-        string Grad(Func<string, string> fn) => $"linear-gradient(90deg, {string.Join(", ", stops.Select(s => $"{fn(s.Col)} {F1(s.P)}%"))})";
-        string Tint(string col) => $"color-mix(in srgb, {col} {N(Math.Min(100, t))}%, {Base})";
-        return $"background: {Grad(Tint)} padding-box, {Grad(c => c)} border-box; border-color: transparent;{MultiStyle(groups, Tint)}";
+        if (stops.Count == 1) stops = [(stops[0].Col, stops[0].Tint, 0), (stops[0].Col, stops[0].Tint, 100)];
+        string Tint(string col, int t) => $"color-mix(in srgb, {col} {N(Math.Min(100, Math.Max(0, t)))}%, {Base})";
+        string Grad(Func<(string Col, int Tint, double P), string> fn) =>
+            $"linear-gradient(90deg, {string.Join(", ", stops.Select(s => $"{fn(s)} {F1(s.P)}%"))})";
+        return $"background: {Grad(s => Tint(s.Col, s.Tint))} padding-box, {Grad(s => s.Col)} border-box; border-color: transparent;{MultiStyle(groups, Tint)}";
     }
 
     // The stacked layer (.multi::before) for multi-color filaments: each one's colors run top to bottom over its share of
     // the box, tinted inside and full strength on the outline. "" when no group has more than one color. Where two
     // filaments meet ("one in Nebula, one in Sunrise") the layer fades out too, so the left-to-right blend joins them
     // rather than a hard seam.
-    private static string MultiStyle(List<Group> groups, Func<string, string> tint)
+    private string MultiStyle(List<Group> groups, Func<string, int, string> tint)
     {
         if (!groups.Any(g => g.Colors.Count > 1)) return "";
         var share = 100.0 / groups.Count;
         // Background-position percentages are of (box - layer), so this puts the layer's left edge at gi * share.
         string At(int gi) => $"{F1(share >= 100 ? 0 : gi * share / (100 - share) * 100)}% 0 / {F1(share)}% 100% no-repeat";
         var multis = groups.Select((g, gi) => (g, gi)).Where(x => x.g.Colors.Count > 1).ToList();
-        IEnumerable<string> Layer(Func<string, string> fn, string box) =>
-            multis.Select(m => $"linear-gradient(180deg, {string.Join(", ", m.g.Colors.Select(fn))}) {At(m.gi)} {box}");
-        return $" --multi: {string.Join(", ", Layer(tint, "padding-box").Concat(Layer(c => c, "border-box")))}; --multi-mask: {(groups.Count == 1 ? "none" : ShareMask(groups, g => g.Colors.Count > 1, fadeBetween: true))};";
+        IEnumerable<string> Layer(Func<Group, string, string> fn, string box) =>
+            multis.Select(m => $"linear-gradient(180deg, {string.Join(", ", m.g.Colors.Select(c => fn(m.g, c)))}) {At(m.gi)} {box}");
+        return $" --multi: {string.Join(", ", Layer((g, c) => tint(c, g.Metal ? _look.EffectiveMetallicTint : _look.Tint), "padding-box").Concat(Layer((_, c) => c, "border-box")))}; --multi-mask: {(groups.Count == 1 ? "none" : ShareMask(groups, g => g.Colors.Count > 1, fadeBetween: true))};";
     }
 
     // A left-to-right mask, opaque over the shares of the groups `pick` selects and transparent elsewhere, fading where a
@@ -156,7 +158,7 @@ public sealed partial class OrderColorEngine
     private string MetalStyle(List<Group> groups)
     {
         var shine = _look.MetallicShine;
-        if (!(shine > 0) || !(_look.Tint > 0) || !groups.Any(g => g.Metal)) return "";
+        if (!(shine > 0) || !(_look.EffectiveMetallicTint > 0) || !groups.Any(g => g.Metal)) return "";
         return $"--shine: {N(Math.Min(100, shine) / 100.0)}; --metal-mask: {ShareMask(groups, g => g.Metal)};";
     }
 
@@ -174,7 +176,7 @@ public sealed partial class OrderColorEngine
     // seamlessly. Null when coloring is off.
     private Fx? RandomFx(string seed, bool small)
     {
-        var t = _look.Tint;
+        var t = _look.EffectiveRandomTint;
         if (!(t > 0)) return null;
         var r = Rng(seed);
         string Pick() => _palette[(int)Math.Floor(r() * _palette.Count)];

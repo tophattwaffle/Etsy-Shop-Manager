@@ -212,6 +212,66 @@ public class VariationEditorTests
         Assert.Contains(ListingEditorProblems(none), b => b.Contains("At least one combination"));
     }
 
+    [Fact]
+    public void Single_variation_pricing_sets_and_reads_prices_processing_and_availability_per_option()
+    {
+        var inv = SizeByColor();
+        Assert.Equal(19.99m, VariationEditor.GetValuePrice(inv, 100, "Small"));
+        Assert.Equal(29.99m, VariationEditor.GetValuePrice(inv, 100, "Large"));
+
+        inv = VariationEditor.SetValuePrice(inv, 100, "Small", 17.50m);
+        Assert.Equal(17.50m, VariationEditor.GetValuePrice(inv, 100, "Small"));
+        var prices = Prices(inv);
+        Assert.Equal(1750, prices["Small / Black"]);
+        Assert.Equal(1750, prices["Small / White"]);
+        Assert.Equal(2999, prices["Large / Black"]);
+
+        inv = VariationEditor.SetVaries(inv, VariationEditor.ProcessingOnProperty, 100, true);
+        inv = VariationEditor.SetValueProcessing(inv, 100, "Large", 77L);
+        Assert.Null(VariationEditor.GetValueProcessing(inv, 100, "Small"));
+        Assert.Equal(77L, VariationEditor.GetValueProcessing(inv, 100, "Large"));
+
+        // Retiring a color and then toggling a size off and back on keeps the retired color off.
+        inv = VariationEditor.SetValueAvailable(inv, 200, "White", false);
+        Assert.False(VariationEditor.IsValueAvailable(inv, 200, "White"));
+        Assert.True(VariationEditor.IsValueAvailable(inv, 100, "Small"));
+
+        inv = VariationEditor.SetValueAvailable(inv, 100, "Small", false);
+        Assert.False(VariationEditor.IsValueAvailable(inv, 100, "Small"));
+
+        inv = VariationEditor.SetValueAvailable(inv, 100, "Small", true);
+        Assert.True(VariationEditor.IsValueAvailable(inv, 100, "Small"));
+        Assert.False(VariationEditor.IsValueAvailable(inv, 200, "White"));
+    }
+
+    [Fact]
+    public void Dual_variation_pricing_can_bulk_set_prices_by_one_variation_and_keep_manual_exceptions()
+    {
+        var inv = VariationEditor.AddValue(SizeByColor(), 200, "Random");
+        inv = VariationEditor.SetVaries(inv, VariationEditor.PriceOnProperty, 200, true);
+
+        // Price all colors of Small at 14.99 and Large at 24.99 in one step per size.
+        inv = VariationEditor.SetValuePrice(inv, 100, "Small", 14.99m);
+        inv = VariationEditor.SetValuePrice(inv, 100, "Large", 24.99m);
+
+        var prices = Prices(inv);
+        Assert.Equal(1499, prices["Small / Black"]);
+        Assert.Equal(1499, prices["Small / White"]);
+        Assert.Equal(1499, prices["Small / Random"]);
+        Assert.Equal([14.99m], VariationEditor.GetDistinctValuePrices(inv, 100, "Small"));
+
+        // Adjust Random manually for Small; the mode price stays 14.99 and both distinct prices are reported.
+        var smallRandom = inv["products"]!.AsArray().Single(p => Name(p!) == "Small / Random")!;
+        smallRandom["offerings"]![0]!["price_amount"] = 1299L;
+
+        Assert.Equal(14.99m, VariationEditor.GetValuePrice(inv, 100, "Small"));
+        Assert.Equal([12.99m, 14.99m], VariationEditor.GetDistinctValuePrices(inv, 100, "Small"));
+        Assert.Empty(ListingEditorProblems(inv));
+    }
+    private static void UnusedAnchor()
+    {
+    }
+
     /// <summary>The inventory blockers the preview would show for this inventory.</summary>
     private static IReadOnlyList<string> ListingEditorProblems(JsonObject inventory)
     {

@@ -11,11 +11,11 @@
 
     <MudGrid>
         <MudItem xs="12" md="6">
-            <MudTextField T="string" @bind-Value="_keystring" Label="Keystring" Variant="Variant.Outlined" Immediate="true"
+            <MudTextField T="string" @bind-Value="_keystring" Label="Keystring" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
                           Error="@(_keystringError is not null)" ErrorText="@_keystringError" />
         </MudItem>
         <MudItem xs="12" md="6">
-            <MudTextField T="string" @bind-Value="_secret" Label="Shared secret" Variant="Variant.Outlined" Immediate="true"
+            <MudTextField T="string" @bind-Value="_secret" Label="Shared secret" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
                           InputType="InputType.Password"
                           Placeholder="@(_hasSecret ? "Saved — leave blank to keep" : "")"
                           HelperText="@(_hasSecret ? "A shared secret is saved. Leave blank to keep it." : null)"

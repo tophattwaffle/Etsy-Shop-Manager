@@ -35,19 +35,28 @@
                 var row = _rows.GetValueOrDefault(s.Id);
                 var lookups = _lookups.GetValueOrDefault(s.Id);
 
-                <div class="esm-shop-default-card pa-3 mb-3 esm-paper-box" style="@($"--shop: {color ?? "var(--esm-line)"}")">
-                    <div class="d-flex align-center gap-2 mb-3">
-                        <span class="lp-shopmark">
-                            @if (s.IconUrl is { Length: > 0 })
-                            {
-                                <img src="@ShopIconCache.UrlFor(s.Id)" alt="" />
-                            }
-                            else
-                            {
-                                @s.Name[..1].ToUpperInvariant()
-                            }
-                        </span>
-                        <div class="esm-shop-color-name">@s.Name</div>
+                <div class="esm-shop-default" style="@($"--shop: {color ?? "var(--esm-line)"}")">
+                    <div class="d-flex align-center justify-space-between gap-2 mb-2">
+                        <div class="d-flex align-center gap-2">
+                            <span class="lp-shopmark">
+                                @if (s.IconUrl is { Length: > 0 })
+                                {
+                                    <img src="@ShopIconCache.UrlFor(s.Id)" alt="" />
+                                }
+                                else
+                                {
+                                    @s.Name[..1].ToUpperInvariant()
+                                }
+                            </span>
+                            <div class="esm-shop-color-name">@s.Name</div>
+                        </div>
+                        @if (row is not null && lookups is not null)
+                        {
+                            <AuthorizeView Roles="@Roles.Admin" Context="auth">
+                                <SaveButtons Size="Size.Small" Text="Save defaults" Changed="row.IsDirty"
+                                             OnSave="() => SaveAsync(s, row)" OnCancel="() => Revert(row)" />
+                            </AuthorizeView>
+                        }
                     </div>
 
                     @if (row is not null && lookups is not null)
@@ -98,13 +107,6 @@
                                 </MudSelect>
                             </MudItem>
                         </MudGrid>
-
-                        <AuthorizeView Roles="@Roles.Admin" Context="auth">
-                            <div class="mt-2 d-flex justify-end">
-                                <SaveButtons Size="Size.Small" Text="Save defaults" Changed="row.IsDirty"
-                                             OnSave="() => SaveAsync(s, row)" OnCancel="() => Revert(row)" />
-                            </div>
-                        </AuthorizeView>
                     }
                 </div>
             }

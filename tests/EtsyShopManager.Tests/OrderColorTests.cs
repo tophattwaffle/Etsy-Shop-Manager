@@ -211,4 +211,29 @@ public class OrderColorTests
         Assert.IsType<JsonArray>(json["colors"]!["Pastel Rainbow"]);
         Assert.Equal(OrderColorEngine.Css, (string?)OrderColorService.Default.ToCardJson(css: OrderColorEngine.Css)["css"]);
     }
+
+    [Fact]
+    public async Task Metallic_and_random_tint_strengths_are_independent()
+    {
+        var defaultEngine = Engine();
+        var defaultRandom = defaultEngine.Box("Random", "42|0.0", small: true);
+        var defaultBlack = defaultEngine.Box("Black", "42|0.0", small: true);
+
+        // Changing metallic tint changes metallic colors (Copper) without touching Random or non-metallic colors (Black).
+        var metalChanged = Engine(new OrderColorLook(Tint: 35, MetallicTint: 75, RandomTint: 35));
+        Assert.Contains("color-mix(in srgb, #B87333 75%, var(--esm-color-base))", metalChanged.Box("Copper", "42|0.0", small: true).Style);
+        Assert.Equal(defaultRandom, metalChanged.Box("Random", "42|0.0", small: true));
+        Assert.Equal(defaultBlack, metalChanged.Box("Black", "42|0.0", small: true));
+
+        // Changing random tint changes Random without touching Copper or Black.
+        var randomChanged = Engine(new OrderColorLook(Tint: 35, MetallicTint: 75, RandomTint: 65));
+        Assert.NotEqual(defaultRandom.Style, randomChanged.Box("Random", "42|0.0", small: true).Style);
+        Assert.Equal(metalChanged.Box("Copper", "42|0.0", small: true), randomChanged.Box("Copper", "42|0.0", small: true));
+
+        var settings = new MemorySettings();
+        var service = new OrderColorService(settings);
+        var look = new OrderColorLook(Tint: 35, MetallicTint: 75, RandomTint: 65);
+        await service.SaveAsync(OrderColorService.Default with { Look = look }, "tophattwaffle");
+        Assert.Equal(look, (await service.GetAsync()).Style);
+    }
 }
