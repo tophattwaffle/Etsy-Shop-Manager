@@ -138,17 +138,14 @@
             }
 
             <MudItem xs="12" md="6">
-                <MudSelect T="string" MultiSelection="true" SelectedValues="SelectedVariationValues" SelectedValuesChanged="OnVariationValuesChanged"
-                           Label="Variation filter (optional)" Variant="Variant.Outlined" Clearable="true"
-                           MultiSelectionTextFunc="@(vals => string.Join(" / ", vals))"
-                           HelperText="Only check this rule when a chosen variation matches any checked option. Leave blank for all variations." Class="mb-3">
-                    @foreach (var opt in AvailableVariationOptions)
-                    {
-                        <MudSelectItem T="string" Value="@opt.Value">
-                            @opt.Value@(string.IsNullOrEmpty(opt.PropertyNames) ? "" : $" ({opt.PropertyNames})")
-                        </MudSelectItem>
-                    }
-                </MudSelect>
+                <div @onclick="OpenVariationFilterDialogAsync">
+                    <MudTextField T="string" Value="@(_formVariationFilter ?? "")" Label="Variation filter (optional)"
+                                  Placeholder="Click to select variations..." Variant="Variant.Outlined" ReadOnly="true"
+                                  Adornment="Adornment.End"
+                                  AdornmentIcon="@(string.IsNullOrWhiteSpace(_formVariationFilter) ? Icons.Material.Filled.Checklist : Icons.Material.Filled.Clear)"
+                                  OnAdornmentClick="OnVariationAdornmentClick"
+                                  HelperText="Only check this rule when a chosen variation matches. Click to browse and filter variations." Class="mb-3" />
+                </div>
             </MudItem>
             <MudItem xs="12" md="6">
                 <MudTextField T="string" @bind-Value="_formCustomAlert" Label="Custom alert message override (optional)" Variant="Variant.Outlined" Immediate="true"
@@ -289,7 +286,8 @@
     private List<PersonalizationRule> _rules = [];
     private List<ShopSummary> _shops = [];
     private List<CandidateListing> _allCandidateListings = [];
-    private List<VariationFilterOption> _allVariationOptions = [];
+    private List<VariationFilterDialog.VariationDialogOption> _allVariationOptions = [];
+    private bool _suppressNextDialogOpen;
     private readonly HashSet<int> _picked = [];
     private readonly RangeSelection<int> _range = new();
 
@@ -325,8 +323,7 @@
           || (_formVariationFilter ?? "").Trim() != (_selectedRule.VariationFilter ?? "").Trim()
           || (_formCustomAlert ?? "").Trim() != (_selectedRule.CustomAlertMessage ?? "").Trim();
 
-    private sealed record CandidateListing(int ListingId, string Title, string ShopName, int ShopId, string State);
-    private sealed record VariationFilterOption(string Value, string PropertyNames, HashSet<int> ListingIds, bool IsPersonalizable, bool IsColorChoice, bool IsPaletteOnly);
+    private sealed record CandidateListing(int ListingId, string Title, string ShopName, int ShopId, string State, long EtsyListingId, bool IsPersonalizable);
 
     private static readonly HashSet<string> PalettePropertyNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -342,33 +339,52 @@
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-    private void OnVariationValuesChanged(IEnumerable<string> values)
+    private void OnVariationAdornmentClick()
     {
-        var list = values.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).ToList();
-        _formVariationFilter = list.Count == 0 ? "" : string.Join(" / ", list);
+        if (!string.IsNullOrWhiteSpace(_formVariationFilter))
+        {
+            _formVariationFilter = "";
+            _suppressNextDialogOpen = true;
+        }
     }
 
-    private IReadOnlyList<VariationFilterOption> AvailableVariationOptions
+    private async Task OpenVariationFilterDialogAsync()
     {
-        get
+        if (_suppressNextDialogOpen)
         {
-            var linkedIds = _selectedRule?.Listings.Select(l => l.ListingId).ToHashSet() ?? [];
-            var options = _allVariationOptions.ToList();
-            var known = options.Select(o => o.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var current in SelectedVariationValues)
-            {
-                if (!known.Contains(current))
-                    options.Add(new VariationFilterOption(current, "", [], true, true, false));
-            }
+            _suppressNextDialogOpen = false;
+            return;
+        }
 
-            return options
-                .OrderBy(o => linkedIds.Count > 0 && o.ListingIds.Overlaps(linkedIds) ? 0 : 1)
-                .ThenBy(o => o.IsPersonalizable ? 0 : 1)
-                .ThenBy(o => o.IsColorChoice ? 0 : 1)
-                .ThenBy(o => o.IsPaletteOnly ? 1 : 0)
-                .ThenBy(o => o.PropertyNames, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(o => o.Value, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+        var linkedIds = _selectedRule?.Listings.Select(l => l.ListingId).ToHashSet() ?? [];
+        var options = _allVariationOptions.ToList();
+        var known = options.Select(o => o.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var current in SelectedVariationValues)
+        {
+            if (!known.Contains(current))
+            {
+                options.Add(new VariationFilterDialog.VariationDialogOption(current, [], [], true, true, false));
+            }
+        }
+
+        var parameters = new DialogParameters<VariationFilterDialog>
+        {
+            { x => x.Options, options },
+            { x => x.Shops, _shops },
+            { x => x.LinkedListingIds, linkedIds },
+            { x => x.InitialSelected, SelectedVariationValues },
+        };
+        var dialogOptions = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseButton = true,
+        };
+        var dialog = await Dialogs.ShowAsync<VariationFilterDialog>("Select variation filter", parameters, dialogOptions);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: List<string> picked })
+        {
+            _formVariationFilter = picked.Count == 0 ? "" : string.Join(" / ", picked);
         }
     }
 
@@ -425,18 +441,27 @@
         await using var db = await DbFactory.CreateDbContextAsync();
         _allCandidateListings = await db.Listings
             .Include(l => l.Shop)
-            .Select(l => new CandidateListing(l.Id, l.Title, l.Shop.Name, l.ShopId, l.State))
+            .Select(l => new CandidateListing(l.Id, l.Title, l.Shop.Name, l.ShopId, l.State, l.EtsyListingId, l.IsPersonalizable))
             .ToListAsync();
+
+        var listingById = _allCandidateListings.ToDictionary(l => l.ListingId);
+        var listingByEtsyId = _allCandidateListings
+            .GroupBy(l => l.EtsyListingId)
+            .ToDictionary(g => g.Key, g => g.First());
 
         var products = await db.ListingProducts.AsNoTracking()
             .Where(p => !p.IsDeleted)
-            .Select(p => new { p.ListingId, p.Listing.IsPersonalizable, p.PropertyValues })
+            .Select(p => new { p.ListingId, p.PropertyValues })
             .ToListAsync();
 
-        var byValue = new Dictionary<string, (HashSet<string> Props, HashSet<string> PersProps, HashSet<int> ListingIds, bool IsPersonalizable)>(StringComparer.OrdinalIgnoreCase);
+        var byValue = new Dictionary<string, (HashSet<string> Props, HashSet<string> PersProps, Dictionary<int, VariationFilterDialog.VariationListingItem> Listings, bool IsPersonalizable)>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var p in products)
         {
+            if (!listingById.TryGetValue(p.ListingId, out var listing)) continue;
+            var itemRef = new VariationFilterDialog.VariationListingItem(
+                listing.ListingId, listing.Title, listing.ShopId, listing.ShopName, listing.IsPersonalizable);
+
             foreach (var pv in p.PropertyValues)
             {
                 var propName = (pv.PropertyName ?? "").Trim();
@@ -451,10 +476,10 @@
                     if (propName.Length > 0)
                     {
                         entry.Props.Add(propName);
-                        if (p.IsPersonalizable) entry.PersProps.Add(propName);
+                        if (listing.IsPersonalizable) entry.PersProps.Add(propName);
                     }
-                    entry.ListingIds.Add(p.ListingId);
-                    entry.IsPersonalizable |= p.IsPersonalizable;
+                    entry.Listings[listing.ListingId] = itemRef;
+                    entry.IsPersonalizable |= listing.IsPersonalizable;
                     byValue[val] = entry;
                 }
             }
@@ -462,12 +487,18 @@
 
         // Also include variation values from existing order items that had personalization
         var orderVariations = await db.OrderItems.AsNoTracking()
-            .Select(i => i.Variations)
+            .Select(i => new { i.EtsyListingId, i.Variations })
             .ToListAsync();
-        foreach (var vars in orderVariations)
+        foreach (var oi in orderVariations)
         {
-            if (!vars.Any(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId)) continue;
-            foreach (var v in vars)
+            if (!oi.Variations.Any(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId)) continue;
+            VariationFilterDialog.VariationListingItem? itemRef = null;
+            if (oi.EtsyListingId is { } etsyId && listingByEtsyId.TryGetValue(etsyId, out var l))
+            {
+                itemRef = new VariationFilterDialog.VariationListingItem(l.ListingId, l.Title, l.ShopId, l.ShopName, true);
+            }
+
+            foreach (var v in oi.Variations)
             {
                 if (v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId) continue;
                 var val = (v.Value ?? "").Trim();
@@ -482,6 +513,10 @@
                     entry.Props.Add(propName);
                     entry.PersProps.Add(propName);
                 }
+                if (itemRef is not null)
+                {
+                    entry.Listings[itemRef.ListingId] = itemRef;
+                }
                 entry.IsPersonalizable = true;
                 byValue[val] = entry;
             }
@@ -495,10 +530,13 @@
             var isColorChoice = displayProps.Any(p => p.Equals("Color Choice", StringComparison.OrdinalIgnoreCase) || p.Equals("Color Choices", StringComparison.OrdinalIgnoreCase));
             var isPaletteOnly = displayProps.Count > 0 && displayProps.All(PalettePropertyNames.Contains)
                                 && !kvp.Key.Contains("Random", StringComparison.OrdinalIgnoreCase);
-            return new VariationFilterOption(
+            var listings = kvp.Value.Listings.Values
+                .OrderBy(l => l.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return new VariationFilterDialog.VariationDialogOption(
                 kvp.Key,
-                string.Join(", ", displayProps),
-                kvp.Value.ListingIds,
+                displayProps,
+                listings,
                 kvp.Value.IsPersonalizable,
                 isColorChoice,
                 isPaletteOnly);
