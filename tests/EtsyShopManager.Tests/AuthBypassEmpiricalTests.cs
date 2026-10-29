@@ -514,7 +514,8 @@ public class AuthBypassEmpiricalTests
         var settingsGroup = Assert.Single(adminEntries, e => e.Group == NavGroups.Settings);
         Assert.Contains(settingsGroup.Children, c => c.Title == "Shops");
         Assert.Contains(settingsGroup.Children, c => c.Title == "Address verification");
-        Assert.Equal(8, settingsGroup.Children.Count);
+        Assert.Contains(settingsGroup.Children, c => c.Title == "Personalization rules");
+        Assert.Equal(9, settingsGroup.Children.Count);
     }
 
     [Fact]

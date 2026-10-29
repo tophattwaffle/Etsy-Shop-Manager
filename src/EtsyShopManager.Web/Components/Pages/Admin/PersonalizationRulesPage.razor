@@ -1,0 +1,856 @@
+@page "/admin/personalization-rules"
+@page "/admin/personalization-verification"
+@attribute [Authorize(Roles = Roles.Admin)]
+@using EtsyShopManager.Core.Domain
+@using EtsyShopManager.Core.Services
+@using EtsyShopManager.Data
+@using EtsyShopManager.Web.Components.Shared
+@using EtsyShopManager.Web.Modules.Orders
+@using EtsyShopManager.Web.Modules.Shops
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ISettingsStore Settings
+@inject IPersonalizationVerificationService VerificationService
+@inject ShopService ShopService
+@inject IAuditLog Audit
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject TimeProvider Time
+
+<PageTitle>Personalization rules · Etsy Shop Manager</PageTitle>
+
+<PageHeader Title="Personalization rules">
+    <Summary>Configure rules that verify buyer personalization text on listings and alert on mismatches.</Summary>
+</PageHeader>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6" GutterBottom="true">Settings</MudText>
+    <MudText Typo="Typo.body2" Class="mb-3">
+        When enabled, new orders and seller personalization updates are verified against linked listing rules.
+    </MudText>
+
+    <MudSwitch T="bool" @bind-Value="_enabled" Label="Enable personalization verification" Color="Color.Primary" Class="mb-4" />
+
+    <MudStack Row="true" AlignItems="AlignItems.Center">
+        <SaveButtons Text="Save settings" Changed="SettingsChanged" Busy="_busySettings" OnSave="SaveSettingsAsync" OnCancel="RevertSettings" />
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_rechecking || _busySettings" OnClick="RecheckAllAsync">
+            @if (_rechecking)
+            {
+                <MudProgressCircular Class="me-2" Size="Size.Small" Indeterminate="true" />
+                <span>Rechecking...</span>
+            }
+            else
+            {
+                <span>Recheck open orders</span>
+            }
+        </MudButton>
+    </MudStack>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <div class="d-flex justify-space-between align-center mb-3">
+        <MudText Typo="Typo.h6">Configured rules</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="StartNewRule">New rule</MudButton>
+    </div>
+
+    @if (_rules.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted">No personalization rules configured yet.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <SortHeader Sort="_ruleSort" Column="name" Changed="StateHasChanged">Name</SortHeader>
+                    <SortHeader Sort="_ruleSort" Column="type" Changed="StateHasChanged">Type</SortHeader>
+                    <SortHeader Sort="_ruleSort" Column="details" Changed="StateHasChanged">Details</SortHeader>
+                    <SortHeader Sort="_ruleSort" Column="listings" Changed="StateHasChanged">Linked listings</SortHeader>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _ruleSort.Apply(_rules))
+                {
+                    var isSelected = _selectedRule?.Id == r.Id;
+                    <tr class="@(isSelected ? "selected-row" : "")">
+                        <td><MudLink OnClick="() => SelectRule(r)">@r.Name</MudLink></td>
+                        <td>@RuleTypeDisplay(r.RuleType)</td>
+                        <td>@RuleDetailsDisplay(r)</td>
+                        <td>@r.Listings.Count</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@if (_isEditing)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h6" GutterBottom="true">@(_isNewRule ? "New rule" : $"Edit rule: {_selectedRule?.Name}")</MudText>
+
+        <MudGrid>
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" @bind-Value="_formName" Label="Rule name" Variant="Variant.Outlined" Immediate="true"
+                              Placeholder="e.g. Choose 2 colors" Class="mb-3" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudSelect T="PersonalizationRuleType" @bind-Value="_formType" Label="Rule type" Variant="Variant.Outlined" Class="mb-3">
+                    <MudSelectItem Value="PersonalizationRuleType.ColorCount">Color count</MudSelectItem>
+                    <MudSelectItem Value="PersonalizationRuleType.WordList">Must mention one of</MudSelectItem>
+                    <MudSelectItem Value="PersonalizationRuleType.NotEmpty">Not empty</MudSelectItem>
+                    <MudSelectItem Value="PersonalizationRuleType.Regex">Regular expression</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+
+            @if (_formType == PersonalizationRuleType.ColorCount)
+            {
+                <MudItem xs="12" md="6">
+                    <MudNumericField T="int?" @bind-Value="_formMinColors" Label="Minimum colors (per item unit)" Variant="Variant.Outlined" Min="0" Immediate="true"
+                                    HelperText="Leave blank for no minimum. Scales by item quantity." Class="mb-3" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudNumericField T="int?" @bind-Value="_formMaxColors" Label="Maximum colors (per item unit)" Variant="Variant.Outlined" Min="1" Immediate="true"
+                                    HelperText="Leave blank for no maximum. Scales by item quantity." Class="mb-3" />
+                </MudItem>
+            }
+            else if (_formType == PersonalizationRuleType.WordList)
+            {
+                <MudItem xs="12">
+                    <MudTextField T="string" @bind-Value="_formWordList" Label="Required word options (one per line)" Variant="Variant.Outlined" Lines="4" Immediate="true"
+                                  HelperText="One option per line; separate synonyms with / (e.g. 'linear / red / yellow' on one line, 'tactile / brown' on another)." Class="mb-3" />
+                </MudItem>
+            }
+            else if (_formType == PersonalizationRuleType.NotEmpty)
+            {
+                <MudItem xs="12">
+                    <MudText Typo="Typo.body2" Class="muted mb-3">
+                        Verifies that buyer personalization text is non-empty and contains non-whitespace characters.
+                    </MudText>
+                </MudItem>
+            }
+            else if (_formType == PersonalizationRuleType.Regex)
+            {
+                <MudItem xs="12">
+                    <MudTextField T="string" @bind-Value="_formRegexPattern" Label="Regular expression pattern" Variant="Variant.Outlined" Immediate="true"
+                                  HelperText="Pattern to match case-insensitively with ReDoS protection (e.g. '^[A-Z]{3}-\d{4}$')." Class="mb-3" />
+                </MudItem>
+            }
+
+            <MudItem xs="12" md="6">
+                <div @onclick="OpenVariationFilterDialogAsync">
+                    <MudTextField T="string" Value="@(_formVariationFilter ?? "")" Label="Variation filter (optional)"
+                                  Placeholder="Click to select variations..." Variant="Variant.Outlined" ReadOnly="true"
+                                  Adornment="Adornment.End"
+                                  AdornmentIcon="@(string.IsNullOrWhiteSpace(_formVariationFilter) ? Icons.Material.Filled.Checklist : Icons.Material.Filled.Clear)"
+                                  OnAdornmentClick="OnVariationAdornmentClick"
+                                  HelperText="Only check this rule when a chosen variation matches. Click to browse and filter variations." Class="mb-3" />
+                </div>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" @bind-Value="_formCustomAlert" Label="Custom alert message override (optional)" Variant="Variant.Outlined" Immediate="true"
+                              HelperText="Optional text shown on the order card when validation fails. Leave blank to use standard generated message." Class="mb-3" />
+            </MudItem>
+        </MudGrid>
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3">
+            <SaveButtons Text="@(_isNewRule ? "Create rule" : "Save rule")" Changed="RuleChanged" New="_isNewRule" OnSave="SaveRuleAsync" OnCancel="CancelRuleEdit" />
+            @if (!RuleChanged)
+            {
+                <MudButton Variant="Variant.Text" OnClick="CancelRuleEdit">Cancel</MudButton>
+            }
+            @if (!_isNewRule)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteRuleAsync">Delete rule</MudButton>
+            }
+        </MudStack>
+    </MudPaper>
+
+    @if (!_isNewRule && _selectedRule is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" Class="mb-2">Linked listings (@_selectedRule.Listings.Count)</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                Listings linked to this rule will have incoming orders and personalization edits verified against it.
+            </MudText>
+
+            @if (_selectedRule.Listings.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted mb-4">No listings currently linked to this rule.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Class="mb-4">
+                    <thead>
+                        <tr>
+                            <SortHeader Sort="_linkedSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_linkedSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var link in _linkedSort.Apply(_selectedRule.Listings))
+                        {
+                            <tr>
+                                <td><a href="@($"listings/{link.ListingId}")">@(link.Listing?.Title ?? $"Listing #{link.ListingId}")</a></td>
+                                <td>@(link.Listing?.Shop?.Name ?? "—")</td>
+                                <td class="text-right">
+                                    <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="() => UnlinkListingAsync(link.ListingId)">Unlink</MudButton>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+
+            <MudText Typo="Typo.h6" Class="mb-2">Add listings</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                Search and select listings to link to <strong>@_selectedRule.Name</strong>.
+            </MudText>
+
+            <MudGrid Class="mb-3">
+                <MudItem xs="12" md="6">
+                    <MudTextField T="string" Value="_candidateSearch" ValueChanged="OnSearchChanged" Placeholder="Search title or SKU..."
+                                  Variant="Variant.Outlined" Immediate="true" Clearable="true" />
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudSelect T="int?" Value="_candidateShopId" ValueChanged="OnShopChanged" Label="Shop" Variant="Variant.Outlined" Clearable="true">
+                        @foreach (var s in _shops)
+                        {
+                            <MudSelectItem Value="@((int?)s.Id)">@s.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudSelect T="string" Value="_candidateStatus" ValueChanged="OnStatusChanged" Label="Status" Variant="Variant.Outlined">
+                        <MudSelectItem Value="@("all")">All</MudSelectItem>
+                        <MudSelectItem Value="@("active")">Active</MudSelectItem>
+                        <MudSelectItem Value="@("draft")">Draft</MudSelectItem>
+                        <MudSelectItem Value="@("inactive")">Inactive</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+
+            @if (VisibleCandidates.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted">No candidate listings match the filter.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <th class="esm-col-icon">
+                                <MudCheckBox T="bool?" Value="CandidateHeaderChecked" ValueChanged="@(_ => TogglePickAllVisible())" TriState="true" aria-label="Select all" Dense="true" />
+                            </th>
+                            <SortHeader Sort="_candidateSort" Column="listing" Changed="StateHasChanged">Listing</SortHeader>
+                            <SortHeader Sort="_candidateSort" Column="shop" Changed="StateHasChanged">Shop</SortHeader>
+                            <SortHeader Sort="_candidateSort" Column="state" Changed="StateHasChanged">Status</SortHeader>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in _candidateSort.Apply(VisibleCandidates))
+                        {
+                            <tr @onclick="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))">
+                                <td>
+                                    <RangeCheckBox Value="@_picked.Contains(c.ListingId)"
+                                                   Clicked="@((MouseEventArgs e) => HandleCandidateClick(c.ListingId, e))"
+                                                   AriaLabel="@($"Link {c.Title}")" />
+                                </td>
+                                <td><a href="@($"listings/{c.ListingId}")" @onclick:stopPropagation="true">@c.Title</a></td>
+                                <td>@c.ShopName</td>
+                                <td>@c.State</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+
+                <div class="mt-3">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_picked.Count == 0)" OnClick="LinkPickedListingsAsync">
+                        Link @_picked.Count listing@(_picked.Count == 1 ? "" : "s")
+                    </MudButton>
+                </div>
+            }
+        </MudPaper>
+    }
+}
+
+@code {
+    private bool _enabled = true;
+    private bool _savedEnabled = true;
+    private bool _busySettings;
+    private bool _rechecking;
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<PersonalizationRule> _rules = [];
+    private List<ShopSummary> _shops = [];
+    private List<CandidateListing> _allCandidateListings = [];
+    private List<VariationFilterDialog.VariationDialogOption> _allVariationOptions = [];
+    private bool _suppressNextDialogOpen;
+    private readonly HashSet<int> _picked = [];
+    private readonly RangeSelection<int> _range = new();
+
+    private PersonalizationRule? _selectedRule;
+    private bool _isEditing;
+    private bool _isNewRule;
+
+    // Rule form state
+    private string _formName = "";
+    private PersonalizationRuleType _formType = PersonalizationRuleType.ColorCount;
+    private int? _formMinColors = 1;
+    private int? _formMaxColors;
+    private string? _formWordList = "";
+    private string? _formRegexPattern = "";
+    private string? _formVariationFilter = "";
+    private string? _formCustomAlert = "";
+
+    // Candidate filter state
+    private string _candidateSearch = "";
+    private int? _candidateShopId;
+    private string _candidateStatus = "active";
+
+    private bool SettingsChanged => _enabled != _savedEnabled;
+
+    private bool RuleChanged => _selectedRule is null
+        ? _formName.Trim().Length > 0
+        : _formName.Trim() != _selectedRule.Name
+          || _formType != _selectedRule.RuleType
+          || _formMinColors != _selectedRule.MinColors
+          || _formMaxColors != _selectedRule.MaxColors
+          || (_formWordList ?? "").Trim() != (_selectedRule.WordList ?? "").Trim()
+          || (_formRegexPattern ?? "").Trim() != (_selectedRule.RegexPattern ?? "").Trim()
+          || (_formVariationFilter ?? "").Trim() != (_selectedRule.VariationFilter ?? "").Trim()
+          || (_formCustomAlert ?? "").Trim() != (_selectedRule.CustomAlertMessage ?? "").Trim();
+
+    private sealed record CandidateListing(int ListingId, string Title, string ShopName, int ShopId, string State, long EtsyListingId, bool IsPersonalizable);
+
+    private static readonly HashSet<string> PalettePropertyNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Base Color", "Primary color", "Secondary color", "Standard Colors", "Color"
+    };
+
+    private IReadOnlyCollection<string> SelectedVariationValues =>
+        string.IsNullOrWhiteSpace(_formVariationFilter)
+            ? []
+            : _formVariationFilter
+                .Split(['\r', '\n', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(s => s.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+    private void OnVariationAdornmentClick()
+    {
+        if (!string.IsNullOrWhiteSpace(_formVariationFilter))
+        {
+            _formVariationFilter = "";
+            _suppressNextDialogOpen = true;
+        }
+    }
+
+    private async Task OpenVariationFilterDialogAsync()
+    {
+        if (_suppressNextDialogOpen)
+        {
+            _suppressNextDialogOpen = false;
+            return;
+        }
+
+        var linkedIds = _selectedRule?.Listings.Select(l => l.ListingId).ToHashSet() ?? [];
+        var options = _allVariationOptions.ToList();
+        var known = options.Select(o => o.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var current in SelectedVariationValues)
+        {
+            if (!known.Contains(current))
+            {
+                options.Add(new VariationFilterDialog.VariationDialogOption(current, [], [], true, true, false));
+            }
+        }
+
+        var parameters = new DialogParameters<VariationFilterDialog>
+        {
+            { x => x.Options, options },
+            { x => x.Shops, _shops },
+            { x => x.LinkedListingIds, linkedIds },
+            { x => x.InitialSelected, SelectedVariationValues },
+        };
+        var dialogOptions = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseButton = true,
+        };
+        var dialog = await Dialogs.ShowAsync<VariationFilterDialog>("Select variation filter", parameters, dialogOptions);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: List<string> picked })
+        {
+            _formVariationFilter = picked.Count == 0 ? "" : string.Join(" / ", picked);
+        }
+    }
+
+    private readonly TableSort<PersonalizationRule> _ruleSort = new()
+    {
+        ["name"] = r => r.Name,
+        ["type"] = r => r.RuleType.ToString(),
+        ["details"] = r => RuleDetailsDisplay(r),
+        ["listings"] = r => r.Listings.Count,
+    };
+
+    private readonly TableSort<ListingPersonalizationRule> _linkedSort = new()
+    {
+        ["listing"] = l => l.Listing?.Title,
+        ["shop"] = l => l.Listing?.Shop?.Name,
+    };
+
+    private readonly TableSort<CandidateListing> _candidateSort = new()
+    {
+        ["listing"] = c => c.Title,
+        ["shop"] = c => c.ShopName,
+        ["state"] = c => c.State,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var val = await Settings.GetAsync(SettingKeys.PersonalizationVerificationEnabled);
+        _savedEnabled = val is not ("0" or "false");
+        _enabled = _savedEnabled;
+
+        try { _shops = await ShopService.ListAsync(); } catch { _shops = []; }
+        await LoadRulesAsync();
+        await LoadAllCandidatesAsync();
+    }
+
+    private async Task LoadRulesAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _rules = await db.PersonalizationRules
+            .Include(r => r.Listings)
+            .ThenInclude(l => l.Listing)
+            .ThenInclude(l => l.Shop)
+            .OrderBy(r => r.Name)
+            .ToListAsync();
+
+        if (_selectedRule is not null)
+        {
+            _selectedRule = _rules.FirstOrDefault(r => r.Id == _selectedRule.Id);
+        }
+    }
+
+    private async Task LoadAllCandidatesAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _allCandidateListings = await db.Listings
+            .Include(l => l.Shop)
+            .Select(l => new CandidateListing(l.Id, l.Title, l.Shop.Name, l.ShopId, l.State, l.EtsyListingId, l.IsPersonalizable))
+            .ToListAsync();
+
+        var listingById = _allCandidateListings.ToDictionary(l => l.ListingId);
+        var listingByEtsyId = _allCandidateListings
+            .GroupBy(l => l.EtsyListingId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var products = await db.ListingProducts.AsNoTracking()
+            .Where(p => !p.IsDeleted)
+            .Select(p => new { p.ListingId, p.PropertyValues })
+            .ToListAsync();
+
+        var byValue = new Dictionary<string, (HashSet<string> Props, HashSet<string> PersProps, Dictionary<int, VariationFilterDialog.VariationListingItem> Listings, bool IsPersonalizable)>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var p in products)
+        {
+            if (!listingById.TryGetValue(p.ListingId, out var listing)) continue;
+            var itemRef = new VariationFilterDialog.VariationListingItem(
+                listing.ListingId, listing.Title, listing.ShopId, listing.ShopName, listing.IsPersonalizable);
+
+            foreach (var pv in p.PropertyValues)
+            {
+                var propName = (pv.PropertyName ?? "").Trim();
+                foreach (var rawVal in pv.Values)
+                {
+                    var val = (rawVal ?? "").Trim();
+                    if (val.Length == 0) continue;
+                    if (!byValue.TryGetValue(val, out var entry))
+                    {
+                        entry = (new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), [], false);
+                    }
+                    if (propName.Length > 0)
+                    {
+                        entry.Props.Add(propName);
+                        if (listing.IsPersonalizable) entry.PersProps.Add(propName);
+                    }
+                    entry.Listings[listing.ListingId] = itemRef;
+                    entry.IsPersonalizable |= listing.IsPersonalizable;
+                    byValue[val] = entry;
+                }
+            }
+        }
+
+        // Also include variation values from existing order items that had personalization
+        var orderVariations = await db.OrderItems.AsNoTracking()
+            .Select(i => new { i.EtsyListingId, i.Variations })
+            .ToListAsync();
+        foreach (var oi in orderVariations)
+        {
+            if (!oi.Variations.Any(v => v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId)) continue;
+            VariationFilterDialog.VariationListingItem? itemRef = null;
+            if (oi.EtsyListingId is { } etsyId && listingByEtsyId.TryGetValue(etsyId, out var l))
+            {
+                itemRef = new VariationFilterDialog.VariationListingItem(l.ListingId, l.Title, l.ShopId, l.ShopName, true);
+            }
+
+            foreach (var v in oi.Variations)
+            {
+                if (v.PropertyId == HaPayloadBuilder.PersonalizationPropertyId) continue;
+                var val = (v.Value ?? "").Trim();
+                if (val.Length == 0) continue;
+                var propName = (v.Name ?? "").Trim();
+                if (!byValue.TryGetValue(val, out var entry))
+                {
+                    entry = (new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), [], true);
+                }
+                if (propName.Length > 0)
+                {
+                    entry.Props.Add(propName);
+                    entry.PersProps.Add(propName);
+                }
+                if (itemRef is not null)
+                {
+                    entry.Listings[itemRef.ListingId] = itemRef;
+                }
+                entry.IsPersonalizable = true;
+                byValue[val] = entry;
+            }
+        }
+
+        _allVariationOptions = byValue.Select(kvp =>
+        {
+            var displayProps = (kvp.Value.PersProps.Count > 0 ? kvp.Value.PersProps : kvp.Value.Props)
+                .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var isColorChoice = displayProps.Any(p => p.Equals("Color Choice", StringComparison.OrdinalIgnoreCase) || p.Equals("Color Choices", StringComparison.OrdinalIgnoreCase));
+            var isPaletteOnly = displayProps.Count > 0 && displayProps.All(PalettePropertyNames.Contains)
+                                && !kvp.Key.Contains("Random", StringComparison.OrdinalIgnoreCase);
+            var listings = kvp.Value.Listings.Values
+                .OrderBy(l => l.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return new VariationFilterDialog.VariationDialogOption(
+                kvp.Key,
+                displayProps,
+                listings,
+                kvp.Value.IsPersonalizable,
+                isColorChoice,
+                isPaletteOnly);
+        }).ToList();
+    }
+
+    private List<CandidateListing> VisibleCandidates
+    {
+        get
+        {
+            if (_selectedRule is null) return [];
+            var linkedIds = _selectedRule.Listings.Select(l => l.ListingId).ToHashSet();
+            var q = _allCandidateListings.Where(c => !linkedIds.Contains(c.ListingId));
+
+            if (!string.IsNullOrWhiteSpace(_candidateSearch))
+            {
+                var term = _candidateSearch.Trim();
+                q = q.Where(c => c.Title.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (_candidateShopId.HasValue)
+            {
+                q = q.Where(c => c.ShopId == _candidateShopId.Value);
+            }
+
+            if (_candidateStatus != "all")
+            {
+                q = q.Where(c => string.Equals(c.State, _candidateStatus, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return q.ToList();
+        }
+    }
+
+    private bool? CandidateHeaderChecked
+    {
+        get
+        {
+            var visible = VisibleCandidates.Select(c => c.ListingId).ToList();
+            if (visible.Count == 0) return false;
+            var count = visible.Count(_picked.Contains);
+            if (count == 0) return false;
+            if (count == visible.Count) return true;
+            return null;
+        }
+    }
+
+    private void TogglePickAllVisible()
+    {
+        var visible = VisibleCandidates.Select(c => c.ListingId).ToList();
+        if (visible.Count == 0) return;
+        if (visible.All(_picked.Contains))
+            _picked.ExceptWith(visible);
+        else
+            _picked.UnionWith(visible);
+        _range.Reset();
+    }
+
+    private void HandleCandidateClick(int listingId, MouseEventArgs e)
+    {
+        var visible = _candidateSort.Apply(VisibleCandidates).Select(c => c.ListingId).ToList();
+        _range.HandleClick(listingId, e.ShiftKey, visible, _picked);
+    }
+
+    private void OnSearchChanged(string val) => _candidateSearch = val;
+    private void OnShopChanged(int? val) => _candidateShopId = val;
+    private void OnStatusChanged(string val) => _candidateStatus = val;
+
+    private void StartNewRule()
+    {
+        _selectedRule = null;
+        _isEditing = true;
+        _isNewRule = true;
+        _formName = "";
+        _formType = PersonalizationRuleType.ColorCount;
+        _formMinColors = 1;
+        _formMaxColors = null;
+        _formWordList = "";
+        _formRegexPattern = "";
+        _formVariationFilter = "";
+        _formCustomAlert = "";
+        _picked.Clear();
+        _range.Reset();
+    }
+
+    private void SelectRule(PersonalizationRule r)
+    {
+        _selectedRule = r;
+        _isEditing = true;
+        _isNewRule = false;
+        _formName = r.Name;
+        _formType = r.RuleType;
+        _formMinColors = r.MinColors;
+        _formMaxColors = r.MaxColors;
+        _formWordList = r.WordList;
+        _formRegexPattern = r.RegexPattern;
+        _formVariationFilter = r.VariationFilter;
+        _formCustomAlert = r.CustomAlertMessage;
+        _picked.Clear();
+        _range.Reset();
+    }
+
+    private void CancelRuleEdit()
+    {
+        _isEditing = false;
+        _selectedRule = null;
+        _picked.Clear();
+        _range.Reset();
+    }
+
+    private async Task SaveRuleAsync()
+    {
+        var name = _formName.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Snackbar.Add("Rule name is required.", Severity.Warning);
+            return;
+        }
+
+        if (_formType == PersonalizationRuleType.Regex && !string.IsNullOrWhiteSpace(_formRegexPattern))
+        {
+            try
+            {
+                _ = new System.Text.RegularExpressions.Regex(_formRegexPattern);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Invalid regex pattern: {ex.Message}", Severity.Warning);
+                return;
+            }
+        }
+
+        var user = (await AuthState).User.Identity?.Name;
+        var now = Time.GetUtcNow().UtcDateTime;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        if (_isNewRule)
+        {
+            var rule = new PersonalizationRule
+            {
+                Name = name,
+                RuleType = _formType,
+                MinColors = _formMinColors,
+                MaxColors = _formMaxColors,
+                WordList = _formWordList,
+                RegexPattern = _formRegexPattern,
+                VariationFilter = string.IsNullOrWhiteSpace(_formVariationFilter) ? null : _formVariationFilter.Trim(),
+                CustomAlertMessage = string.IsNullOrWhiteSpace(_formCustomAlert) ? null : _formCustomAlert.Trim(),
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+                UpdatedBy = user,
+            };
+            db.PersonalizationRules.Add(rule);
+            await db.SaveChangesAsync();
+            await Audit.WriteAsync("rule.personalization.create", nameof(PersonalizationRule), rule.Id.ToString(), $"Created rule '{rule.Name}'", user);
+            Snackbar.Add($"Rule '{rule.Name}' created.", Severity.Success);
+            _selectedRule = rule;
+            _isNewRule = false;
+        }
+        else if (_selectedRule is not null)
+        {
+            var rule = await db.PersonalizationRules.FirstOrDefaultAsync(r => r.Id == _selectedRule.Id);
+            if (rule is null) return;
+
+            rule.Name = name;
+            rule.RuleType = _formType;
+            rule.MinColors = _formMinColors;
+            rule.MaxColors = _formMaxColors;
+            rule.WordList = _formWordList;
+            rule.RegexPattern = _formRegexPattern;
+            rule.VariationFilter = string.IsNullOrWhiteSpace(_formVariationFilter) ? null : _formVariationFilter.Trim();
+            rule.CustomAlertMessage = string.IsNullOrWhiteSpace(_formCustomAlert) ? null : _formCustomAlert.Trim();
+            rule.UpdatedAtUtc = now;
+            rule.UpdatedBy = user;
+
+            await db.SaveChangesAsync();
+            await Audit.WriteAsync("rule.personalization.update", nameof(PersonalizationRule), rule.Id.ToString(), $"Updated rule '{rule.Name}'", user);
+            Snackbar.Add($"Rule '{rule.Name}' updated.", Severity.Success);
+        }
+
+        await LoadRulesAsync();
+        await VerificationService.RecheckAllOpenOrdersAsync();
+    }
+
+    private async Task DeleteRuleAsync()
+    {
+        if (_selectedRule is null) return;
+        var confirm = await Dialogs.ShowMessageBoxAsync("Delete rule",
+            $"Delete personalization rule '{_selectedRule.Name}'? Listings will be unlinked.",
+            yesText: "Delete rule", cancelText: "Cancel");
+        if (confirm != true) return;
+
+        var user = (await AuthState).User.Identity?.Name;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var rule = await db.PersonalizationRules.FirstOrDefaultAsync(r => r.Id == _selectedRule.Id);
+        if (rule is not null)
+        {
+            db.PersonalizationRules.Remove(rule);
+            await db.SaveChangesAsync();
+            await Audit.WriteAsync("rule.personalization.delete", nameof(PersonalizationRule), rule.Id.ToString(), $"Deleted rule '{rule.Name}'", user);
+            Snackbar.Add($"Rule '{rule.Name}' deleted.", Severity.Success);
+        }
+
+        _isEditing = false;
+        _selectedRule = null;
+        await LoadRulesAsync();
+        await VerificationService.RecheckAllOpenOrdersAsync();
+    }
+
+    private async Task LinkPickedListingsAsync()
+    {
+        if (_selectedRule is null || _picked.Count == 0) return;
+
+        var now = Time.GetUtcNow().UtcDateTime;
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        foreach (var listingId in _picked)
+        {
+            db.ListingPersonalizationRules.Add(new ListingPersonalizationRule
+            {
+                ListingId = listingId,
+                PersonalizationRuleId = _selectedRule.Id,
+                LinkedAtUtc = now,
+            });
+        }
+
+        await db.SaveChangesAsync();
+        var count = _picked.Count;
+        _picked.Clear();
+        _range.Reset();
+        Snackbar.Add($"Linked {count} listing{(count == 1 ? "" : "s")}.", Severity.Success);
+
+        await LoadRulesAsync();
+        await VerificationService.RecheckAllOpenOrdersAsync();
+    }
+
+    private async Task UnlinkListingAsync(int listingId)
+    {
+        if (_selectedRule is null) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var link = await db.ListingPersonalizationRules
+            .FirstOrDefaultAsync(l => l.ListingId == listingId && l.PersonalizationRuleId == _selectedRule.Id);
+        if (link is not null)
+        {
+            db.ListingPersonalizationRules.Remove(link);
+            await db.SaveChangesAsync();
+            Snackbar.Add("Listing unlinked.", Severity.Info);
+        }
+
+        await LoadRulesAsync();
+        await VerificationService.RecheckAllOpenOrdersAsync();
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        _busySettings = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            await Settings.SetAsync(SettingKeys.PersonalizationVerificationEnabled, _enabled ? "1" : "0", updatedBy: user);
+            _savedEnabled = _enabled;
+            await Audit.WriteAsync("settings.personalization", "AppSetting", SettingKeys.PersonalizationVerificationEnabled,
+                $"Personalization verification {(_enabled ? "enabled" : "disabled")}", user);
+            Snackbar.Add("Settings saved.", Severity.Success);
+            await VerificationService.RecheckAllOpenOrdersAsync();
+        }
+        finally
+        {
+            _busySettings = false;
+        }
+    }
+
+    private void RevertSettings() => _enabled = _savedEnabled;
+
+    private async Task RecheckAllAsync()
+    {
+        _rechecking = true;
+        try
+        {
+            var count = await VerificationService.RecheckAllOpenOrdersAsync();
+            Snackbar.Add($"Rechecked {count} open order{(count == 1 ? "" : "s")}.", Severity.Info);
+        }
+        finally
+        {
+            _rechecking = false;
+        }
+    }
+
+    private static string RuleTypeDisplay(PersonalizationRuleType type) => type switch
+    {
+        PersonalizationRuleType.ColorCount => "Color count",
+        PersonalizationRuleType.WordList => "Must mention one of",
+        PersonalizationRuleType.NotEmpty => "Not empty",
+        PersonalizationRuleType.Regex => "Regular expression",
+        _ => type.ToString(),
+    };
+
+    private static string RuleDetailsDisplay(PersonalizationRule r)
+    {
+        var baseText = r.RuleType switch
+        {
+            PersonalizationRuleType.ColorCount =>
+                r.MinColors.HasValue && r.MaxColors.HasValue
+                    ? (r.MinColors == r.MaxColors ? $"{r.MinColors} color(s)" : $"{r.MinColors}–{r.MaxColors} colors")
+                    : r.MinColors.HasValue ? $"Min {r.MinColors} color(s)" : r.MaxColors.HasValue ? $"Max {r.MaxColors} color(s)" : "Any count",
+            PersonalizationRuleType.WordList =>
+                string.Join(", ", (r.WordList ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Take(3)) +
+                ((r.WordList ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Length > 3 ? "…" : ""),
+            PersonalizationRuleType.NotEmpty => "Text required",
+            PersonalizationRuleType.Regex => r.RegexPattern ?? "—",
+            _ => "—",
+        };
+        return string.IsNullOrWhiteSpace(r.VariationFilter) ? baseText : $"{baseText} (when {r.VariationFilter})";
+    }
+}

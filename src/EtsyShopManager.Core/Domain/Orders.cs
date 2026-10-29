@@ -114,6 +114,27 @@ public class Order
         && !string.IsNullOrEmpty(AddressCheckHash)
         && !string.Equals(AddressCheckHash, AddressCheckDismissedHash, StringComparison.Ordinal);
 
+    /// <summary>Personalization check outcome: Ok, Failed, Skipped.</summary>
+    public string? PersonalizationCheckStatus { get; set; }
+
+    /// <summary>User-facing personalization alert summary text. Null when valid or no alert.</summary>
+    public string? PersonalizationCheckAlert { get; set; }
+
+    /// <summary>Normalized SHA-256 hash of items' personalization text. Changing text triggers re-evaluation.</summary>
+    public string? PersonalizationCheckHash { get; set; }
+
+    /// <summary>When personalization verification was last evaluated.</summary>
+    public DateTime? PersonalizationCheckedAtUtc { get; set; }
+
+    /// <summary>Hash recorded when user clicked "Looks fine". Alert is dismissed while PersonalizationCheckHash == PersonalizationCheckDismissedHash.</summary>
+    public string? PersonalizationCheckDismissedHash { get; set; }
+
+    /// <summary>True when there is an active, undismissed personalization alert for the current personalization hash.</summary>
+    public bool HasActivePersonalizationAlert =>
+        !string.IsNullOrEmpty(PersonalizationCheckAlert)
+        && !string.IsNullOrEmpty(PersonalizationCheckHash)
+        && !string.Equals(PersonalizationCheckHash, PersonalizationCheckDismissedHash, StringComparison.Ordinal);
+
     public List<OrderItem> Items { get; set; } = [];
 
     /// <summary>Statuses that close an order even when it was never shipped.</summary>

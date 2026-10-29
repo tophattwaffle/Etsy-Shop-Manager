@@ -50,6 +50,9 @@ public static class SettingKeys
 
     /// <summary>USPS OAuth token URL (default https://apis.usps.com/oauth2/v3/token, dead local port in staging).</summary>
     public const string UspsOAuthUrl = "Usps.OAuthUrl";
+
+    /// <summary>True when buyer personalization verification is enabled (default true).</summary>
+    public const string PersonalizationVerificationEnabled = "PersonalizationVerification.Enabled";
 }
 
 /// <summary>Who changed what. Written for user, settings and shop changes.</summary>

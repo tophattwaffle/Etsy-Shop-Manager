@@ -51,6 +51,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<SlipLayout> SlipLayouts => Set<SlipLayout>();
     public DbSet<SlipDocument> SlipDocuments => Set<SlipDocument>();
     public DbSet<ListingSlipDocument> ListingSlipDocuments => Set<ListingSlipDocument>();
+    public DbSet<PersonalizationRule> PersonalizationRules => Set<PersonalizationRule>();
+    public DbSet<ListingPersonalizationRule> ListingPersonalizationRules => Set<ListingPersonalizationRule>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -294,6 +296,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.RunId).HasMaxLength(64);
             e.HasOne(x => x.Shop).WithOne().HasForeignKey<ShopSyncState>(x => x.ShopId).OnDelete(DeleteBehavior.Cascade);
         });
+
+        b.Entity<PersonalizationRule>(e =>
+        {
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).HasMaxLength(100).UseCollation("NOCASE");
+            e.Property(x => x.RuleType).HasConversion<int>();
+            e.Property(x => x.RegexPattern).HasMaxLength(500);
+            e.Property(x => x.VariationFilter).HasMaxLength(500);
+            e.Property(x => x.CustomAlertMessage).HasMaxLength(500);
+        });
+
+        b.Entity<ListingPersonalizationRule>(e =>
+        {
+            e.HasIndex(x => new { x.ListingId, x.PersonalizationRuleId }).IsUnique();
+            e.HasIndex(x => x.PersonalizationRuleId);
+            e.HasOne(x => x.Listing).WithMany().HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.PersonalizationRule).WithMany(r => r.Listings).HasForeignKey(x => x.PersonalizationRuleId).OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static void ConfigureLookups(ModelBuilder b)
@@ -334,6 +354,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.AddressCheckHash).HasMaxLength(64);
             e.Property(x => x.AddressCheckDismissedHash).HasMaxLength(64);
             e.Property(x => x.AddressCheckAlert).HasMaxLength(200);
+            e.Property(x => x.PersonalizationCheckStatus).HasMaxLength(40);
+            e.Property(x => x.PersonalizationCheckHash).HasMaxLength(64);
+            e.Property(x => x.PersonalizationCheckDismissedHash).HasMaxLength(64);
+            e.Property(x => x.PersonalizationCheckAlert).HasMaxLength(500);
             e.HasOne(x => x.Shop).WithMany().HasForeignKey(x => x.ShopId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(x => x.Items).WithOne(i => i.Order).HasForeignKey(i => i.OrderId).OnDelete(DeleteBehavior.Cascade);
         });

@@ -69,7 +69,8 @@ public sealed class VariationChangeForm
 public sealed class OrderOverrideService(
     IDbContextFactory<AppDbContext> dbFactory,
     IAuditLog audit,
-    IAddressVerificationService? addressVerification = null)
+    IAddressVerificationService? addressVerification = null,
+    IPersonalizationVerificationService? personalizationVerification = null)
 {
     /// <summary>The order's current changes, with each variation's choices from its listing; null if no such order.</summary>
     public async Task<OrderChangesForm?> GetFormAsync(int orderId, CancellationToken ct = default)
@@ -192,6 +193,7 @@ public sealed class OrderOverrideService(
         if (buyerNote != order.MessageFromBuyerOverride) changes.Add(buyerNote is null ? "note back to Etsy's" : "note changed");
         order.MessageFromBuyerOverride = buyerNote;
 
+        var personalizationChanged = false;
         foreach (var f in form.Items)
         {
             var item = order.Items.FirstOrDefault(i => i.Id == f.ItemId);
@@ -207,7 +209,10 @@ public sealed class OrderOverrideService(
                 if (personalization == (OrderOverrides.BuyersPersonalization(item) ?? "")) personalization = null;
             }
             if (personalization != item.PersonalizationOverride)
+            {
+                personalizationChanged = true;
                 changes.Add(personalization is null ? $"{title}: buyer's personalization" : $"{title}: personalization changed");
+            }
             item.PersonalizationOverride = personalization;
 
             var overrides = new List<OrderVariation>();
@@ -221,7 +226,7 @@ public sealed class OrderOverrideService(
             }
             var before = string.Join(", ", item.VariationOverrides.Select(o => $"{o.Name}: {o.Value}"));
             var after = string.Join(", ", overrides.Select(o => $"{o.Name}: {o.Value}"));
-            if (before != after) changes.Add(after.Length == 0 ? $"{title}: buyer's variations" : $"{title}: {after}");
+            if (before != after) { personalizationChanged = true; changes.Add(after.Length == 0 ? $"{title}: buyer's variations" : $"{title}: {after}"); }
             item.VariationOverrides = overrides;
         }
 
@@ -230,6 +235,8 @@ public sealed class OrderOverrideService(
         await audit.WriteAsync("order.changes", nameof(Order), order.EtsyReceiptId.ToString(), string.Join("; ", changes), user, ct);
         if (addressChanged && addressVerification is not null)
             await addressVerification.QueueCheckAsync(order.Id, ct);
+        if (personalizationChanged && personalizationVerification is not null)
+            await personalizationVerification.VerifyOrderAsync(order.Id, ct);
         return null;
     }
 }

@@ -1,0 +1,250 @@
+@using EtsyShopManager.Web.Components.Shared
+@using EtsyShopManager.Web.Modules.Orders
+@using EtsyShopManager.Web.Modules.Shops
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            Select one or more variation options. The rule will only check an order item when the buyer's chosen variation matches at least one checked option.
+        </MudText>
+
+        <MudGrid Class="mb-3">
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" @bind-Value="_search" Placeholder="Search option, variation, or listing..."
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Clearable="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudSelect T="string" @bind-Value="_variationName" Label="Variation name" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                    @foreach (var name in AllVariationNames)
+                    {
+                        <MudSelectItem T="string" Value="@name">@name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudSelect T="int?" @bind-Value="_shopId" Label="Shop" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                    @foreach (var s in Shops)
+                    {
+                        <MudSelectItem T="int?" Value="@((int?)s.Id)">@s.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudSelect T="string" @bind-Value="_scope" Label="Show" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="string" Value="@("all")">All listings</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("personalizable")">Personalizable</MudSelectItem>
+                    @if (LinkedListingIds.Count > 0)
+                    {
+                        <MudSelectItem T="string" Value="@("linked")">Linked (@LinkedListingIds.Count)</MudSelectItem>
+                    }
+                    <MudSelectItem T="string" Value="@("selected")">Checked (@_picked.Count)</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+
+        @if (VisibleOptions.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted py-4">No variation options match these filters.</MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Hover="true">
+                <thead>
+                    <tr>
+                        <th class="esm-col-icon">
+                            <MudCheckBox T="bool?" Value="HeaderChecked" ValueChanged="@(_ => TogglePickAllVisible())" TriState="true" aria-label="Select all visible" Dense="true" />
+                        </th>
+                        <SortHeader Sort="_sort" Column="value" Changed="StateHasChanged">Option</SortHeader>
+                        <SortHeader Sort="_sort" Column="variation" Changed="StateHasChanged">Variation name</SortHeader>
+                        <SortHeader Sort="_sort" Column="listings" Changed="StateHasChanged">Listings</SortHeader>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var opt in _sort.Apply(VisibleOptions))
+                    {
+                        var listings = FilteredListingsFor(opt);
+                        <tr @onclick="@((MouseEventArgs e) => HandleRowClick(opt.Value, e))">
+                            <td>
+                                <RangeCheckBox Value="@_picked.Contains(opt.Value)"
+                                               Clicked="@((MouseEventArgs e) => HandleRowClick(opt.Value, e))"
+                                               AriaLabel="@($"Select {opt.Value}")" />
+                            </td>
+                            <td><strong>@opt.Value</strong></td>
+                            <td>@(opt.VariationNames.Count > 0 ? string.Join(", ", opt.VariationNames) : "—")</td>
+                            <td title="@string.Join("\n", listings.Select(l => $"{l.Title} ({l.ShopName})"))">
+                                @if (listings.Count == 0)
+                                {
+                                    <span class="muted small">Order history</span>
+                                }
+                                else
+                                {
+                                    <span>@listings.Count</span>
+                                    <span class="muted small">
+                                        · @string.Join(", ", listings.Take(2).Select(l => OrderPrintService.ShortTitle(l.Title)))@(listings.Count > 2 ? $" (+{listings.Count - 2} more)" : "")
+                                    </span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudText Typo="Typo.body2" Class="muted mr-2">@_picked.Count selected</MudText>
+        @if (_picked.Count > 0)
+        {
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ClearSelection">Clear selection</MudButton>
+        }
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Apply">Apply</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public IReadOnlyList<VariationDialogOption> Options { get; set; } = [];
+    [Parameter] public IReadOnlyList<ShopSummary> Shops { get; set; } = [];
+    [Parameter] public IReadOnlySet<int> LinkedListingIds { get; set; } = new HashSet<int>();
+    [Parameter] public IReadOnlyCollection<string> InitialSelected { get; set; } = [];
+
+    public sealed record VariationListingItem(int ListingId, string Title, int ShopId, string ShopName, bool IsPersonalizable);
+    public sealed record VariationDialogOption(
+        string Value,
+        IReadOnlyList<string> VariationNames,
+        IReadOnlyList<VariationListingItem> Listings,
+        bool IsPersonalizable,
+        bool IsColorChoice,
+        bool IsPaletteOnly);
+
+    private readonly HashSet<string> _picked = new(StringComparer.OrdinalIgnoreCase);
+    private readonly RangeSelection<string> _range = new();
+
+    private string _search = "";
+    private string? _variationName;
+    private int? _shopId;
+    private string _scope = "personalizable";
+
+    private readonly TableSort<VariationDialogOption> _sort = new();
+
+    protected override void OnInitialized()
+    {
+        foreach (var s in InitialSelected)
+            _picked.Add(s);
+
+        _sort["value"] = o => o.Value;
+        _sort["variation"] = o => string.Join(", ", o.VariationNames);
+        _sort["listings"] = o => FilteredListingsFor(o).Count;
+    }
+
+    private IReadOnlyList<string> AllVariationNames =>
+        Options.SelectMany(o => o.VariationNames)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IReadOnlyList<VariationListingItem> FilteredListingsFor(VariationDialogOption opt)
+    {
+        IEnumerable<VariationListingItem> q = opt.Listings;
+        if (_shopId.HasValue)
+            q = q.Where(l => l.ShopId == _shopId.Value);
+        if (_scope == "personalizable")
+            q = q.Where(l => l.IsPersonalizable);
+        else if (_scope == "linked")
+            q = q.Where(l => LinkedListingIds.Contains(l.ListingId));
+        return q.ToList();
+    }
+
+    private List<VariationDialogOption> VisibleOptions
+    {
+        get
+        {
+            IEnumerable<VariationDialogOption> q = Options;
+
+            if (_scope == "selected")
+            {
+                q = q.Where(o => _picked.Contains(o.Value));
+            }
+            else if (_scope == "personalizable")
+            {
+                q = q.Where(o => o.IsPersonalizable || _picked.Contains(o.Value));
+            }
+            else if (_scope == "linked")
+            {
+                q = q.Where(o => o.Listings.Any(l => LinkedListingIds.Contains(l.ListingId)) || _picked.Contains(o.Value));
+            }
+
+            if (_shopId.HasValue)
+            {
+                q = q.Where(o => o.Listings.Any(l => l.ShopId == _shopId.Value));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_variationName))
+            {
+                q = q.Where(o => o.VariationNames.Any(n => string.Equals(n, _variationName, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                var term = _search.Trim();
+                q = q.Where(o =>
+                    o.Value.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || o.VariationNames.Any(n => n.Contains(term, StringComparison.OrdinalIgnoreCase))
+                    || o.Listings.Any(l => l.Title.Contains(term, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            return q
+                .OrderBy(o => LinkedListingIds.Count > 0 && o.Listings.Any(l => LinkedListingIds.Contains(l.ListingId)) ? 0 : 1)
+                .ThenBy(o => o.IsPersonalizable ? 0 : 1)
+                .ThenBy(o => o.IsColorChoice ? 0 : 1)
+                .ThenBy(o => o.IsPaletteOnly ? 1 : 0)
+                .ThenBy(o => string.Join(", ", o.VariationNames), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(o => o.Value, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private bool? HeaderChecked
+    {
+        get
+        {
+            var visible = VisibleOptions.Select(o => o.Value).ToList();
+            if (visible.Count == 0) return false;
+            var count = visible.Count(_picked.Contains);
+            if (count == 0) return false;
+            if (count == visible.Count) return true;
+            return null;
+        }
+    }
+
+    private void TogglePickAllVisible()
+    {
+        var visible = VisibleOptions.Select(o => o.Value).ToList();
+        if (visible.Count == 0) return;
+        if (visible.All(_picked.Contains))
+            _picked.ExceptWith(visible);
+        else
+            _picked.UnionWith(visible);
+        _range.Reset();
+    }
+
+    private void HandleRowClick(string value, MouseEventArgs e)
+    {
+        var visible = _sort.Apply(VisibleOptions).Select(o => o.Value).ToList();
+        _range.HandleClick(value, e.ShiftKey, visible, _picked);
+    }
+
+    private void ClearSelection()
+    {
+        _picked.Clear();
+        _range.Reset();
+    }
+
+    private void Cancel() => Dialog.Cancel();
+
+    private void Apply() => Dialog.Close(DialogResult.Ok(_picked.ToList()));
+}

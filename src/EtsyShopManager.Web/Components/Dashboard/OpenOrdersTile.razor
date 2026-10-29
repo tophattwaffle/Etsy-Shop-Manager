@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject EtsyShopManager.Core.Services.ISettingsStore Settings
 @inject IAddressVerificationService VerificationService
+@inject IPersonalizationVerificationService PersonalizationVerification
 @inject TimeProvider Time
 
 @* Open orders, most urgent first, each opening on Etsy in its shop's browser. Variations and personalization are
@@ -57,6 +58,19 @@ else
                                         <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary" OnClick="() => ApplyUspsAddressAsync(o)">Use USPS's version</MudButton>
                                     }
                                     <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => DismissAddressAlertAsync(o)">Address is fine</MudButton>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+                @if (_personalizationEnabled && o.IsOpen && o.HasActivePersonalizationAlert)
+                {
+                    <div class="esm-personalization-alert">
+                        <div class="esm-personalization-alert-body">
+                            <div>
+                                <div class="esm-personalization-alert-msg">@o.PersonalizationCheckAlert</div>
+                                <div class="esm-personalization-alert-actions">
+                                    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="() => DismissPersonalizationAlertAsync(o)">Looks fine</MudButton>
                                 </div>
                             </div>
                         </div>
@@ -108,15 +122,17 @@ else
     // Both Admin and User (including unsigned-in visitors) can mark items made.
     private bool _canMark;
     private bool _uspsEnabled;
+    private bool _personalizationEnabled;
 
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthState).User;
         _canMark = true;
         _uspsEnabled = (await Settings.GetAsync(SettingKeys.UspsEnabled)) is "1" or "true";
+        _personalizationEnabled = (await Settings.GetAsync(SettingKeys.PersonalizationVerificationEnabled)) is not ("0" or "false");
         _colors = new OrderColorEngine(await Colors.GetAsync());
         await LoadAsync();
-        _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type || c.JobType == VerifyAddressJob.Type,
+        _live = JobEvents.Subscribe(c => c.JobType == PollShopOrdersJob.Type || c.JobType == VerifyAddressJob.Type || c.JobType == RecheckPersonalizationJob.Type,
             _ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
         MadeItems.Changed += OnMade;
         // Ship-by countdowns are relative to now.
@@ -148,6 +164,21 @@ else
         if (ok)
         {
             Snackbar.Add("Address marked fine", Severity.Info);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Could not dismiss alert", Severity.Error);
+        }
+    }
+
+    private async Task DismissPersonalizationAlertAsync(Order o)
+    {
+        var user = (await AuthState).User.Identity?.Name;
+        var ok = await PersonalizationVerification.DismissAlertAsync(o.Id, user);
+        if (ok)
+        {
+            Snackbar.Add("Personalization marked fine", Severity.Info);
             await LoadAsync();
         }
         else
