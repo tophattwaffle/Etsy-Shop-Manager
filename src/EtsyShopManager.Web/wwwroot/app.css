@@ -895,3 +895,28 @@ a.lp-status-error:hover { text-decoration: underline; }
     align-items: center;
 }
 
+/* ---- Personalization Verification Alerts (Orders.razor, OpenOrdersTile.razor) ---- */
+.esm-personalization-alert {
+    margin: 6px 0 8px 0;
+    padding: 8px 12px;
+    border-radius: var(--esm-radius-sm);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    border-left: 3px solid var(--esm-error);
+    background: var(--esm-sunk);
+}
+.esm-personalization-alert-body {
+    display: flex;
+    align-items: flex-start;
+}
+.esm-personalization-alert-msg {
+    font-weight: 600;
+    color: var(--esm-error);
+}
+.esm-personalization-alert-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    align-items: center;
+}
+

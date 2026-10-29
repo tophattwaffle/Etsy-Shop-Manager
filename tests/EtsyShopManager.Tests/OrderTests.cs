@@ -45,6 +45,8 @@ public class HaPayloadTests
         var expected = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "open-orders.expected.json")))!;
         expected["address_alerts"] = new JsonArray();
         expected["address_alert_css"] = HaPayloadBuilder.AddressAlertCss;
+        expected["personalization_alerts"] = new JsonArray();
+        expected["personalization_alert_css"] = HaPayloadBuilder.PersonalizationAlertCss;
 
         var actual = HaPayloadBuilder.OpenOrders(FixtureOrders(), TimeZoneInfo.Utc);
 

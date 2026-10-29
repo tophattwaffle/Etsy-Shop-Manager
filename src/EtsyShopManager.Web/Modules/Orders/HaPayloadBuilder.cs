@@ -42,6 +42,19 @@ public static class HaPayloadBuilder
             });
         }
 
+        var personalizationAlerts = new JsonArray();
+        foreach (var order in openList.Where(o => o.HasActivePersonalizationAlert))
+        {
+            personalizationAlerts.Add(new JsonObject
+            {
+                ["receipt_id"] = order.EtsyReceiptId.ToString(CultureInfo.InvariantCulture),
+                ["order_id"] = order.Id,
+                ["buyer_name"] = order.BuyerName ?? "",
+                ["status"] = order.PersonalizationCheckStatus ?? "Failed",
+                ["message"] = order.PersonalizationCheckAlert ?? "",
+            });
+        }
+
         return new JsonObject
         {
             ["open_orders_count"] = summaries.Count,
@@ -50,6 +63,8 @@ public static class HaPayloadBuilder
             ["open_orders"] = new JsonArray([.. summaries]),
             ["address_alerts"] = addressAlerts,
             ["address_alert_css"] = AddressAlertCss,
+            ["personalization_alerts"] = personalizationAlerts,
+            ["personalization_alert_css"] = PersonalizationAlertCss,
         };
     }
 
@@ -150,6 +165,15 @@ public static class HaPayloadBuilder
                 ["message"] = order.AddressCheckAlert,
                 ["is_suggestion"] = isSuggestion,
                 ["suggested_address"] = order.AddressCheckSuggested,
+            };
+        }
+        if (order.HasActivePersonalizationAlert)
+        {
+            summary["personalization_alert"] = new JsonObject
+            {
+                ["status"] = order.PersonalizationCheckStatus ?? "Failed",
+                ["severity"] = "error",
+                ["message"] = order.PersonalizationCheckAlert,
             };
         }
         return summary;
@@ -258,5 +282,40 @@ public static class HaPayloadBuilder
 .address-alert .alert-body { flex: 1; min-width: 0; }
 .address-alert .alert-msg { font-weight: 500; }
 .address-alert .alert-suggested { margin-top: 2px; opacity: 0.9; }
+""";
+
+    public const string PersonalizationAlertCss = """
+/* Personalization Alerts in Home Assistant Card and App */
+.personalization-alerts-blurb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(219, 68, 55, 0.15);
+  border: 1px solid rgba(219, 68, 55, 0.4);
+  color: var(--primary-text-color, inherit);
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+.personalization-alerts-blurb .blurb-icon { font-size: 16px; flex: none; }
+.personalization-alerts-blurb .blurb-text { flex: 1; }
+.personalization-alert {
+  margin: 4px 0 6px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: rgba(219, 68, 55, 0.12);
+  border-left: 3px solid #db4437;
+  color: var(--primary-text-color, inherit);
+}
+.personalization-alert .alert-icon { flex: none; font-size: 14px; }
+.personalization-alert .alert-body { flex: 1; min-width: 0; }
+.personalization-alert .alert-msg { font-weight: 500; }
 """;
 }

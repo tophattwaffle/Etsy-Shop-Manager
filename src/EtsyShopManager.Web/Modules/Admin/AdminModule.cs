@@ -60,6 +60,7 @@ public sealed class AdminModule : IModule
     [
         new("General", "admin/settings", Icons.Material.Filled.Tune, Order: 899, Roles: Roles.Admin, Group: NavGroups.Settings),
         new("Address verification", "admin/address-verification", Icons.Material.Filled.MarkunreadMailbox, Order: 905, Roles: Roles.Admin, Group: NavGroups.Settings),
+        new("Personalization rules", "admin/personalization-rules", Icons.Material.Filled.Rule, Order: 906, Roles: Roles.Admin, Group: NavGroups.Settings),
         new("Users", "admin/users", Icons.Material.Filled.People, Order: 910, Roles: Roles.Admin, Group: NavGroups.Settings),
         new("Audit log", "admin/audit", Icons.Material.Filled.History, Order: 920, Roles: Roles.Admin, Group: NavGroups.Settings),
         new("Etsy writes", "admin/etsy-writes", Icons.Material.Filled.CloudUpload, Order: 925, Roles: Roles.Admin, Group: NavGroups.Settings),

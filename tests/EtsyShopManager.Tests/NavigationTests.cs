@@ -24,7 +24,7 @@ public class NavigationTests
     {
         Assert.Equal(["Dashboard", "Orders", "Packing slips", "Listings", "Templates", "Processing profiles", "Lookups", "Order colors"],
             Registry.NavItems.Where(i => i.Group is null).Select(i => i.Title));
-        Assert.Equal(["Shops", "General", "Jobs", "Address verification", "Users", "Audit log", "API keys", "Etsy writes"],
+        Assert.Equal(["Shops", "General", "Jobs", "Address verification", "Personalization rules", "Users", "Audit log", "API keys", "Etsy writes"],
             Registry.NavItems.Where(i => i.Group == NavGroups.Settings).Select(i => i.Title));
         Assert.All(Registry.NavItems.Where(i => i.Roles == Roles.Admin), i => Assert.Equal(NavGroups.Settings, i.Group));
     }

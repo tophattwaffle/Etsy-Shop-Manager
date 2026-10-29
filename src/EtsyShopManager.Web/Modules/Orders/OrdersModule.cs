@@ -59,6 +59,10 @@ public sealed class OrdersModule : IModule
         services.AddJobHandler<VerifyAddressJob>();
         services.AddScoped<IDomainEventHandler<OrderReceived>, OrderReceivedAddressVerificationHandler>();
 
+        services.AddSingleton<IPersonalizationVerificationService, PersonalizationVerificationService>();
+        services.AddJobHandler<RecheckPersonalizationJob>();
+        services.AddScoped<IDomainEventHandler<OrderReceived>, OrderReceivedPersonalizationVerificationHandler>();
+
         services.AddRecurringJob(new RecurringJobDefinition("Poll orders (all shops)", PollAllOrdersJob.Type, DefaultPollInterval)
         {
             IntervalSettingKey = SettingKeys.OrdersPollIntervalSeconds,
@@ -85,7 +89,8 @@ public sealed class OrdersModule : IModule
                 .ToDictionary(s => s.EtsyShopId.ToString(System.Globalization.CultureInfo.InvariantCulture), s => byShop[s.Id]);
             var config = await colors.GetAsync(ct);
             new OrderColorEngine(config).Paint(payload);
-            payload["color_config"] = config.ToCardJson(shopAccents, OrderColorEngine.Css + "\n" + HaPayloadBuilder.AddressAlertCss);
+            payload["color_config"] = config.ToCardJson(shopAccents,
+                OrderColorEngine.Css + "\n" + HaPayloadBuilder.AddressAlertCss + "\n" + HaPayloadBuilder.PersonalizationAlertCss);
             return Results.Json(payload);
         });
         ha.MapGet("/shops/{shopId:long}/open-orders", async (long shopId, OrderQueries q, CancellationToken ct) =>

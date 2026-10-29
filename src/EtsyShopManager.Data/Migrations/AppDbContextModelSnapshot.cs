@@ -596,6 +596,31 @@ namespace EtsyShopManager.Data.Migrations
                     b.ToTable("ListingOfferings");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingPersonalizationRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LinkedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ListingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PersonalizationRuleId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PersonalizationRuleId");
+
+                    b.HasIndex("ListingId", "PersonalizationRuleId")
+                        .IsUnique();
+
+                    b.ToTable("ListingPersonalizationRules");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingPhotoTemplate", b =>
                 {
                     b.Property<int>("Id")
@@ -1016,6 +1041,25 @@ namespace EtsyShopManager.Data.Migrations
                     b.Property<string>("MessageFromBuyerOverride")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("PersonalizationCheckAlert")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PersonalizationCheckDismissedHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PersonalizationCheckHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PersonalizationCheckStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PersonalizationCheckedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RawJson")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -1136,6 +1180,55 @@ namespace EtsyShopManager.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("OrderItems");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.PersonalizationRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CustomAlertMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("MaxColors")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MinColors")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<string>("RegexPattern")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RuleType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WordList")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("PersonalizationRules");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.PhotoOrderTest", b =>
@@ -2163,6 +2256,25 @@ namespace EtsyShopManager.Data.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingPersonalizationRule", b =>
+                {
+                    b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
+                        .WithMany()
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EtsyShopManager.Core.Domain.PersonalizationRule", "PersonalizationRule")
+                        .WithMany("Listings")
+                        .HasForeignKey("PersonalizationRuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Listing");
+
+                    b.Navigation("PersonalizationRule");
+                });
+
             modelBuilder.Entity("EtsyShopManager.Core.Domain.ListingPhotoTemplate", b =>
                 {
                     b.HasOne("EtsyShopManager.Core.Domain.Listing", "Listing")
@@ -2482,6 +2594,11 @@ namespace EtsyShopManager.Data.Migrations
             modelBuilder.Entity("EtsyShopManager.Core.Domain.Order", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("EtsyShopManager.Core.Domain.PersonalizationRule", b =>
+                {
+                    b.Navigation("Listings");
                 });
 
             modelBuilder.Entity("EtsyShopManager.Core.Domain.PhotoTemplate", b =>
